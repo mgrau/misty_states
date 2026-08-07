@@ -1,0 +1,12 @@
+node_modules
+dist
+out
+.DS_Store
+
+# The working library: course problems and their solutions. Deliberately not
+# committed — the app ships with no library and seeds from this file when it is
+# present. Export one from Settings → Library to create it.
+library.yaml
+
+# Course materials the figures were transcribed from.
+*.pdf
