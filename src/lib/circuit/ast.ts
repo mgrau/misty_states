@@ -72,7 +72,12 @@ export interface ViewGate {
   kind: 'view'
   /** The contiguous run of qubits the state describes. */
   qubits: number[]
-  row: StateRow
+  /** The state to show; absent while `calculate` has still to be worked out. */
+  row?: StateRow
+  /** Written `calculate`: work the state out from the input and the gates above. */
+  calculate?: boolean
+  /** Caption for a state not yet worked out; a written one carries its own. */
+  caption?: string
   /**
    * Draw the state inside a framed box plumbed into the circuit, rather than as
    * a break in it. The bare form reads as the computation laid open; the framed
@@ -117,6 +122,10 @@ export interface CircuitDoc {
   input?: StateRow
   /** Optional misty state drawn below the circuit. */
   output?: StateRow
+  /** Written `out calculate`: the output is worked out rather than given. */
+  calculateOutput?: boolean
+  /** Caption for that output, held until there is a state to hang it on. */
+  calculateCaption?: string
   /** Per-qubit shape override; defaults to position order. */
   shapeIndices?: number[]
   /**

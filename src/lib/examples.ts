@@ -122,6 +122,19 @@ export const EXAMPLES: Example[] = [
     ].join('\n'),
   },
   {
+    id: 'calculate',
+    title: 'Circuit — work the state out',
+    note: '"calculate" computes the state from the input and the gates above it. Settings chooses factored or flat.',
+    source: [
+      'in 000',
+      'H 1',
+      'after the Hadamard: calculate',
+      'CNOT 1 -> 2',
+      'CNOT 2 -> 3',
+      'out calculate',
+    ].join('\n'),
+  },
+  {
     id: 'window',
     title: 'Circuit — a framed window',
     note: '"window" frames the state in a box plumbed into the circuit, rather than breaking it.',

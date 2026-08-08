@@ -151,6 +151,18 @@ function spreadOverColumns(pieces: { laid: Layout; mid: number }[], gap: number)
   return xs.map((x) => x - overflow / 2)
 }
 
+/**
+ * The state a view shows.
+ *
+ * A `calculate` view reaches layout with this filled in — `resolveCalculations`
+ * runs between parsing and here — so an empty one is a wiring mistake rather
+ * than something a source file can cause.
+ */
+function viewRow(gate: ViewGate): StateRow {
+  if (!gate.row) throw new Error('a calculated view reached layout unresolved')
+  return gate.row
+}
+
 /** Complement of `blocked` within [from, to], as drawable pipe segments. */
 function gaps(from: number, to: number, blocked: Interval[]): Interval[] {
   const sorted = [...blocked].sort((a, b) => a.y0 - b.y0)
@@ -343,7 +355,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       ...layer.gates.map((gate) => {
         if (gate.kind !== 'view') return m.gateHeight
         const [q0, q1] = gateSpan(gate)
-        return stateHeight(liftCaption(gate.row).row, q0, q1) + 2 * VIEW_PAD
+        return stateHeight(liftCaption(viewRow(gate)).row, q0, q1) + 2 * VIEW_PAD
       }),
     )
 
@@ -382,7 +394,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   /** Work out where a view goes, without committing it to the drawing. */
   const measureView = (gate: ViewGate, top: number, height: number) => {
     const [q0, q1] = gateSpan(gate)
-    const { caption, row } = liftCaption(gate.row)
+    const { caption, row } = liftCaption(viewRow(gate))
     // Centred in the layer rather than pinned below its top, so a short state
     // still lines up with a taller one sharing the layer. With a layer of its
     // own this leaves exactly VIEW_PAD of clear pipe above and below.

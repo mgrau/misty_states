@@ -22,6 +22,7 @@
     separator: 'bar' | 'comma'
     cloudFluff: number
     cloudPad: number
+    factorCalculated: boolean
     shapeOrder: ShapeName[]
     onclose: () => void
     oneditlibrary: () => void
@@ -31,6 +32,7 @@
     onseparatorchange: (separator: 'bar' | 'comma') => void
     oncloudfluffchange: (value: number) => void
     oncloudpadchange: (value: number) => void
+    onfactorchange: (factor: boolean) => void
     onshapeorderchange: (order: ShapeName[]) => void
   }
 
@@ -42,6 +44,7 @@
     separator,
     cloudFluff,
     cloudPad,
+    factorCalculated,
     shapeOrder,
     onclose,
     oneditlibrary,
@@ -51,6 +54,7 @@
     onseparatorchange,
     oncloudfluffchange,
     oncloudpadchange,
+    onfactorchange,
     onshapeorderchange,
   }: Props = $props()
 
@@ -237,6 +241,33 @@
             </button>
           {/each}
         </div>
+      </section>
+
+      <!-- Calculated states -------------------------------------------------- -->
+      <section class="flex flex-col gap-2">
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-xs font-medium text-slate-500">Calculated states</h3>
+          <span class="text-[11px] text-slate-400">What “calculate” draws</span>
+        </div>
+        <div class="flex rounded-md border border-slate-200 p-0.5">
+          {#each [{ id: true, label: 'Factored' }, { id: false, label: 'Flat' }] as const as opt (opt.label)}
+            <button
+              type="button"
+              onclick={() => onfactorchange(opt.id)}
+              aria-pressed={factorCalculated === opt.id}
+              class="flex-1 rounded px-2 py-1 text-xs transition-colors
+                     {factorCalculated === opt.id
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-600 hover:text-slate-900'}"
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="text-[11px] text-slate-400">
+          Factored draws <span class="font-mono">(0|1)0</span> where the state separates;
+          flat draws <span class="font-mono">00|10</span>.
+        </p>
       </section>
 
       <!-- Clouds ------------------------------------------------------------- -->

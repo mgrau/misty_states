@@ -4,6 +4,7 @@
 
 import { parseState, ParseError } from './state/parse'
 import { isGateRun, parseCircuit } from './circuit/parse'
+import { resolveCalculations } from './circuit/simulate'
 import { layoutState } from './state/layout'
 import { layoutCircuit } from './circuit/layout'
 import { DEFAULT_METRICS, type Metrics } from './render/primitives'
@@ -19,6 +20,11 @@ export interface RenderOptions {
   background?: boolean
   metrics?: Partial<Metrics>
   shapeOrder?: ShapeName[]
+  /**
+   * Draw a calculated state as a product where it separates, rather than as
+   * one cloud of terms. On by default: it is how the course writes answers.
+   */
+  factorCalculated?: boolean
 }
 
 export interface RenderResult {
@@ -60,10 +66,15 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
   const theme = THEMES[opts.theme ?? 'solid']
   const palette = opts.palette ?? (opts.dark ? DARK_PALETTE : LIGHT_PALETTE)
 
-  const build = (kind: 'state' | 'circuit') =>
-    kind === 'circuit'
-      ? layoutCircuit(parseCircuit(source), { metrics, shapeOrder, attach: theme.attach })
-      : layoutState(parseState(source), { metrics, shapeOrder })
+  const build = (kind: 'state' | 'circuit') => {
+    if (kind === 'state') return layoutState(parseState(source), { metrics, shapeOrder })
+    // `calculate` is resolved between parsing and layout: it needs the whole
+    // circuit to work anything out, and layout should only ever see states.
+    const doc = resolveCalculations(parseCircuit(source), {
+      factor: opts.factorCalculated ?? true,
+    })
+    return layoutCircuit(doc, { metrics, shapeOrder, attach: theme.attach })
+  }
 
   // A source with no circuit keyword in it parses as both — as a bare state, or
   // as a circuit that is nothing but an input state — so the guess is trusted

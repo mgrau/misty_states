@@ -185,7 +185,55 @@ whole circuit, right-aligned against a single edge so a column of them reads as
 a column. The state itself stays centred on its columns, so a captioned row
 lines up with an uncaptioned one.
 
-The states are written out; nothing here simulates the circuit.
+### Working the state out
+
+Write `calculate` — or `calc` — where a state would go, and it is computed from
+the input and the gates above it:
+
+```
+in 001
+SWAP 2 3
+after the swap: calculate      # 010
+CNOT 2 -> 1; X 3
+out calculate                  # 111
+```
+
+It goes anywhere a state can: `out calculate`, a bare line, `view calculate`,
+`window calculate`, with or without a caption. A snapshot shows the state
+*entering* its own layer, which is what a view means — the moment between the
+gates above and the gates below.
+
+**The arithmetic is exact integers.** Take the PETE box unnormalised — `0 → 0|1`
+and `1 → 0|-1` — and every gate the course uses maps whole numbers to whole
+numbers. `H·H = 2I`, and the factor of two divides straight back out. So there
+is no floating point and nothing to round, and the answer lands in the notation
+already drawn: reduce the terms by their common factor and `3*0|2*1` falls out
+on its own. Overall sign and scale are unobservable, so the result is
+normalised — smallest whole numbers, leading term positive.
+
+Settings chooses whether the answer is **factored** into a product where it
+separates — `(00|11)0` — or drawn **flat** as one cloud — `00|11 0` written out
+in full. Only contiguous runs of wires can be factored, since that is what the
+drawing can express.
+
+A circuit that writes no input starts from **every wire white**, so `H 1` alone
+calculates to `0|1` and no `in` line is needed for the usual case.
+
+It refuses rather than guessing: `S`, `T` and `Y` need complex amplitudes the
+notation cannot draw, `BOX` and `BLANK` are pictures rather than operations, `?`
+has no value to propagate, and a measurement is not yet handled. Each says which
+gate and why.
+
+**How it is checked.** Three independent ways, because a simulator that is
+subtly wrong draws plausible diagrams rather than obvious errors:
+
+- every figure in the project library with both an input and a written output —
+  answers a person worked out by hand — is recalculated and must agree
+- algebraic identities that hold for *every* input: `H·H = 2I`, `X = H·Z·H`,
+  `SWAP` as three CNOTs, gates on different wires commuting
+- a second implementation in `reference.ts` that builds dense matrices from
+  Kronecker products and multiplies floating-point vectors through them — a
+  different algorithm, run against the first on hundreds of random circuits
 
 ### Layers
 
@@ -471,6 +519,8 @@ src/lib/
   svg.ts               SVG string builder, boxes, seeded PRNG
   state/               misty-state AST, parser, layout
   circuit/             circuit AST, parser (incl. layer scheduling), layout
+    simulate.ts        exact-integer simulation behind `calculate`
+    reference.ts       a second, dense implementation, used only to disagree
   render/
     primitives.ts      positioned, theme-agnostic drawing instructions
     cloud.ts           cloud outline generation

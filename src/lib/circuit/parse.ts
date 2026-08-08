@@ -194,6 +194,22 @@ const KEYWORDS = new Set([
 /** `2-3`, or a single `2` — the span prefix `view` accepts. */
 const RANGE = /^\d+(-\d+)?$/
 
+/** Written where a state would go, to have it worked out instead. */
+const CALCULATE = /^calc(ulate)?$/i
+
+/**
+ * Split `caption: rest`, by the same rule the state parser uses — the text
+ * before the colon must contain something that could not be state syntax, so a
+ * stray colon never eats an expression.
+ */
+function splitCaption(src: string): { caption?: string; rest: string } {
+  const at = src.indexOf(':')
+  if (at < 0) return { rest: src }
+  const head = src.slice(0, at)
+  if (/[(|,=]/.test(head) || !/[^01?\s]/.test(head)) return { rest: src }
+  return { caption: head.trim(), rest: src.slice(at + 1).trim() }
+}
+
 /**
  * The one-letter gates, which can be written as a run: `HH` is `H 1; H 2`.
  *
@@ -259,6 +275,21 @@ function parseView(arg: string, lineNo: number, boxed = false): ViewGate {
 
 /** Build a view, checking that the state is as wide as the span it claims. */
 function viewOf(stateText: string, qubits: number[], lineNo: number): ViewGate {
+  // `calculate` has no width of its own: it covers the register, whatever the
+  // register turns out to be, so the span is filled in once that is known. Its
+  // caption is held here too, there being no state yet to hang it on.
+  const { caption, rest } = splitCaption(stateText.trim())
+  if (CALCULATE.test(rest)) {
+    if (qubits.length) {
+      throw new ParseError(
+        'calculate works out the whole register, so it takes no qubit range',
+        0,
+        lineNo,
+      )
+    }
+    return { kind: 'view', qubits: [], calculate: true, caption }
+  }
+
   const row = parseState(stateText).rows[0]
   const width = stateWidth(row)
   if (!qubits.length) {
@@ -458,6 +489,8 @@ export function parseCircuit(text: string): CircuitDoc {
   let shapeIndices: number[] | undefined
   let input: StateRow | undefined
   let output: StateRow | undefined
+  let calculateOutput = false
+  let calculateCaption: string | undefined
   const groups: Group[] = []
   let pendingBreak = false
   let sawGate = false
@@ -500,6 +533,20 @@ export function parseCircuit(text: string): CircuitDoc {
     // Anything joined by ';' is a statement among others, so it skips this and
     // becomes a view like any other.
     if (parts.length === 1 && !KEYWORDS.has(kw) && !isGateRun(kw)) {
+      // A bare `calculate` is a state like any other — position says whether it
+      // is a snapshot in the middle or the circuit's output.
+      if (CALCULATE.test(splitCaption(line).rest)) {
+        if (!sawGate && !input) {
+          throw new ParseError(
+            'calculate is worked out from the input, so it cannot be the input',
+            0,
+            lineNo,
+          )
+        }
+        flushTail()
+        pendingTail = { kind: 'view', qubits: [], calculate: true, caption: splitCaption(line).caption }
+        continue
+      }
       if (looksLikeGateName(line)) {
         throw new ParseError(`unknown gate "${line.split(/\s+/)[0]}"`, 0, lineNo)
       }
@@ -543,6 +590,19 @@ export function parseCircuit(text: string): CircuitDoc {
       continue
     }
     if (kw === 'in' || kw === 'out') {
+      const outCaption = splitCaption(arg)
+      if (CALCULATE.test(outCaption.rest)) {
+        if (kw === 'in') {
+          throw new ParseError(
+            'calculate is worked out from the input, so it cannot be the input',
+            0,
+            lineNo,
+          )
+        }
+        calculateOutput = true
+        calculateCaption = outCaption.caption
+        continue
+      }
       const doc = parseState(arg)
       if (kw === 'in') input = doc.rows[0]
       else output = doc.rows[0]
@@ -571,16 +631,22 @@ export function parseCircuit(text: string): CircuitDoc {
 
   // Nothing followed the last bare state line, so it is the output.
   if (pendingTail) {
-    if (output) flushTail()
+    if (output || calculateOutput) flushTail()
+    else if (pendingTail.calculate) {
+      calculateOutput = true
+      calculateCaption = pendingTail.caption
+    }
     else output = pendingTail.row
     pendingTail = null
   }
 
-  const layers = schedule(groups)
-  const used = layers.flatMap((l) => l.gates).flatMap((g) => gateSpan(g))
-  // The register is as wide as the widest thing in the circuit — which includes
-  // the input and output states, not just the gates. `in 000` over a single
-  // gate on wire 1 is still a three-qubit circuit.
+  const gates = groups.flatMap((g) => g.gates)
+  // A view waiting to be calculated claims no wires of its own — it covers
+  // whatever the register turns out to be, so it is filled in below rather than
+  // counted here. Everything else sets the width, states included: `in 000`
+  // over a single gate on wire 1 is still a three-qubit circuit.
+  const pending = gates.filter((g): g is ViewGate => g.kind === 'view' && !!g.calculate)
+  const used = gates.filter((g) => !pending.includes(g as ViewGate)).flatMap((g) => gateSpan(g))
   const qubits = Math.max(
     declared,
     used.length ? Math.max(...used) : 0,
@@ -588,6 +654,13 @@ export function parseCircuit(text: string): CircuitDoc {
     stateWidth(output),
     1,
   )
+  for (const view of pending) {
+    view.qubits = Array.from({ length: qubits }, (_, i) => i + 1)
+  }
 
-  return { kind: 'circuit', qubits, layers, input, output, header, shapeIndices }
+  const layers = schedule(groups)
+  return {
+    kind: 'circuit', qubits, layers, input, output,
+    calculateOutput, calculateCaption, header, shapeIndices,
+  }
 }
