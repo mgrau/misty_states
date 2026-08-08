@@ -18,7 +18,7 @@
  * pictures rather than operations, and `?` has no value to propagate.
  */
 
-import type { CircuitDoc, Gate } from './ast'
+import type { CircuitDoc, Gate, TableLine } from './ast'
 import { gateQubits } from './ast'
 import type { CloudNode, Factor, Product, QubitNode, StateRow, Term } from '../state/ast'
 
@@ -228,11 +228,15 @@ function gcd(a: number, b: number): number {
  * same state, and both the checker and the library cross-check depend on that —
  * so this is a presentation choice, never a comparison one.
  */
+/** Terms in bit-string order, so nothing downstream depends on insertion order. */
+const sorted = (amps: Amplitudes): [string, number][] =>
+  [...amps].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+
 export function canonical(
   amps: Amplitudes,
   opts: { keepSign?: boolean } = {},
 ): [string, number][] {
-  const terms = [...amps].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  const terms = sorted(amps)
   if (!terms.length) return terms
   const divisor = terms.reduce((g, [, amp]) => gcd(g, amp), 0) || 1
   const sign = !opts.keepSign && terms[0][1] < 0 ? -1 : 1
@@ -521,11 +525,110 @@ function calculated(
   })
 }
 
+/* -- Tabulating ---------------------------------------------------------- */
+
+/** One line of a table: a state, and the numbers that go with it. */
+export interface TableEntry {
+  /** The state itself, ready to be drawn in the possibility column. */
+  state: StateRow
+  /** How likely this line is, once there is a measurement to make it a chance. */
+  odds?: Frac
+  /** The amplitude this line carries, in front of the state as drawn. */
+  amplitude: number
+}
+
+/**
+ * The amplitude in front of a state as it is drawn.
+ *
+ * A branch left in superposition by a partial measurement has an amplitude per
+ * term, so there is no one term to read it off. It still has a single amplitude
+ * as *written*, though: the drawing reduces each block by its common factor, so
+ * `01|-11` is drawn `(0|-1)1` and what stands in front of it is that factor.
+ * Reading the whole state as a sum over its outcomes,
+ *
+ *     00|01|00|-11  =  2*(00) | 1*((0|-1)1)
+ *
+ * those factors are the amplitudes, and every line has one.
+ *
+ * Note it is the notation's amplitude, not a normalised one: the drawn states
+ * have different lengths, so squaring this does not by itself give the
+ * probability beside it.
+ */
+function coefficient(amps: Amplitudes): number {
+  const size = [...amps.values()].reduce((g, amp) => gcd(g, amp), 0) || 1
+  return sorted(amps)[0][1] < 0 ? -size : size
+}
+
+/**
+ * What a table has one line per.
+ *
+ * The unit follows the circuit rather than being chosen: a measurement makes
+ * the outcomes the interesting thing, and without one there is a single outcome
+ * and the terms of it are what there is to say. That is also what makes an
+ * amplitude column meaningful — the terms of a state each have one, whereas a
+ * measured branch only has one if it came out of the measurement alone.
+ */
+export function tabulate(
+  doc: CircuitDoc,
+  layers: number,
+  opts: PresentOptions = {},
+): { entries: TableEntry[]; measured: boolean } {
+  const { branches, measured } = simulateFrom(doc, layers)
+  if (!branches.length) {
+    throw new SimulationError('the terms all cancel, leaving no state to draw')
+  }
+
+  // Amplitudes are scaled by the arithmetic — H·H is 2I, not I — so the whole
+  // set is reduced together. Per-line reduction would flatten exactly the
+  // difference the column exists to show, turning 2 and 3 into 1 and 1.
+  const all = branches.flatMap((b) => [...b.amps.values()])
+  const divisor = all.reduce((g, amp) => gcd(g, amp), 0) || 1
+  const flip = !opts.keepSign && all.length && sorted(branches[0].amps)[0][1] < 0 ? -1 : 1
+  const scale = (amp: number) => (amp / divisor) * flip
+
+  if (measured) {
+    return {
+      measured,
+      entries: branches.map((branch) => ({
+        state: stateFrom(branch.amps, doc.qubits, opts),
+        odds: branch.odds,
+        amplitude: scale(coefficient(branch.amps)),
+      })),
+    }
+  }
+
+  // One branch, so the lines are its terms. Each is a single basis state, which
+  // is what gives it both an amplitude and a probability of its own.
+  const amps = branches[0].amps
+  const total = weight(amps)
+  return {
+    measured,
+    entries: sorted(amps).map(([bits, amp]) => ({
+      state: stateFrom(new Map([[bits, 1]]), doc.qubits, opts),
+      odds: frac(amp * amp, total),
+      amplitude: scale(amp),
+    })),
+  }
+}
+
+/** The table's lines with their numbers written out, ready to be drawn. */
+function tableLines(doc: CircuitDoc, opts: PresentOptions): TableLine[] {
+  const { entries } = tabulate(doc, doc.layers.length, opts)
+  return entries.map((entry) => ({
+    state: entry.state,
+    // Unlike a stack of calculated states, this is written whether or not a
+    // measurement happened: before one, it is what the terms of a superposition
+    // mean, which is the other half of what a table is for.
+    probability: entry.odds ? oddsLabel(entry.odds, opts.exactOdds) : undefined,
+    amplitude: String(entry.amplitude),
+  }))
+}
+
 export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}): CircuitDoc {
   const wanted = doc.layers.some((l) =>
     l.gates.some((g) => g.kind === 'view' && g.calculate),
   )
-  if (!wanted && !doc.calculateOutput) return doc
+  if (!wanted && !doc.calculateOutput && !doc.table) return doc
 
   const layers = doc.layers.map((layer, at) => ({
     ...layer,
@@ -540,5 +643,9 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
     ? calculated(doc, doc.layers.length, doc.calculateCaption, doc.calculateNote, opts)
     : doc.output
 
-  return { ...doc, layers, output }
+  // Refuses the same way `calculate` does when the arithmetic cannot be
+  // followed — a table of nothing would be worse than being told why.
+  const table = doc.table ? { ...doc.table, lines: tableLines(doc, opts) } : undefined
+
+  return { ...doc, layers, output, table }
 }

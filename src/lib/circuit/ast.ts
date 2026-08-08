@@ -122,6 +122,40 @@ export interface Layer {
   note?: string
 }
 
+/**
+ * A column of a table.
+ *
+ * `possibility` is the state itself, drawn; the other two are text worked out
+ * from it. The header is English, which nothing else the renderer emits is, so
+ * it can be overridden per column.
+ */
+export interface TableColumn {
+  kind: 'possibility' | 'probability' | 'amplitude'
+  header?: string
+}
+
+/**
+ * One line of a table, worked out and ready to draw.
+ *
+ * The numbers arrive as text: how a likelihood is written is a presentation
+ * choice made where the arithmetic is, alongside the one `calculate` already
+ * makes, rather than something the layout has to know about.
+ */
+export interface TableLine {
+  state: StateRow
+  probability?: string
+  amplitude: string
+}
+
+/** Written `tabulate`: the outcomes as a table rather than a stack of states. */
+export interface TableSpec {
+  columns: TableColumn[]
+  caption?: string
+  note?: string
+  /** Filled in by `resolveCalculations`; absent until the circuit is run. */
+  lines?: TableLine[]
+}
+
 export interface CircuitDoc {
   kind: 'circuit'
   qubits: number
@@ -135,6 +169,8 @@ export interface CircuitDoc {
   /** Annotations for that output, held until there is a state to hang them on. */
   calculateCaption?: string
   calculateNote?: string
+  /** Written `tabulate`: drawn in place of an output state, below the circuit. */
+  table?: TableSpec
   /** Per-wire shape override; defaults to position order. */
   shapePicks?: ShapePick[]
   /**

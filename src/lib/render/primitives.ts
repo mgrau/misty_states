@@ -133,6 +133,21 @@ export interface SwapPrim {
   r: number
 }
 
+/**
+ * A straight line, for the grid of a table.
+ *
+ * Kept separate from a bordered box so adjacent cells share one stroke rather
+ * than doubling it, and so the grid can be drawn open — a rule under the
+ * headers and nothing else — as well as closed.
+ */
+export interface RulePrim {
+  t: 'rule'
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
 /** Horizontal wire joining controls to their target. */
 export interface LinkPrim {
   t: 'link'
@@ -144,6 +159,7 @@ export interface LinkPrim {
 export type Prim =
   | QubitPrim | CloudPrim | BarPrim | TextPrim | SignPrim | PipePrim
   | GateBoxPrim | PanePrim | MeasureBoxPrim | ControlPrim | TargetPrim | SwapPrim | LinkPrim
+  | RulePrim
 
 /** Layout result: what to draw, and the bounds it occupies. */
 export interface Layout {
@@ -177,6 +193,8 @@ export function translatePrims(prims: Prim[], dx: number, dy: number): Prim[] {
         return { ...p, cx: p.cx + dx, y0: p.y0 + dy, y1: p.y1 + dy }
       case 'link':
         return { ...p, x0: p.x0 + dx, x1: p.x1 + dx, cy: p.cy + dy }
+      case 'rule':
+        return { ...p, x0: p.x0 + dx, x1: p.x1 + dx, y0: p.y0 + dy, y1: p.y1 + dy }
       case 'gatebox':
       case 'pane':
       case 'measurebox':

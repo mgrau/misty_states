@@ -42,7 +42,7 @@ import { parseState } from '../state/parse'
 import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
 import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
-import type { CircuitDoc, Gate, Layer, ViewGate } from './ast'
+import type { CircuitDoc, Gate, Layer, TableColumn, TableSpec, ViewGate } from './ast'
 import { gateSpan } from './ast'
 
 /** Hadamard's label chip is red in the course materials. */
@@ -311,6 +311,71 @@ function liftGateAnnotations(
 
   if (caption === undefined && note === undefined) return null
   return { caption, note, body: body.trim() }
+}
+
+const TABLE_LINE = /^(?:tabulate|table)\s*(?:\(([^)]*)\))?\s*(?::\s*(.*?))?\s*$/i
+
+/** What a column may be called, beyond its own name. */
+const COLUMN_NAMES: Record<string, TableColumn['kind']> = {
+  possibility: 'possibility', state: 'possibility', outcome: 'possibility',
+  probability: 'probability', prob: 'probability', chance: 'probability', p: 'probability',
+  amplitude: 'amplitude', amp: 'amplitude', a: 'amplitude',
+}
+
+const DEFAULT_COLUMNS: TableColumn[] = [{ kind: 'possibility' }, { kind: 'probability' }]
+
+/**
+ * Read a column list: `possibility, probability` — each optionally renamed.
+ *
+ * The header is the one piece of English the renderer emits, so `p="Chance"`
+ * exists to get it out of the way of a figure that wants its own word.
+ */
+function parseColumns(list: string, lineNo: number): TableColumn[] {
+  const parts = list.split(',').map((s) => s.trim()).filter(Boolean)
+  if (!parts.length) {
+    throw new ParseError('tabulate() needs at least one column, e.g. tabulate(possibility, probability)', 0, lineNo)
+  }
+  return parts.map((part) => {
+    const named = /^([A-Za-z]+)\s*=\s*(.*)$/.exec(part)
+    const name = (named ? named[1] : part).toLowerCase()
+    const kind = COLUMN_NAMES[name]
+    if (!kind) {
+      throw new ParseError(
+        `"${named ? named[1] : part}" is not a column — use possibility, probability or amplitude`,
+        0,
+        lineNo,
+      )
+    }
+    if (!named) return { kind }
+    const header = named[2].trim().replace(/^["']|["']$/g, '')
+    if (!header) throw new ParseError(`${name}= needs a heading, e.g. ${name}="Chance"`, 0, lineNo)
+    return { kind, header }
+  })
+}
+
+/**
+ * Read `tabulate` with its columns and whatever annotations surround it.
+ *
+ * The bare form is tried first for the same reason `calculate` is: the caption
+ * rule cannot know that what follows a colon is a keyword.
+ */
+function readTable(text: string, lineNo: number): TableSpec | null {
+  const trimmed = text.trim()
+  const read = (src: string, caption?: string): TableSpec | null => {
+    const hit = TABLE_LINE.exec(src)
+    if (!hit) return null
+    return {
+      columns: hit[1] === undefined ? DEFAULT_COLUMNS : parseColumns(hit[1], lineNo),
+      caption,
+      note: hit[2] || undefined,
+    }
+  }
+
+  const direct = read(trimmed)
+  if (direct) return direct
+
+  const { caption, rest } = splitCaption(trimmed)
+  return read(rest, caption)
 }
 
 /**
@@ -628,6 +693,7 @@ export function parseCircuit(text: string): CircuitDoc {
   let shapePicks: ShapePick[] | undefined
   let input: StateRow | undefined
   let output: StateRow[] | undefined
+  let table: TableSpec | undefined
   let calculateOutput = false
   let calculateCaption: string | undefined
   let calculateNote: string | undefined
@@ -664,6 +730,12 @@ export function parseCircuit(text: string): CircuitDoc {
     const line = lines[i].replace(/(^|\s)#.*$/, '').trim()
     if (!line) continue
 
+    // A table is worked out from the whole circuit, so there is no position
+    // after it for anything to occupy.
+    if (table) {
+      throw new ParseError('tabulate draws the finished circuit, so nothing can follow it', 0, lineNo)
+    }
+
     // `shape os^` says which shape each wire draws with, for figures whose
     // register is not in the default order.
     const shapeLine = SHAPE_LINE.exec(line)
@@ -686,6 +758,22 @@ export function parseCircuit(text: string): CircuitDoc {
     // Anything joined by ';' is a statement among others, so it skips this and
     // becomes a view like any other.
     if (parts.length === 1 && !KEYWORDS.has(kw) && !isGateRun(kw)) {
+      // A table is the finished thing rather than a state among states, so it
+      // is read here but does not become a view.
+      const bareTable = readTable(line, lineNo)
+      if (bareTable) {
+        if (!sawGate && !input) {
+          throw new ParseError(
+            'tabulate is worked out from the input, so it cannot be the input',
+            0,
+            lineNo,
+          )
+        }
+        flushTail()
+        table = bareTable
+        continue
+      }
+
       // A bare `calculate` is a state like any other — position says whether it
       // is a snapshot in the middle or the circuit's output.
       const bareCalc = readCalculate(line)
@@ -733,6 +821,18 @@ export function parseCircuit(text: string): CircuitDoc {
       continue
     }
     if (kw === 'in' || kw === 'out') {
+      const outTable = readTable(arg, lineNo)
+      if (outTable) {
+        if (kw === 'in') {
+          throw new ParseError(
+            'tabulate is worked out from the input, so it cannot be the input',
+            0,
+            lineNo,
+          )
+        }
+        table = outTable
+        continue
+      }
       const outCalc = readCalculate(arg)
       if (outCalc) {
         if (kw === 'in') {
@@ -811,6 +911,6 @@ export function parseCircuit(text: string): CircuitDoc {
   const layers = schedule(groups)
   return {
     kind: 'circuit', qubits, layers, input, output,
-    calculateOutput, calculateCaption, calculateNote, header, shapePicks,
+    calculateOutput, calculateCaption, calculateNote, table, header, shapePicks,
   }
 }

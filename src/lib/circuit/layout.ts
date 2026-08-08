@@ -17,6 +17,7 @@ import {
 } from '../render/primitives'
 import { FLAT_ATTACH, type Attach } from '../render/theme'
 import { layoutState } from '../state/layout'
+import { layoutTable } from './table'
 import type { CircuitDoc, Gate, Layer, ViewGate } from './ast'
 import { gateSpan } from './ast'
 import type { Factor, StateDoc, StateRow } from '../state/ast'
@@ -585,6 +586,31 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     const placed = placeEndState(doc.output, pipeBottom + STATE_GAP)
     caps.push(...placed.prims)
     boxes.push(placed.box)
+  }
+
+  /* -------------------------------------------------------------- table --- */
+
+  // Below everything and centred on the circuit, not on the columns: its cells
+  // describe the register as a whole rather than any wire in particular.
+  if (doc.table?.lines?.length) {
+    const laid = layoutTable(doc.table.lines, doc.table.columns, {
+      metrics: m,
+      shapeOrder: opts.shapeOrder,
+    })
+    const top = (doc.output ? boxes[boxes.length - 1].y + boxes[boxes.length - 1].h : pipeBottom)
+      + STATE_GAP
+    const box = {
+      x: (left + right) / 2 - laid.box.w / 2,
+      y: top,
+      w: laid.box.w,
+      h: laid.box.h,
+    }
+    caps.push(...translatePrims(laid.prims, box.x, box.y))
+    boxes.push(box)
+
+    const cy = box.y + box.h / 2
+    if (doc.table.caption) captions.push({ text: doc.table.caption, cy, left: box.x })
+    if (doc.table.note) notes.push({ text: doc.table.note, cy, right: box.x + box.w })
   }
 
   for (let q = 1; q <= doc.qubits; q++) {

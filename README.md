@@ -367,6 +367,48 @@ there are no odds to report and no label appears.
 Only the Z basis is handled: an X or Y measurement has no white-or-black outcome
 the notation could draw, and says so.
 
+### Tables
+
+`tabulate` — or `table` — draws the same answer as the *Possibility /
+Probability* table the course pairs with every measurement figure. It goes where
+an output goes, as `out tabulate` or on a line of its own, and nothing follows it:
+
+```
+in 0|0|1|1|1
+measure 1 Z
+tabulate(possibility, amplitude, probability)
+```
+
+|  |  |  |
+| --- | --- | --- |
+| Possibility | Amplitude | Probability |
+| ○ | 2 | 4/13 |
+| ● | 3 | 9/13 |
+
+Columns are `possibility`, `probability` and `amplitude`, in the order written,
+defaulting to the first two. Each takes a short name — `state`, `p`, `amp` — and
+can be renamed with `p="Chance"`, headings being the one piece of English the
+renderer emits.
+
+**What a row is follows the circuit rather than being chosen.** With a
+measurement, each row is an outcome; without one there is a single outcome and
+the rows are the terms of it, which is what gives an amplitude column something
+to say. Amplitudes are reduced across the whole table rather than row by row, so
+the 2 and 3 above survive instead of flattening to 1 and 1.
+
+The amplitude is the one in front of the state **as drawn**. A branch left in
+superposition by a partial measurement has an amplitude per term and so no
+single term to read one off, but the drawing reduces each block by its common
+factor, and what stands in front of the result is that factor:
+
+```
+00|01|00|-11  =  2*(00) | 1*((0|-1)1)
+```
+
+so those two rows report 2 and 1. Note this is the notation's amplitude rather
+than a normalised one — the drawn states have different lengths, so squaring it
+does not by itself give the probability beside it.
+
 **How it is checked.** Three independent ways, because a simulator that is
 subtly wrong draws plausible diagrams rather than obvious errors:
 

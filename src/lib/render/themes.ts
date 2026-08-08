@@ -315,6 +315,14 @@ function makeTheme(
             x1: p.x0, y1: p.cy, x2: p.x1, y2: p.cy,
             stroke: pal.accent, 'stroke-width': m.stroke * 1.5, 'stroke-linecap': 'round',
           })
+
+        // Flat in every theme, like the pane: a table is a piece of paper
+        // beside the drawing rather than another object in the scene.
+        case 'rule':
+          return el('line', {
+            x1: p.x0, y1: p.y0, x2: p.x1, y2: p.y1,
+            stroke: pal.gateEdge, 'stroke-width': m.stroke * 0.55,
+          })
       }
     },
   }

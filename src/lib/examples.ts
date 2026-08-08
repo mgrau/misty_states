@@ -153,6 +153,16 @@ export const EXAMPLES: Example[] = [
     ].join('\n'),
   },
   {
+    id: 'tabulate',
+    title: 'Circuit — outcomes as a table',
+    note: 'The repeated terms make the amplitudes 2 and 3, so the outcomes are not equally likely. Columns are drawn in the order they are written; Settings switches the odds between a percentage and an exact fraction.',
+    source: [
+      'in 0|0|1|1|1',
+      'measure 1 Z',
+      'tabulate(possibility, amplitude, probability)',
+    ].join('\n'),
+  },
+  {
     id: 'window',
     title: 'Circuit — a framed window',
     note: '"window" frames the state in a box plumbed into the circuit, rather than breaking it.',
