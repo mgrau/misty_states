@@ -4,7 +4,7 @@
  * Grammar (whitespace insignificant, `#` starts a comment):
  *
  *   doc      := line*
- *   line     := [caption ':'] side ( relation side )*
+ *   line     := [caption ':'] side ( relation side )* [':' note]
  *   relation := '=' | '!=' | '->'
  *   side     := termlist                     -- >1 term is implicitly one cloud
  *   termlist := term ( ('|' | ',') term )*
@@ -253,8 +253,19 @@ function parseRow(src: string, lineNo: number): StateRow {
     relations.push(rel[1])
   }
 
+  // A colon *after* the state is an annotation on the right, mirroring the one
+  // before it. Unambiguous because nothing else in the grammar reaches here
+  // with a colon pending — this used to be a parse error.
+  let note: string | undefined
+  if (c.peek() === ':') {
+    c.i++
+    note = c.src.slice(c.i).trim() || undefined
+    c.i = c.src.length
+  }
+
   if (!c.done) c.fail(`unexpected "${c.peek()}"`)
   if (caption) sides[0].caption = caption
+  if (note) sides[0].note = note
   return { sides, relations }
 }
 

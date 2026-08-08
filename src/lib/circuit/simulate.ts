@@ -457,10 +457,10 @@ function simulateFrom(doc: CircuitDoc, layers: number) {
  * A snapshot shows the state as it enters its own layer, which is what a view
  * means: the moment between the gates above it and the gates below.
  */
-/** Hang a caption on a state that had none until it was worked out. */
-function captioned(row: StateRow, caption?: string): StateRow {
-  if (!caption) return row
-  return { ...row, sides: row.sides.map((s, i) => (i ? s : { ...s, caption })) }
+/** Hang annotations on a state that had none until it was worked out. */
+function captioned(row: StateRow, caption?: string, note?: string): StateRow {
+  if (!caption && !note) return row
+  return { ...row, sides: row.sides.map((s, i) => (i ? s : { ...s, caption, note })) }
 }
 
 /**
@@ -473,6 +473,7 @@ function calculated(
   doc: CircuitDoc,
   layers: number,
   caption: string | undefined,
+  note: string | undefined,
   opts: PresentOptions,
 ): StateRow[] {
   const { branches, measured } = simulateFrom(doc, layers)
@@ -482,7 +483,7 @@ function calculated(
   return branches.map((branch) => {
     const odds = measured ? oddsLabel(branch.odds, opts.exactOdds) : undefined
     const label = [caption, odds].filter(Boolean).join(' — ') || undefined
-    return captioned(stateFrom(branch.amps, doc.qubits, opts), label)
+    return captioned(stateFrom(branch.amps, doc.qubits, opts), label, note)
   })
 }
 
@@ -496,13 +497,13 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
     ...layer,
     gates: layer.gates.map((gate) =>
       gate.kind === 'view' && gate.calculate
-        ? { ...gate, rows: calculated(doc, at, gate.caption, opts) }
+        ? { ...gate, rows: calculated(doc, at, gate.caption, gate.note, opts) }
         : gate,
     ),
   }))
 
   const output = doc.calculateOutput
-    ? calculated(doc, doc.layers.length, doc.calculateCaption, opts)
+    ? calculated(doc, doc.layers.length, doc.calculateCaption, doc.calculateNote, opts)
     : doc.output
 
   return { ...doc, layers, output }

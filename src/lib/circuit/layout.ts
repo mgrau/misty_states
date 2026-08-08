@@ -121,11 +121,14 @@ function stampShapes(f: Factor, start: number, pick: (slot: number) => number): 
  * against the same left edge and the state itself stays centred on its columns
  * — otherwise a captioned row would sit off-centre from an uncaptioned one.
  */
-function liftCaption(row: StateRow): { caption?: string; row: StateRow } {
+function liftCaption(row: StateRow): { caption?: string; note?: string; row: StateRow } {
   const caption = row.sides[0]?.caption
-  if (!caption) return { row }
-  const sides = row.sides.map((s, i) => (i === 0 ? { ...s, caption: undefined } : s))
-  return { caption, row: { ...row, sides } }
+  const note = row.sides[0]?.note
+  if (!caption && !note) return { row }
+  const sides = row.sides.map((s, i) =>
+    i === 0 ? { ...s, caption: undefined, note: undefined } : s,
+  )
+  return { caption, note, row: { ...row, sides } }
 }
 
 /**
@@ -209,6 +212,8 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
 
   /** Captions lifted out of states, drawn together against one left edge. */
   const captions: { text: string; cy: number; left: number }[] = []
+  /** The same, on the other side: aligned to one edge right of everything. */
+  const notes: { text: string; cy: number; right: number }[] = []
 
   /**
    * Stretches of pipe that a window frame overhangs without covering.
@@ -345,15 +350,11 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     const contents: Box[] = []
     let at = top
     for (const raw of raws) {
-      const { caption, row } = liftCaption(raw)
+      const { caption, note, row } = liftCaption(raw)
       const placed = placeState(row, at, q0, q1)
-      if (caption) {
-        captions.push({
-          text: caption,
-          cy: placed.box.y + placed.box.h / 2,
-          left: placed.box.x,
-        })
-      }
+      const cy = placed.box.y + placed.box.h / 2
+      if (caption) captions.push({ text: caption, cy, left: placed.box.x })
+      if (note) notes.push({ text: note, cy, right: placed.box.x + placed.box.w })
       prims.push(...placed.prims)
       boxes.push(placed.box)
       contents.push(placed.content)
@@ -519,6 +520,10 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     const viewGates = layer.gates.filter((g): g is ViewGate => g.kind === 'view')
     if (viewGates.length) emitViews(viewGates, y, layerH)
 
+    // What an annotation on this layer hangs off: the gates actually drawn,
+    // which for a part-width layer is narrower than the circuit.
+    let drawn: Box | null = null
+
     for (const gate of layer.gates) {
       // An identity is a length of pipe, not a body: it neither interrupts the
       // pipe nor draws anything. It still holds its slot in the layer, which is
@@ -549,7 +554,25 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
 
       emitGate(gate, box, cy, gateX, m, bodies, glyphs)
       boxes.push(box)
+      drawn = drawn
+        ? {
+            x: Math.min(drawn.x, box.x),
+            y: drawn.y,
+            w: Math.max(drawn.x + drawn.w, box.x + box.w) - Math.min(drawn.x, box.x),
+            h: drawn.h,
+          }
+        : box
     }
+
+    // A layer of nothing but identities has no body to hang off, so its
+    // annotation takes the width of the circuit instead.
+    if (layer.caption || layer.note) {
+      const span = drawn ?? { x: left, y, w: right - left, h: layerH }
+      const cy = span.y + span.h / 2
+      if (layer.caption) captions.push({ text: layer.caption, cy, left: span.x })
+      if (layer.note) notes.push({ text: layer.note, cy, right: span.x + span.w })
+    }
+
     y += layerH + m.gateGap
   }
 
@@ -623,6 +646,22 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       anchor: 'end',
     })
     boxes.push({ x: gutterEdge - w, y: caption.cy - m.fontSize / 2, w, h: m.fontSize })
+  }
+
+  // The mirror image, on the far side of the annotated rows.
+  const noteEdge = notes.reduce((x, n) => Math.max(x, n.right), right) + CAPTION_GAP
+
+  for (const note of notes) {
+    const w = textWidth(note.text, m.fontSize)
+    caps.push({
+      t: 'text',
+      x: noteEdge,
+      cy: note.cy,
+      text: note.text,
+      size: m.fontSize,
+      anchor: 'start',
+    })
+    boxes.push({ x: noteEdge, y: note.cy - m.fontSize / 2, w, h: m.fontSize })
   }
 
   /*

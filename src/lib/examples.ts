@@ -69,8 +69,8 @@ export const EXAMPLES: Example[] = [
   {
     id: 'ps5-collapse',
     title: 'PS5 §1.3 — measuring the circle qubit',
-    note: 'Captions before a colon are drawn in a left gutter.',
-    source: '50%: 00(0|-1)\n50%: 11(0|-1)',
+    note: 'A colon before the state annotates the left, a colon after it the right.',
+    source: '50%: 00(0|-1) : measured white\n50%: 11(0|-1) : measured black',
   },
   {
     id: 'ps5-collapse-2',

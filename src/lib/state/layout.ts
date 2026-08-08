@@ -258,11 +258,16 @@ export function layoutState(doc: StateDoc, opts: StateLayoutOptions = {}): Layou
     layout: layoutRow(row, 0, ctx),
   }))
 
-  // Captions live in a right-aligned gutter so the diagrams stay flush-left.
+  /*
+   * Annotations sit in gutters either side, each aligned to a single edge so a
+   * column of them reads as a column. The left one is reserved up front, since
+   * it shifts every row across; the right one only widens the drawing.
+   */
   const captionSize = ctx.m.fontSize * 0.85
+  const annotationGap = ctx.m.qubit * 0.5
   const gutter = laidRows.reduce((max, { row }) => {
     const c = row.sides[0].caption
-    return c ? Math.max(max, textWidth(c, captionSize, true) + ctx.m.qubit * 0.5) : max
+    return c ? Math.max(max, textWidth(c, captionSize, true) + annotationGap) : max
   }, 0)
 
   const prims: Prim[] = []
@@ -296,6 +301,22 @@ export function layoutState(doc: StateDoc, opts: StateLayoutOptions = {}): Layou
         y: cy - captionSize / 2,
         w: textWidth(caption, captionSize, true),
         h: captionSize,
+      })
+    }
+
+    const note = row.sides[0].note
+    if (note) {
+      const cy = box.y + box.h / 2
+      // Left-aligned against the far edge of the widest row, so the notes line
+      // up with each other rather than ragging along the states.
+      const x = gutter + widest + annotationGap
+      prims.push({
+        t: 'text', x, cy, text: note,
+        size: captionSize, anchor: 'start', weight: 600,
+      })
+      boxes.push({
+        x, y: cy - captionSize / 2,
+        w: textWidth(note, captionSize, true), h: captionSize,
       })
     }
 

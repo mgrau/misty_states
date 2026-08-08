@@ -36,7 +36,9 @@ the first qubit is a circle, the second a square, the third a triangle, and so o
 | `3*0\|2*1` | Numeric amplitudes; same state as `0\|0\|0\|1\|1` |
 | `3(0\|1)\|1` | A coefficient in front of a cloud |
 | `0\|1\|-1 = 0` | `=` chains expressions into an equation (also `!=`, `->`) |
-| `50%: 0(0\|1)` | Text before `:` becomes a caption in the left gutter |
+| `50%: 0(0\|1)` | Text before `:` is an annotation in the left gutter |
+| `0(0\|1) : note` | Text after `:` is an annotation on the right |
+| `step: H 1 : note` | The same either side of a gate line |
 | `0?1` | `?` is a qubit of unknown value, one per wire |
 | `("???")` | Quoted text inside a cloud — `???`, or any other caption |
 | `shape os^` | Set which shape each position draws with |
@@ -73,6 +75,51 @@ the input and output, and anything `calculate` works out. Spacing is ignored, so
 A name means that shape whatever order the shapes are configured in, unlike the
 older numeric form — `shapes 2 3 1` still works and picks the 2nd, 3rd and 1st
 of the *current* order. `0@3` overrides a `shape` line for one qubit.
+
+### Annotations
+
+A colon before the state puts text in the left gutter; a colon after it puts
+text on the right. Both at once is fine:
+
+```
+50%: 00(0|-1) : the circle measured white
+50%: 11(0|-1) : the circle measured black
+```
+
+Each gutter aligns to a single edge, so a column of annotations reads as a
+column rather than ragging along the states — and the left gutter is measured
+from the rows that use it, so one wide state elsewhere does not push every
+annotation away from what it labels.
+
+The same works in a circuit, on the input, the output, and any state shown
+part-way through — including a calculated one:
+
+```
+in 001 : the register starts here
+SWAP 2 3
+after the swap: calculate : two wires exchanged
+out calculate : all black
+```
+
+A gate line takes them the same way, naming a step of the circuit rather than a
+state:
+
+```
+in 00
+prepare: H 1 : make the misty state
+entangle: CNOT 1 -> 2
+measure 1 Z; measure 2 Z : read it out
+out calculate
+```
+
+The label hangs off the gates actually drawn, so a part-width layer is annotated
+beside itself rather than beside the whole circuit. Which side of a colon the
+text belongs on is settled by what is left over: `CNOT 1 -> 2 : entangle them`
+is a gate with a note, not a caption on the state "entangle them". Anything that
+would parse as gates in its own right is therefore never taken as prose, and a
+`;` inside a candidate annotation is refused outright — so `H 1; encode: H 2` is
+an error rather than a caption that quietly swallowed the first gate. A colon
+inside a quoted label, as in `box "cost: 5" 1-2`, is left alone.
 
 ### Checking a figure
 

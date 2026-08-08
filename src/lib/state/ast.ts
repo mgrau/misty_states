@@ -49,8 +49,10 @@ export interface Term {
 /** One side of an `=` chain: a juxtaposed product of factors. */
 export interface Product {
   factors: Factor[]
-  /** Optional caption drawn to the left, e.g. `50%:`. */
+  /** Annotation drawn to the left, written `50%: 0(0|1)`. */
   caption?: string
+  /** Annotation drawn to the right, written `0(0|1) : after measuring`. */
+  note?: string
 }
 
 /** One line of input: products joined by relation glyphs. */

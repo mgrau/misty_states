@@ -217,8 +217,118 @@ const KEYWORDS = new Set([
 /** `2-3`, or a single `2` — the span prefix `view` accepts. */
 const RANGE = /^\d+(-\d+)?$/
 
-/** Written where a state would go, to have it worked out instead. */
-const CALCULATE = /^calc(ulate)?$/i
+/**
+ * Written where a state would go, to have it worked out instead.
+ *
+ * A trailing `: note` is captured here rather than left to the state parser,
+ * which never sees a `calculate` — the annotation belongs to the state that
+ * will stand in its place.
+ */
+const CALCULATE = /^calc(ulate)?\s*(?::\s*(.*?))?\s*$/i
+
+/** The gate names, as opposed to the directives that also open a line. */
+const GATE_KEYWORDS = new Set([
+  'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
+  'cz', 'swap', 'measure', 'm', 'box', 'gate', 'blank',
+  ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
+])
+
+/** Positions of every `:` that is not inside a quoted label. */
+function bareColons(line: string): number[] {
+  const out: number[] = []
+  let quoted = false
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"') quoted = !quoted
+    else if (line[i] === ':' && !quoted) out.push(i)
+  }
+  return out
+}
+
+const opensWithGate = (text: string): boolean => {
+  const word = text.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
+  return GATE_KEYWORDS.has(word) || isGateRun(word)
+}
+
+/** Would this stand on its own as gates? Then it is not prose. */
+function readsAsGates(text: string): boolean {
+  const parts = text.split(';').map((s) => s.trim()).filter(Boolean)
+  if (!parts.length) return false
+  try {
+    // The line number only ever reaches an error message, and the error is
+    // being thrown away here.
+    for (const part of parts) parseStatements(part, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Is this text an annotation rather than more of the circuit?
+ *
+ * Prose is admitted by elimination: anything that would parse as gates in its
+ * own right is not prose, which keeps `H 1; encode: H 2` from quietly swallowing
+ * the first gate into a caption. A `;` is refused outright — it separates gates,
+ * so a candidate holding one is too ambiguous to guess at.
+ */
+const isProse = (text: string): boolean =>
+  text.trim().length > 0 && !text.includes(';') && !readsAsGates(text)
+
+/**
+ * Lift annotations off a gate line: `encode: H 1; H 2 : the easy part`.
+ *
+ * Which side of a colon the text belongs on is settled by looking at what is
+ * left, not by the shape of the text — `CNOT 1 -> 2 : note` would otherwise
+ * read the whole gate as a leading caption, since nothing about "CNOT 1 -> 2"
+ * disqualifies it as prose. Returns null when the line carries none, which
+ * includes every state line: a state carries its own through the state parser.
+ */
+function liftGateAnnotations(
+  line: string,
+): { caption?: string; note?: string; body: string } | null {
+  if (!bareColons(line).length) return null
+
+  let body = line
+  let caption: string | undefined
+  let note: string | undefined
+
+  const first = bareColons(line)[0]
+  const head = line.slice(0, first)
+  if (opensWithGate(line.slice(first + 1)) && isProse(head)) {
+    caption = head.trim()
+    body = line.slice(first + 1)
+  }
+
+  const rest = bareColons(body)
+  if (rest.length) {
+    const last = rest[rest.length - 1]
+    const tail = body.slice(last + 1)
+    if (opensWithGate(body.slice(0, last)) && isProse(tail)) {
+      note = tail.trim()
+      body = body.slice(0, last)
+    }
+  }
+
+  if (caption === undefined && note === undefined) return null
+  return { caption, note, body: body.trim() }
+}
+
+/**
+ * Read `calculate` with whatever annotations surround it.
+ *
+ * The bare form is tried before splitting off a leading caption, because
+ * `calculate : note` would otherwise have the word itself taken as the caption
+ * — the caption rule cannot know that what follows is a keyword.
+ */
+function readCalculate(text: string): { caption?: string; note?: string } | null {
+  const trimmed = text.trim()
+  const direct = CALCULATE.exec(trimmed)
+  if (direct) return { note: direct[2] || undefined }
+
+  const { caption, rest } = splitCaption(trimmed)
+  const hit = CALCULATE.exec(rest)
+  return hit ? { caption, note: hit[2] || undefined } : null
+}
 
 /**
  * Split `caption: rest`, by the same rule the state parser uses — the text
@@ -301,8 +411,8 @@ function viewOf(stateText: string, qubits: number[], lineNo: number): ViewGate {
   // `calculate` has no width of its own: it covers the register, whatever the
   // register turns out to be, so the span is filled in once that is known. Its
   // caption is held here too, there being no state yet to hang it on.
-  const { caption, rest } = splitCaption(stateText.trim())
-  if (CALCULATE.test(rest)) {
+  const calc = readCalculate(stateText)
+  if (calc) {
     if (qubits.length) {
       throw new ParseError(
         'calculate works out the whole register, so it takes no qubit range',
@@ -310,7 +420,7 @@ function viewOf(stateText: string, qubits: number[], lineNo: number): ViewGate {
         lineNo,
       )
     }
-    return { kind: 'view', qubits: [], calculate: true, caption }
+    return { kind: 'view', qubits: [], calculate: true, caption: calc.caption, note: calc.note }
   }
 
   const row = parseState(stateText).rows[0]
@@ -467,6 +577,8 @@ function conflicts(a: Gate, b: Gate): boolean {
 interface Group {
   gates: Gate[]
   breakBefore: boolean
+  caption?: string
+  note?: string
 }
 
 /**
@@ -494,6 +606,10 @@ function schedule(groups: Group[]): Layer[] {
 
     while (layers.length <= target) layers.push({ gates: [] })
     layers[target].gates.push(...group.gates)
+    // Two groups can land in the same layer — `;` merges them and the packer
+    // can too. The first to claim a side keeps it.
+    if (group.caption && !layers[target].caption) layers[target].caption = group.caption
+    if (group.note && !layers[target].note) layers[target].note = group.note
 
     for (const gate of group.gates) {
       const [q0, q1] = gateSpan(gate)
@@ -514,6 +630,7 @@ export function parseCircuit(text: string): CircuitDoc {
   let output: StateRow[] | undefined
   let calculateOutput = false
   let calculateCaption: string | undefined
+  let calculateNote: string | undefined
   const groups: Group[] = []
   let pendingBreak = false
   let sawGate = false
@@ -557,9 +674,13 @@ export function parseCircuit(text: string): CircuitDoc {
 
     if (/^-{3,}$/.test(line)) { flushTail(); pendingBreak = true; continue }
 
-    const kw = line.split(/\s+/)[0].toLowerCase()
-    const arg = line.slice(kw.length).trim()
-    const parts = line.split(';').map((s) => s.trim()).filter(Boolean)
+    // A gate line may be annotated either side; a state line carries its own.
+    const annotated = liftGateAnnotations(line)
+    const body = annotated ? annotated.body : line
+
+    const kw = body.split(/\s+/)[0].toLowerCase()
+    const arg = body.slice(kw.length).trim()
+    const parts = body.split(';').map((s) => s.trim()).filter(Boolean)
 
     // A whole line that is nothing but a state takes its meaning from position.
     // Anything joined by ';' is a statement among others, so it skips this and
@@ -567,7 +688,8 @@ export function parseCircuit(text: string): CircuitDoc {
     if (parts.length === 1 && !KEYWORDS.has(kw) && !isGateRun(kw)) {
       // A bare `calculate` is a state like any other — position says whether it
       // is a snapshot in the middle or the circuit's output.
-      if (CALCULATE.test(splitCaption(line).rest)) {
+      const bareCalc = readCalculate(line)
+      if (bareCalc) {
         if (!sawGate && !input) {
           throw new ParseError(
             'calculate is worked out from the input, so it cannot be the input',
@@ -576,7 +698,10 @@ export function parseCircuit(text: string): CircuitDoc {
           )
         }
         flushTail()
-        pendingTail = { kind: 'view', qubits: [], calculate: true, caption: splitCaption(line).caption }
+        pendingTail = {
+          kind: 'view', qubits: [], calculate: true,
+          caption: bareCalc.caption, note: bareCalc.note,
+        }
         continue
       }
       if (looksLikeGateName(line)) {
@@ -608,8 +733,8 @@ export function parseCircuit(text: string): CircuitDoc {
       continue
     }
     if (kw === 'in' || kw === 'out') {
-      const outCaption = splitCaption(arg)
-      if (CALCULATE.test(outCaption.rest)) {
+      const outCalc = readCalculate(arg)
+      if (outCalc) {
         if (kw === 'in') {
           throw new ParseError(
             'calculate is worked out from the input, so it cannot be the input',
@@ -618,7 +743,8 @@ export function parseCircuit(text: string): CircuitDoc {
           )
         }
         calculateOutput = true
-        calculateCaption = outCaption.caption
+        calculateCaption = outCalc.caption
+        calculateNote = outCalc.note
         continue
       }
       const doc = parseState(arg)
@@ -642,7 +768,12 @@ export function parseCircuit(text: string): CircuitDoc {
     // A snapshot is a moment between gates, so a layer holding one is fenced
     // off at both ends: nothing packs into it, and nothing packs past it.
     const snapshot = gates.some((g) => g.kind === 'view')
-    groups.push({ gates, breakBefore: pendingBreak || snapshot })
+    groups.push({
+      gates,
+      breakBefore: pendingBreak || snapshot,
+      caption: annotated?.caption,
+      note: annotated?.note,
+    })
     pendingBreak = snapshot
     if (gates.some((g) => g.kind !== 'view')) sawGate = true
   }
@@ -653,6 +784,7 @@ export function parseCircuit(text: string): CircuitDoc {
     else if (pendingTail.calculate) {
       calculateOutput = true
       calculateCaption = pendingTail.caption
+      calculateNote = pendingTail.note
     }
     else output = pendingTail.rows
     pendingTail = null
@@ -679,6 +811,6 @@ export function parseCircuit(text: string): CircuitDoc {
   const layers = schedule(groups)
   return {
     kind: 'circuit', qubits, layers, input, output,
-    calculateOutput, calculateCaption, header, shapePicks,
+    calculateOutput, calculateCaption, calculateNote, header, shapePicks,
   }
 }

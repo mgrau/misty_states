@@ -80,8 +80,9 @@ export interface ViewGate {
   rows?: StateRow[]
   /** Written `calculate`: work the state out from the input and the gates above. */
   calculate?: boolean
-  /** Caption for a state not yet worked out; a written one carries its own. */
+  /** Annotations for a state not yet worked out; a written one carries its own. */
   caption?: string
+  note?: string
   /**
    * Draw the state inside a framed box plumbed into the circuit, rather than as
    * a break in it. The bare form reads as the computation laid open; the framed
@@ -116,6 +117,9 @@ export function gateSpan(gate: Gate): [number, number] {
 
 export interface Layer {
   gates: Gate[]
+  /** Annotations for the layer as a whole, drawn either side of it. */
+  caption?: string
+  note?: string
 }
 
 export interface CircuitDoc {
@@ -128,8 +132,9 @@ export interface CircuitDoc {
   output?: StateRow[]
   /** Written `out calculate`: the output is worked out rather than given. */
   calculateOutput?: boolean
-  /** Caption for that output, held until there is a state to hang it on. */
+  /** Annotations for that output, held until there is a state to hang them on. */
   calculateCaption?: string
+  calculateNote?: string
   /** Per-wire shape override; defaults to position order. */
   shapePicks?: ShapePick[]
   /**
