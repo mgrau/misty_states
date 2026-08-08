@@ -55,8 +55,18 @@
     { id: 'circuit', label: 'Circuits', rows: circuitRows },
   ] as const
 
-  const { open, onopenchange }: { open: boolean; onopenchange: (open: boolean) => void } =
-    $props()
+  const {
+    open = true,
+    onopenchange,
+    collapsible = true,
+  }: {
+    open?: boolean
+    onopenchange?: (open: boolean) => void
+    /** In the side column it folds away; in a dialog there is nothing to fold. */
+    collapsible?: boolean
+  } = $props()
+
+  const shown = $derived(collapsible ? open : true)
 
   let active = $state<'state' | 'circuit'>('state')
   const rows = $derived(tabs.find((t) => t.id === active)!.rows)
@@ -71,9 +81,10 @@
 </script>
 
 <div class="flex min-h-0 flex-col">
+  {#if collapsible}
   <button
     type="button"
-    onclick={() => onopenchange(!open)}
+    onclick={() => onopenchange?.(!open)}
     aria-expanded={open}
     class="flex items-center gap-1.5 py-1 text-xs font-medium text-slate-500
            hover:text-slate-800"
@@ -94,8 +105,9 @@
     </svg>
     Syntax
   </button>
+  {/if}
 
-  {#if open}
+  {#if shown}
     <div role="tablist" aria-label="Syntax reference" class="flex border-b border-slate-200">
       {#each tabs as tab (tab.id)}
         <button
@@ -120,7 +132,10 @@
       the editor above it, and without a ceiling it pushes the source box off
       the top of the column.
     -->
-    <dl data-syntax-rows class="max-h-72 divide-y divide-slate-100 overflow-y-auto">
+    <dl
+      data-syntax-rows
+      class="divide-y divide-slate-100 {collapsible ? 'max-h-72 overflow-y-auto' : ''}"
+    >
       {#each rows as row (row.code)}
         <div class="grid grid-cols-[minmax(0,9rem)_1fr] gap-3 px-1 py-1.5 text-xs">
           <dt class="font-mono whitespace-pre text-slate-800">{row.code}</dt>

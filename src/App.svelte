@@ -104,9 +104,11 @@
   let exactOdds = $state(initial.exactOdds)
   let helpOpen = $state(initial.helpOpen)
   let zoom = $state(1)
-  let pngScale = $state(3)
+  /** 300 dpi at 96 CSS pixels to the inch — the usual print requirement. */
+  let pngScale = $state(300 / 96)
   let settingsOpen = $state(false)
   let libraryOpen = $state(false)
+  let helpModalOpen = $state(false)
   let toast = $state('')
 
   const result = $derived.by(() => {
@@ -265,6 +267,8 @@
     scale: pngScale,
   })
 
+  const pngDpi = $derived(Math.round(pngScale * 96))
+
   /** This document's URL, so links work behind a sub-path or off the filesystem. */
   const shareBase = $derived(typeof location !== 'undefined' ? location.href : '/')
 
@@ -279,7 +283,7 @@
           {
             key: 'png-image',
             label: 'PNG image',
-            hint: `Onto the clipboard at ${pngScale}× — paste into slides`,
+            hint: `Onto the clipboard at ${pngDpi} dpi — paste into slides`,
             run: () => guard(() => copyPNG(svg, pngScale), 'PNG copied'),
           },
           {
@@ -307,7 +311,7 @@
     copyItem('svg-data', 'SVG data URL', 'Self-contained — works in <img src>', () =>
       svgDataUrl(svg),
     ),
-    copyItem('png-data', 'PNG data URL', `Self-contained, at ${pngScale}×`, () =>
+    copyItem('png-data', 'PNG data URL', `Self-contained, at ${pngDpi} dpi`, () =>
       pngDataUrl(svg, pngScale),
     ),
     copyItem('pdf-data', 'PDF data URL', 'Vector PDF — paste into the address bar', () =>
@@ -333,7 +337,7 @@
     {
       key: 'png',
       label: 'PNG',
-      hint: `Raster at ${pngScale}×`,
+      hint: `Raster at ${pngDpi} dpi`,
       run: () => guard(() => downloadPNG(svg, filename, pngScale), 'PNG saved'),
     },
   ])
@@ -345,7 +349,7 @@
     copyItem('svg-page', 'SVG link', '?format=svg — the diagram alone', () =>
       imageUrl(shareBase, 'svg', { ...shareParams, scale: undefined }),
     ),
-    copyItem('png-page', 'PNG link', `?format=png — the diagram alone, at ${pngScale}×`, () =>
+    copyItem('png-page', 'PNG link', `?format=png — the diagram alone, at ${pngDpi} dpi`, () =>
       imageUrl(shareBase, 'png', shareParams),
     ),
     copyItem('pdf-page', 'PDF link', '?format=pdf — opens in the browser’s PDF viewer', () =>
@@ -385,6 +389,23 @@
     void openFile(event.dataTransfer?.files?.[0])
   }
 
+  const ZOOM_MIN = 0.25
+  const ZOOM_MAX = 3
+
+  /**
+   * Scrolling over the drawing zooms it.
+   *
+   * Multiplicative, so a step feels the same size at 30% as at 300%, and the
+   * default is passed through only when a modifier is held — otherwise a
+   * trackpad swipe meant for the page would zoom instead.
+   */
+  function onWheel(event: WheelEvent) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    event.preventDefault()
+    const factor = Math.exp(-event.deltaY * 0.0015)
+    zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * factor))
+  }
+
   let menu = $state<{ x: number; y: number } | null>(null)
 
   function openContextMenu(event: MouseEvent) {
@@ -419,12 +440,27 @@
       </span>
     </div>
 
+    <!--
+      Only where the side column's copy is hidden. On a wide screen the
+      reference is already on the page and a second way in is clutter.
+    -->
+    <button
+      type="button"
+      onclick={() => (helpModalOpen = true)}
+      aria-label="Syntax reference"
+      class="ml-auto flex items-center gap-1.5 rounded border border-slate-300 bg-white
+             px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 lg:hidden"
+    >
+      <Icon name="help" />
+      Syntax
+    </button>
+
     <button
       type="button"
       onclick={() => (settingsOpen = true)}
       aria-label="Settings"
-      class="ml-auto flex items-center gap-1.5 rounded border border-slate-300 bg-white
-             px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+      class="flex items-center gap-1.5 rounded border border-slate-300 bg-white
+             px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 lg:ml-auto"
     >
       <svg viewBox="0 0 20 20" class="h-3.5 w-3.5" aria-hidden="true">
         <circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6" />
@@ -437,9 +473,26 @@
     </button>
   </header>
 
-  <main class="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-[minmax(0,26rem)_1fr]">
+  <!--
+    Stacked on a narrow screen, side by side once there is room. Stacked, the
+    editor takes only the height it needs and the drawing gets the rest — with
+    the reference hidden there is nothing else competing for the column, so
+    handing the leftover space to the preview is the whole point.
+  -->
+  <main
+    class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-0
+           lg:grid-cols-[minmax(0,26rem)_1fr] lg:grid-rows-none"
+  >
     <!-- Editor ------------------------------------------------------------ -->
-    <section class="flex min-h-0 flex-col gap-3 overflow-y-auto border-slate-200 p-4 lg:border-r">
+    <section
+      class="flex max-h-[60vh] min-h-0 flex-col gap-3 overflow-y-auto border-slate-200 p-4
+             lg:max-h-none lg:border-r"
+    >
+      <!--
+        Side by side while the column is the whole page, so the two pickers cost
+        one row's height rather than two and the drawing keeps the difference.
+      -->
+      <div class="grid gap-3 {libraryCount > 0 ? 'grid-cols-2' : 'grid-cols-1'} lg:grid-cols-1">
       <label class="flex flex-col gap-1">
         <span class="text-xs font-medium text-slate-500">Example</span>
         <select
@@ -475,6 +528,7 @@
           </select>
         </label>
       {/if}
+      </div>
 
       {#if libraryNote}
         <p class="rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-500">
@@ -487,9 +541,10 @@
         <textarea
           bind:value={source}
           spellcheck="false"
-          rows="9"
-          class="w-full resize-y rounded border border-slate-300 bg-white p-2.5 font-mono
-                 text-sm leading-relaxed focus:border-slate-500 focus:outline-none"
+          rows="5"
+          class="field-sizing-content max-h-64 min-h-24 w-full resize-y rounded border
+                 border-slate-300 bg-white p-2.5 font-mono text-sm leading-relaxed
+                 focus:border-slate-500 focus:outline-none lg:min-h-40"
         ></textarea>
       </label>
 
@@ -501,7 +556,9 @@
         </p>
       {/if}
 
-      <SyntaxHelp open={helpOpen} onopenchange={(v) => (helpOpen = v)} />
+      <div class="hidden min-h-0 lg:flex lg:flex-col">
+        <SyntaxHelp open={helpOpen} onopenchange={(v) => (helpOpen = v)} />
+      </div>
     </section>
 
     <!-- Preview ----------------------------------------------------------- -->
@@ -510,16 +567,27 @@
         class="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2 text-xs"
       >
         <div class="flex items-center gap-1.5">
-          <span class="text-slate-500">Zoom</span>
-          <input type="range" min="0.25" max="3" step="0.05" bind:value={zoom} class="w-28" />
-          <span class="w-10 font-mono text-slate-500">{Math.round(zoom * 100)}%</span>
+          <!-- The label is the reset: a separate button for one value is a
+               button too many, and "Zoom" is already pointing at the thing. -->
           <button
             type="button"
             onclick={() => (zoom = 1)}
-            class="rounded border border-slate-300 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50"
+            disabled={zoom === 1}
+            title="Back to 100%"
+            class="rounded px-1 py-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800
+                   disabled:hover:bg-transparent disabled:hover:text-slate-500"
           >
-            Reset
+            Zoom
           </button>
+          <input
+            type="range"
+            min={ZOOM_MIN}
+            max={ZOOM_MAX}
+            step="0.05"
+            bind:value={zoom}
+            class="w-28"
+          />
+          <span class="w-10 font-mono text-slate-500">{Math.round(zoom * 100)}%</span>
         </div>
 
         <div class="flex items-center gap-1.5">
@@ -598,6 +666,8 @@
         role="img"
         aria-label="Rendered diagram. Right-click for copy and save options."
         oncontextmenu={openContextMenu}
+        onwheel={onWheel}
+        title="Scroll to zoom"
         class="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8
                {dark ? 'checkerboard-dark' : 'checkerboard'}"
       >
@@ -670,6 +740,40 @@
 
   {#if libraryOpen}
     <LibraryEditor onclose={() => (libraryOpen = false)} />
+  {/if}
+
+  {#if helpModalOpen}
+    <!-- Click-away backdrop; sits under the dialog. -->
+    <button
+      type="button"
+      aria-label="Close the syntax reference"
+      onclick={() => (helpModalOpen = false)}
+      class="fixed inset-0 z-40 cursor-default bg-slate-900/25"
+    ></button>
+
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Syntax reference"
+      class="fixed inset-x-4 top-8 bottom-8 z-50 mx-auto flex max-w-lg flex-col overflow-hidden
+             rounded-lg border border-slate-300 bg-white shadow-xl"
+    >
+      <header class="flex items-center border-b border-slate-200 px-4 py-3">
+        <h2 class="text-sm font-semibold">Syntax</h2>
+        <button
+          type="button"
+          onclick={() => (helpModalOpen = false)}
+          aria-label="Close the syntax reference"
+          class="ml-auto rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-100
+                 hover:text-slate-700"
+        >
+          ✕
+        </button>
+      </header>
+      <div class="overflow-y-auto px-4 py-2">
+        <SyntaxHelp collapsible={false} />
+      </div>
+    </div>
   {/if}
 
   {#if toast}

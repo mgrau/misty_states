@@ -208,7 +208,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   const showHeader = doc.header === true
 
   /** Captions lifted out of states, drawn together against one left edge. */
-  const captions: { text: string; cy: number }[] = []
+  const captions: { text: string; cy: number; left: number }[] = []
 
   /**
    * Stretches of pipe that a window frame overhangs without covering.
@@ -347,7 +347,13 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     for (const raw of raws) {
       const { caption, row } = liftCaption(raw)
       const placed = placeState(row, at, q0, q1)
-      if (caption) captions.push({ text: caption, cy: placed.box.y + placed.box.h / 2 })
+      if (caption) {
+        captions.push({
+          text: caption,
+          cy: placed.box.y + placed.box.h / 2,
+          left: placed.box.x,
+        })
+      }
       prims.push(...placed.prims)
       boxes.push(placed.box)
       contents.push(placed.content)
@@ -593,24 +599,30 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
 
   /* ----------------------------------------------------------- captions --- */
 
-  // Right-aligned against a single edge to the left of the circuit, so a column
-  // of them reads as a column whatever their lengths.
+  /*
+   * Right-aligned against a single edge, so a column of them reads as a column
+   * whatever their lengths.
+   *
+   * The edge comes from the captioned rows themselves — a cloud is routinely
+   * wider than the wires it covers, so measuring from the first column would
+   * run a caption straight through one. Measuring from the *whole* drawing
+   * would be safe but far too timid: one wide state elsewhere would push every
+   * caption out to meet it, leaving a gulf beside the short rows.
+   */
+  const gutterEdge =
+    captions.reduce((x, c) => Math.min(x, c.left), left) - CAPTION_GAP
+
   for (const caption of captions) {
     const w = textWidth(caption.text, m.fontSize)
     caps.push({
       t: 'text',
-      x: left - CAPTION_GAP,
+      x: gutterEdge,
       cy: caption.cy,
       text: caption.text,
       size: m.fontSize,
       anchor: 'end',
     })
-    boxes.push({
-      x: left - CAPTION_GAP - w,
-      y: caption.cy - m.fontSize / 2,
-      w,
-      h: m.fontSize,
-    })
+    boxes.push({ x: gutterEdge - w, y: caption.cy - m.fontSize / 2, w, h: m.fontSize })
   }
 
   /*

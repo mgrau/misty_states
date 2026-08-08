@@ -79,8 +79,15 @@
     }
   }
 
-  /** Screen CSS pixels are 96 per inch, so the multiplier is a real DPI. */
-  const SCALES = [2, 3, 4]
+/**
+   * Offered as real print resolutions rather than multipliers.
+   *
+   * Screen CSS pixels are 96 to the inch, so the scale a PNG is rasterised at
+   * *is* a DPI once divided through — and a DPI is what a journal or a printer
+   * asks for. 150 is draft, 300 the usual requirement, 600 for line art.
+   */
+  const SCREEN_DPI = 96
+  const RESOLUTIONS = [150, 300, 600]
 
   let libraryMessage = $state('')
   let libraryError = $state(false)
@@ -330,20 +337,22 @@
       <section class="flex flex-col gap-2">
         <div class="flex items-baseline justify-between">
           <h3 class="text-xs font-medium text-slate-500">PNG resolution</h3>
-          <span class="font-mono text-[11px] text-slate-400">{pngScale * 96} dpi</span>
+          <span class="font-mono text-[11px] text-slate-400">
+            {Math.round(pngScale * 100) / 100}× actual size
+          </span>
         </div>
         <div class="flex rounded-md border border-slate-200 p-0.5">
-          {#each SCALES as scale (scale)}
+          {#each RESOLUTIONS as dpi (dpi)}
             <button
               type="button"
-              onclick={() => onpngscalechange(scale)}
-              aria-pressed={pngScale === scale}
+              onclick={() => onpngscalechange(dpi / SCREEN_DPI)}
+              aria-pressed={Math.abs(pngScale - dpi / SCREEN_DPI) < 0.001}
               class="flex-1 rounded px-2 py-1 text-xs transition-colors
-                     {pngScale === scale
+                     {Math.abs(pngScale - dpi / SCREEN_DPI) < 0.001
                 ? 'bg-slate-800 text-white'
                 : 'text-slate-600 hover:text-slate-900'}"
             >
-              {scale}×
+              {dpi} dpi
             </button>
           {/each}
         </div>

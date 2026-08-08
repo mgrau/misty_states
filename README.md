@@ -10,7 +10,7 @@ Type text, get an SVG. Everything runs client-side; nothing is uploaded.
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # static bundle in dist/, plus the API bundle in dist/lib/
-npm test         # 256 tests
+npm test         # 628 tests
 ```
 
 Built with TypeScript, Svelte 5 and Tailwind 4. No backend and no network calls:
@@ -115,7 +115,7 @@ out 000|111
 | `in 00\|11` | Misty state above the circuit |
 | `out 000\|111` | Misty state below the circuit |
 | `header on` | Label the columns with their qubit shapes (`labels on` is an alias) |
-| `shapes 3 1 2 4` | Per-wire shapes, for a register not in the default order |
+| `shape ^os` | Per-wire shapes, for a register not in the default order |
 
 ### What sits above the circuit
 
@@ -349,6 +349,8 @@ leave. Qubit size sits beside Zoom, above the preview.
 
 ## Export
 
+Zoom resets by clicking its own label, and a scroll over the drawing zooms it.
+
 Three toolbar menus — **Copy**, **Save** and **Link** — and the same actions on
 a right-click over the diagram. Each is a split button: the labelled half runs
 the first item in its menu, the caret opens the rest.
@@ -357,7 +359,7 @@ the first item in its menu, the caret opens the rest.
 | --- | --- |
 | **PDF** (default) | Vector, page cropped to the figure — drops straight into LaTeX |
 | SVG | Vector, editable in Inkscape or Illustrator |
-| PNG | Raster at 2×/3×/4× |
+| PNG | Raster at 150/300/600 dpi |
 
 **Copy** offers the drawing as an image — **PNG image** (the default, and what
 pastes reliably into slides, docs and mail) and **SVG image**, which keeps it

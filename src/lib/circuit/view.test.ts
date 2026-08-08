@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
 import { layoutCircuit } from './layout'
+import { resolveCalculations } from './simulate'
 import { ParseError } from '../state/parse'
 import { render } from '../index'
 import type { ViewGate } from './ast'
@@ -408,6 +409,39 @@ describe('captions', () => {
       // Left of column 1, and inside the drawing's own bounds.
       expect(text.x).toBeLessThan(0)
       expect(laid.box.x).toBeLessThan(text.x)
+    }
+  })
+
+  it('clears the row it labels without being shoved aside by another', () => {
+    // A cloud is routinely wider than the wires it covers, so measuring from
+    // the first column runs the caption through it — but measuring from the
+    // whole drawing lets one wide state elsewhere push every caption away.
+    const laid = layoutCircuit(
+      resolveCalculations(parseCircuit('in 00|01|01|10\nI 1; measure 2 Z\ncalc'), {}),
+    )
+    const captions = laid.prims.filter((p) => p.t === 'text')
+    expect(captions).toHaveLength(2)
+
+    const clouds = laid.prims.filter((p) => p.t === 'cloud')
+    /** Contents drawn in the same horizontal band as `cy`. */
+    const beside = (cy: number) =>
+      Math.min(
+        ...clouds.flatMap((p) =>
+          p.t === 'cloud' && p.content.y - 24 <= cy && cy <= p.content.y + p.content.h + 24
+            ? [p.content.x]
+            : [],
+        ),
+      )
+
+    // The input is four two-qubit terms, far wider than either outcome row.
+    const widest = Math.min(...clouds.map((p) => (p.t === 'cloud' ? p.content.x : 0)))
+
+    for (const c of captions) {
+      if (c.t !== 'text') continue
+      // Right-aligned, so its own x is its right edge: clear of its own row…
+      expect(c.x).toBeLessThanOrEqual(beside(c.cy))
+      // …and not dragged out to clear the wide input cloud above it.
+      expect(c.x).toBeGreaterThan(widest)
     }
   })
 

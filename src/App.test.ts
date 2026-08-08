@@ -251,8 +251,12 @@ describe('reopening a saved figure', () => {
 })
 
 describe('the syntax reference', () => {
+  // Two buttons say "Syntax": this one folds the side column's copy away, the
+  // other opens the dialog that stands in for it on a narrow screen.
   const toggle = () =>
-    [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Syntax')!
+    [...host.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Syntax' && b.hasAttribute('aria-expanded'),
+    )!
   const rows = () => host.querySelector('[data-syntax-rows]')
 
   it('opens by default and lists the syntax', () => {
@@ -289,6 +293,165 @@ describe('the syntax reference', () => {
     app = undefined
     boot()
     expect(rows()).toBeNull()
+  })
+})
+
+describe('zoom', () => {
+  const label = () =>
+    [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Zoom')!
+  const slider = () => host.querySelector('input[type="range"]') as HTMLInputElement
+  const readout = () => host.querySelector('.font-mono.text-slate-500')?.textContent?.trim()
+
+  const setZoom = (v: number) => {
+    const el = slider()
+    el.value = String(v)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    flushSync()
+  }
+
+  it('has no separate reset button — the label does it', () => {
+    boot()
+    expect([...host.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Reset'))
+      .toBe(false)
+    expect(label()).toBeTruthy()
+  })
+
+  it('resets to 100% when the label is clicked', () => {
+    boot()
+    setZoom(2)
+    expect(readout()).toBe('200%')
+    label().click()
+    flushSync()
+    expect(readout()).toBe('100%')
+  })
+
+  it('greys the label out when there is nothing to reset', () => {
+    boot()
+    expect(label().hasAttribute('disabled')).toBe(true)
+    setZoom(1.5)
+    expect(label().hasAttribute('disabled')).toBe(false)
+  })
+
+  it('zooms on a scroll over the drawing', () => {
+    boot()
+    const area = host.querySelector('[role="img"]')!
+    area.dispatchEvent(new WheelEvent('wheel', { deltaY: -200, bubbles: true, cancelable: true }))
+    flushSync()
+    expect(readout()).not.toBe('100%')
+    const zoomedIn = readout()!
+    area.dispatchEvent(new WheelEvent('wheel', { deltaY: 400, bubbles: true, cancelable: true }))
+    flushSync()
+    expect(parseInt(readout()!)).toBeLessThan(parseInt(zoomedIn))
+  })
+
+  it('stays within the slider range however hard you scroll', () => {
+    boot()
+    const area = host.querySelector('[role="img"]')!
+    for (let i = 0; i < 40; i++) {
+      area.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, bubbles: true, cancelable: true }))
+    }
+    flushSync()
+    expect(parseInt(readout()!)).toBe(300)
+    for (let i = 0; i < 80; i++) {
+      area.dispatchEvent(new WheelEvent('wheel', { deltaY: 400, bubbles: true, cancelable: true }))
+    }
+    flushSync()
+    expect(parseInt(readout()!)).toBe(25)
+  })
+
+  it('leaves a modified scroll to the browser', () => {
+    boot()
+    const area = host.querySelector('[role="img"]')!
+    const e = new WheelEvent('wheel', { deltaY: -200, ctrlKey: true, bubbles: true, cancelable: true })
+    area.dispatchEvent(e)
+    flushSync()
+    expect(readout()).toBe('100%')
+    expect(e.defaultPrevented).toBe(false)
+  })
+})
+
+describe('the syntax reference on a narrow screen', () => {
+  const dialogButton = () =>
+    [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Syntax reference',
+    )!
+
+  it('offers a button beside Settings, with an icon', () => {
+    boot()
+    expect(dialogButton()).toBeTruthy()
+    expect(dialogButton().querySelector('svg')).not.toBeNull()
+    // Hidden once the side column has room for the reference itself.
+    expect(dialogButton().className).toMatch(/lg:hidden/)
+  })
+
+  it('opens the reference in a dialog, with no fold-away header inside it', () => {
+    boot()
+    expect(host.querySelector('[role="dialog"][aria-label="Syntax reference"]')).toBeNull()
+    dialogButton().click()
+    flushSync()
+    const dialog = host.querySelector('[role="dialog"][aria-label="Syntax reference"]')!
+    expect(dialog).not.toBeNull()
+    expect(dialog.querySelectorAll('dt').length).toBeGreaterThan(10)
+    // Nothing to collapse in a dialog that is already the reference.
+    expect(dialog.querySelector('[aria-expanded]')).toBeNull()
+  })
+
+  it('closes again', () => {
+    boot()
+    dialogButton().click()
+    flushSync()
+    const close = host.querySelector(
+      'button[aria-label="Close the syntax reference"]',
+    ) as HTMLElement
+    close.click()
+    flushSync()
+    expect(host.querySelector('[role="dialog"][aria-label="Syntax reference"]')).toBeNull()
+  })
+})
+
+describe('PNG resolution', () => {
+  const openSettings = () => {
+    const btn = [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Settings',
+    )!
+    btn.click()
+    flushSync()
+  }
+  const buttons = () =>
+    [...host.querySelectorAll<HTMLButtonElement>('aside button')].filter((b) =>
+      /dpi$/.test(b.textContent!.trim()),
+    )
+
+  it('offers real print resolutions, not multipliers', () => {
+    boot()
+    openSettings()
+    expect(buttons().map((b) => b.textContent!.trim())).toEqual(['150 dpi', '300 dpi', '600 dpi'])
+  })
+
+  it('starts at 300, the usual print requirement', () => {
+    boot()
+    openSettings()
+    const on = buttons().find((b) => b.getAttribute('aria-pressed') === 'true')
+    expect(on!.textContent!.trim()).toBe('300 dpi')
+  })
+
+  it('rasterises at the scale that dpi implies', () => {
+    boot()
+    openSettings()
+    // 96 CSS pixels to the inch, so 600 dpi is 6.25x actual size.
+    buttons().find((b) => b.textContent!.trim() === '600 dpi')!.click()
+    flushSync()
+    expect(host.querySelector('aside')!.textContent).toContain('6.25× actual size')
+  })
+
+  it('says the resolution in the export menus too', () => {
+    boot()
+    const caret = [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Save: more options',
+    )!
+    caret.click()
+    flushSync()
+    expect(host.textContent).toContain('Raster at 300 dpi')
   })
 })
 
