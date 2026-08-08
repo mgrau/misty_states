@@ -135,6 +135,18 @@ export const EXAMPLES: Example[] = [
     ].join('\n'),
   },
   {
+    id: 'measure-calculate',
+    title: 'Circuit — calculated measurement outcomes',
+    note: 'A measurement leaves several possible states; "calculate" draws them all with their odds.',
+    source: [
+      'in 00',
+      'H 1',
+      'CNOT 1 -> 2',
+      'measure 1 Z; measure 2 Z',
+      'out calculate',
+    ].join('\n'),
+  },
+  {
     id: 'window',
     title: 'Circuit — a framed window',
     note: '"window" frames the state in a box plumbed into the circuit, rather than breaking it.',

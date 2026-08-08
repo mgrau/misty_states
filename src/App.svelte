@@ -33,6 +33,7 @@
     cloudFluff: number
     cloudPad: number
     factorCalculated: boolean
+    exactOdds: boolean
   }
 
   function load(): Saved {
@@ -47,6 +48,7 @@
       cloudFluff: 1,
       cloudPad: 14,
       factorCalculated: true,
+      exactOdds: false,
     }
 
     // A ?src= deep link wins over the saved session, so a shared link always
@@ -97,6 +99,7 @@
   let cloudFluff = $state(initial.cloudFluff)
   let cloudPad = $state(initial.cloudPad)
   let factorCalculated = $state(initial.factorCalculated)
+  let exactOdds = $state(initial.exactOdds)
   let zoom = $state(1)
   let pngScale = $state(3)
   let settingsOpen = $state(false)
@@ -110,6 +113,7 @@
         dark,
         shapeOrder,
         factorCalculated,
+        exactOdds,
         metrics: {
           qubit: qubitSize,
           separator,
@@ -139,7 +143,7 @@
   $effect(() => {
     const snapshot: Saved = {
       source, name, theme, dark, shapeOrder, qubitSize, separator, cloudFluff, cloudPad,
-      factorCalculated,
+      factorCalculated, exactOdds,
     }
     try {
       localStorage.setItem(STORE, JSON.stringify(snapshot))
@@ -643,6 +647,7 @@
     {cloudFluff}
     {cloudPad}
     {factorCalculated}
+    {exactOdds}
     {shapeOrder}
     onclose={() => (settingsOpen = false)}
     oneditlibrary={() => {
@@ -656,6 +661,7 @@
     oncloudfluffchange={(v) => (cloudFluff = v)}
     oncloudpadchange={(v) => (cloudPad = v)}
     onfactorchange={(v) => (factorCalculated = v)}
+    onexactoddschange={(v) => (exactOdds = v)}
     onshapeorderchange={(o) => (shapeOrder = o)}
   />
 

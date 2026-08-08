@@ -72,8 +72,11 @@ export interface ViewGate {
   kind: 'view'
   /** The contiguous run of qubits the state describes. */
   qubits: number[]
-  /** The state to show; absent while `calculate` has still to be worked out. */
-  row?: StateRow
+  /**
+   * The states to show — usually one, but a measurement leaves several
+   * possible outcomes, each drawn on its own row.
+   */
+  rows?: StateRow[]
   /** Written `calculate`: work the state out from the input and the gates above. */
   calculate?: boolean
   /** Caption for a state not yet worked out; a written one carries its own. */
@@ -120,8 +123,8 @@ export interface CircuitDoc {
   layers: Layer[]
   /** Optional misty state drawn above the circuit. */
   input?: StateRow
-  /** Optional misty state drawn below the circuit. */
-  output?: StateRow
+  /** Optional misty state drawn below the circuit; several after a measurement. */
+  output?: StateRow[]
   /** Written `out calculate`: the output is worked out rather than given. */
   calculateOutput?: boolean
   /** Caption for that output, held until there is a state to hang it on. */

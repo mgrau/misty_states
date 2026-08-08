@@ -49,7 +49,7 @@ describe.skipIf(!present)('calculating the library’s worked answers', () => {
           checked.push({
             id: entry.id,
             got: canonical(simulate(circuit, circuit.layers.length)),
-            want: canonical(amplitudesOf(circuit.output, circuit.qubits)),
+            want: canonical(amplitudesOf(circuit.output[0], circuit.qubits)),
           })
         } catch (err) {
           if (err instanceof SimulationError) {

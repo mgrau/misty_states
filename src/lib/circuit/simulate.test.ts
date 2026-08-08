@@ -199,8 +199,8 @@ describe('what it will not do, it says', () => {
     }
   })
 
-  it('refuses a measurement, for now', () => {
-    expect(fails('in 0\nH 1\nmeasure 1 Z')).toThrow(/cannot pass the measurement on wire 1/)
+  it('refuses an X- or Y-basis measurement, which has no outcome to draw', () => {
+    expect(fails('in 0\nH 1\nmeasure 1 X')).toThrow(/no white-or-black outcome/)
   })
 
   it('refuses a box, which is a drawing rather than an operation', () => {
@@ -230,55 +230,156 @@ describe('what it will not do, it says', () => {
   })
 })
 
+describe('measuring — one state becomes several', () => {
+  const outcomes = (src: string, exactOdds = false) =>
+    resolveCalculations(parseCircuit(src), { factor: true, exactOdds }).output!.map((row) => ({
+      odds: row.sides[0].caption,
+      state: write({ sides: [{ factors: row.sides[0].factors }] }),
+    }))
+
+  it('splits an even superposition down the middle', () => {
+    expect(outcomes('in 00\nH 1\nCNOT 1 -> 2\nmeasure 1 Z; measure 2 Z\nout calculate')).toEqual([
+      { odds: '50%', state: '00' },
+      { odds: '50%', state: '11' },
+    ])
+  })
+
+  it('weighs the outcomes by the Born rule', () => {
+    // 3² and 2² out of 13 — the amplitudes squared, not the amplitudes.
+    expect(outcomes('in 3*0|2*1\nmeasure 1 Z\nout calculate')).toEqual([
+      { odds: '69%', state: '0' },
+      { odds: '31%', state: '1' },
+    ])
+  })
+
+  it('writes the odds exactly when asked, rather than rounding', () => {
+    expect(outcomes('in 3*0|2*1\nmeasure 1 Z\nout calculate', true).map((o) => o.odds)).toEqual([
+      '9/13',
+      '4/13',
+    ])
+  })
+
+  it('still says 50% exactly, whichever way odds are written', () => {
+    const even = 'in 00\nH 1\nCNOT 1 -> 2\nmeasure 1 Z\nout calculate'
+    expect(outcomes(even, true).map((o) => o.odds)).toEqual(['50%', '50%'])
+  })
+
+  it('leaves the unmeasured qubits in superposition', () => {
+    // PS4 §1.5: only the circle is measured, and the square keeps its sign.
+    expect(outcomes('in 00|10|-01|11\nmeasure 1 Z\nout calculate')).toEqual([
+      { odds: '50%', state: '0(0|-1)' },
+      { odds: '50%', state: '1(0|1)' },
+    ])
+  })
+
+  it('reports a certain outcome as 100%, which is worth saying after a measurement', () => {
+    // PS3 §3.1: both terms have a black square, so the measurement tells you
+    // nothing you did not know — and the circle stays in superposition.
+    expect(outcomes('in 01|11\nI 1; measure 2 Z\nout calculate')).toEqual([
+      { odds: '100%', state: '(0|1)1' },
+    ])
+  })
+
+  it('says nothing about odds when nothing was measured', () => {
+    expect(outcomes('in 00\nH 1\nout calculate')).toEqual([{ odds: undefined, state: '(0|1)0' }])
+  })
+
+  it('branches again on a second measurement', () => {
+    const all = outcomes('in 000\nH 1\nH 2\nmeasure 1 Z; measure 2 Z\nout calculate')
+    expect(all).toHaveLength(4)
+    expect(all.map((o) => o.odds)).toEqual(['25%', '25%', '25%', '25%'])
+    expect(all.map((o) => o.state)).toEqual(['000', '010', '100', '110'])
+  })
+
+  it('drops an outcome that cannot happen', () => {
+    // Nothing in this state has a black circle, so there is no such branch.
+    expect(outcomes('in 00|01\nmeasure 1 Z\nout calculate')).toHaveLength(1)
+  })
+
+  it('keeps a written caption alongside the odds', () => {
+    const [first] = outcomes('in 00\nH 1\nmeasure 1 Z\nafter measuring: calculate')
+    expect(first.odds).toBe('after measuring — 50%')
+  })
+
+  it('shows the branches part-way through a circuit too', () => {
+    const doc = resolveCalculations(
+      parseCircuit('in 00\nH 1\nmeasure 1 Z\ncalculate\nX 2'),
+      { factor: true },
+    )
+    const view = doc.layers.flatMap((l) => l.gates).find((g) => g.kind === 'view')
+    expect(view?.kind === 'view' && view.rows).toHaveLength(2)
+  })
+
+  it('carries on applying gates to every branch', () => {
+    // The X after the measurement lands on both outcomes.
+    expect(outcomes('in 00\nH 1\nmeasure 1 Z\nX 2\nout calculate').map((o) => o.state)).toEqual([
+      '01',
+      '11',
+    ])
+  })
+
+  it('refuses a basis with no white-or-black outcome', () => {
+    expect(() => outcomes('in 0\nH 1\nmeasure 1 X\nout calculate')).toThrow(
+      /no white-or-black outcome/,
+    )
+  })
+
+  it('draws the branches, end to end', () => {
+    const out = render('in 00\nH 1\nCNOT 1 -> 2\nmeasure 1 Z; measure 2 Z\nout calculate')
+    expect(out.svg).not.toContain('NaN')
+    expect(out.svg).toContain('50%')
+  })
+})
+
 describe('where calculate can go', () => {
   const doc = (src: string) => resolveCalculations(parseCircuit(src), { factor: false })
   const views = (src: string) =>
     doc(src).layers.flatMap((l) => l.gates).filter((g) => g.kind === 'view')
 
   it('takes the place of an output state', () => {
-    expect(write(doc('in 00\nH 1\nCNOT 1 -> 2\nout calculate').output!)).toBe('00|11')
+    expect(write(doc('in 00\nH 1\nCNOT 1 -> 2\nout calculate').output![0])).toBe('00|11')
   })
 
   it('accepts the short spelling', () => {
-    expect(write(doc('in 00\nH 1\nout calc').output!)).toBe('00|10')
+    expect(write(doc('in 00\nH 1\nout calc').output![0])).toBe('00|10')
   })
 
   it('works as a bare line after the last gate', () => {
-    expect(write(doc('in 00\nH 1\nCNOT 1 -> 2\ncalculate').output!)).toBe('00|11')
+    expect(write(doc('in 00\nH 1\nCNOT 1 -> 2\ncalculate').output![0])).toBe('00|11')
   })
 
   it('shows the state part-way through as a view', () => {
     const [first] = views('in 001\nSWAP 2 3\ncalculate\nCNOT 2 -> 1; X 3')
-    expect(first.kind === 'view' && write(first.row!)).toBe('010')
+    expect(first.kind === 'view' && write(first.rows![0])).toBe('010')
   })
 
   it('gives the state entering its own layer, not leaving it', () => {
     // The snapshot sits between the gates above and below, so the CNOT under
     // it has not happened yet.
     const [first] = views('in 00\nH 1\ncalculate\nCNOT 1 -> 2')
-    expect(first.kind === 'view' && write(first.row!)).toBe('00|10')
+    expect(first.kind === 'view' && write(first.rows![0])).toBe('00|10')
   })
 
   it('works inside a window', () => {
     const [first] = views('in 00\nH 1\nwindow calculate\nCNOT 1 -> 2')
     expect(first.kind === 'view' && first.boxed).toBe(true)
-    expect(first.kind === 'view' && write(first.row!)).toBe('00|10')
+    expect(first.kind === 'view' && write(first.rows![0])).toBe('00|10')
   })
 
   it('calculates several points in one circuit', () => {
     const all = views('in 001\nSWAP 2 3\ncalculate\nX 3\ncalculate\nCNOT 2 -> 1')
-    expect(all.map((v) => (v.kind === 'view' ? write(v.row!) : ''))).toEqual(['010', '011'])
+    expect(all.map((v) => (v.kind === 'view' ? write(v.rows![0]) : ''))).toEqual(['010', '011'])
   })
 
   it('takes a caption, like any other state', () => {
     const [first] = views('in 001\nSWAP 2 3\nafter the swap: calculate\nX 3')
-    expect(first.kind === 'view' && first.row!.sides[0].caption).toBe('after the swap')
-    expect(first.kind === 'view' && write(first.row!)).toBe('010')
+    expect(first.kind === 'view' && first.rows![0].sides[0].caption).toBe('after the swap')
+    expect(first.kind === 'view' && write(first.rows![0])).toBe('010')
   })
 
   it('takes a caption on a bare trailing line too', () => {
     const out = doc('in 00\nH 1\nresult: calculate').output!
-    expect(out.sides[0].caption).toBe('result')
+    expect(out[0].sides[0].caption).toBe('result')
   })
 
   it('cannot be the input, which is what it starts from', () => {

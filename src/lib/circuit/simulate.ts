@@ -183,9 +183,8 @@ function applyGate(amps: Amplitudes, gate: Gate): Amplitudes {
     }
 
     case 'measure':
-      throw new SimulationError(
-        `calculate cannot pass the measurement on wire ${gate.qubit}`,
-      )
+      // Handled by the branch loop, which is where one state becomes several.
+      return amps
 
     case 'box':
       throw new SimulationError(
@@ -294,6 +293,73 @@ function factorise(amps: Amplitudes, width: number): Amplitudes[] {
 export interface PresentOptions {
   /** Draw the answer as a product where it separates, rather than one cloud. */
   factor?: boolean
+  /**
+   * Write a branch's likelihood exactly where a percentage would have to round
+   * — `9/13` rather than `69%`. An even split still reads `50%`.
+   */
+  exactOdds?: boolean
+}
+
+/* -- Measurement --------------------------------------------------------- */
+
+/** An exact probability. Amplitudes are integers, so odds are always rational. */
+interface Frac {
+  n: number
+  d: number
+}
+
+const ONE: Frac = { n: 1, d: 1 }
+
+function frac(n: number, d: number): Frac {
+  const g = gcd(n, d) || 1
+  return { n: n / g, d: d / g }
+}
+
+const times = (a: Frac, b: Frac): Frac => frac(a.n * b.n, a.d * b.d)
+
+/** Sum of squared amplitudes — the weight the Born rule divides through. */
+function weight(amps: Amplitudes): number {
+  let total = 0
+  for (const amp of amps.values()) total += amp * amp
+  return total
+}
+
+/**
+ * One possible history: a state, and how likely the measurements were to have
+ * left it that way.
+ */
+export interface Branch {
+  amps: Amplitudes
+  odds: Frac
+}
+
+/** How a branch's likelihood is written above it. */
+export function oddsLabel(odds: Frac, exact = false): string {
+  const percent = (odds.n * 100) / odds.d
+  if (Number.isInteger(percent)) return `${percent}%`
+  return exact ? `${odds.n}/${odds.d}` : `${Math.round(percent)}%`
+}
+
+/**
+ * Split a branch on measuring one wire.
+ *
+ * The Born rule in its plainest form: gather the terms in which the wire is
+ * white and those in which it is black, and weigh each by the squared
+ * amplitudes it holds. Each outcome keeps its own terms, which is what leaves
+ * the measured qubit fixed and the rest still in superposition.
+ */
+function measureWire(branch: Branch, qubit: number): Branch[] {
+  const total = weight(branch.amps)
+  if (!total) return []
+
+  const out: Branch[] = []
+  for (const value of ['0', '1']) {
+    const kept: Amplitudes = new Map()
+    for (const [bits, amp] of branch.amps) if (bits[qubit - 1] === value) kept.set(bits, amp)
+    if (!kept.size) continue
+    out.push({ amps: kept, odds: times(branch.odds, frac(weight(kept), total)) })
+  }
+  return out
 }
 
 /** Turn computed amplitudes into a state row ready to be drawn. */
@@ -317,26 +383,64 @@ export function stateFrom(amps: Amplitudes, qubits: number, opts: PresentOptions
  *
  * Views are skipped, so a snapshot never disturbs what it is looking at.
  */
+/** The single state a circuit with no measurement produces. */
 export function simulate(doc: CircuitDoc, layers: number): Amplitudes {
+  const { branches } = simulateFrom(doc, layers)
+  if (branches.length !== 1) {
+    throw new SimulationError('this circuit measures, so it has more than one outcome')
+  }
+  return branches[0].amps
+}
+
+/**
+ * Every history the circuit can produce, and how likely each is.
+ *
+ * `measured` says whether any measurement happened at all, which is what
+ * decides if the results want labelling: one outcome at 100% is worth saying
+ * after a measurement and worth nothing before one.
+ */
+export function simulateBranches(
+  doc: CircuitDoc,
+  layers: number,
+): { branches: Branch[]; measured: boolean } {
   return simulateFrom(doc, layers)
 }
 
-function simulateFrom(doc: CircuitDoc, layers: number): Amplitudes {
+function simulateFrom(doc: CircuitDoc, layers: number) {
   // A circuit with no input written starts where a circuit conventionally does:
   // every wire white. It is also the only reading available, since an unwritten
   // input cannot mean anything else.
-  let amps = doc.input
+  const start = doc.input
     ? amplitudesOf(doc.input, doc.qubits)
     : new Map([['0'.repeat(doc.qubits), 1]])
+
+  let branches: Branch[] = [{ amps: start, odds: ONE }]
+  let measured = false
+
   for (const layer of doc.layers.slice(0, layers)) {
     // Sorted so the answer cannot depend on the order gates were written in
     // within a layer; they act on disjoint wires, so they commute.
     const gates = [...layer.gates].sort(
       (a, b) => Math.min(...gateQubits(a)) - Math.min(...gateQubits(b)),
     )
-    for (const gate of gates) amps = applyGate(amps, gate)
+    for (const gate of gates) {
+      if (gate.kind === 'measure') {
+        if (gate.basis !== 'Z') {
+          throw new SimulationError(
+            `a ${gate.basis} measurement has no white-or-black outcome to draw`,
+          )
+        }
+        measured = true
+        branches = branches.flatMap((b) => measureWire(b, gate.qubit))
+        continue
+      }
+      branches = branches.map((b) => ({ ...b, amps: applyGate(b.amps, gate) }))
+    }
+    // A term that cancelled to nothing takes its branch with it.
+    branches = branches.filter((b) => b.amps.size)
   }
-  return amps
+
+  return { branches, measured }
 }
 
 /**
@@ -351,6 +455,29 @@ function captioned(row: StateRow, caption?: string): StateRow {
   return { ...row, sides: row.sides.map((s, i) => (i ? s : { ...s, caption })) }
 }
 
+/**
+ * The rows a `calculate` draws: one per outcome.
+ *
+ * Only labelled once a measurement has happened. A written caption keeps its
+ * place and the odds join it, since both want the same gutter.
+ */
+function calculated(
+  doc: CircuitDoc,
+  layers: number,
+  caption: string | undefined,
+  opts: PresentOptions,
+): StateRow[] {
+  const { branches, measured } = simulateFrom(doc, layers)
+  if (!branches.length) {
+    throw new SimulationError('the terms all cancel, leaving no state to draw')
+  }
+  return branches.map((branch) => {
+    const odds = measured ? oddsLabel(branch.odds, opts.exactOdds) : undefined
+    const label = [caption, odds].filter(Boolean).join(' — ') || undefined
+    return captioned(stateFrom(branch.amps, doc.qubits, opts), label)
+  })
+}
+
 export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}): CircuitDoc {
   const wanted = doc.layers.some((l) =>
     l.gates.some((g) => g.kind === 'view' && g.calculate),
@@ -361,16 +488,13 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
     ...layer,
     gates: layer.gates.map((gate) =>
       gate.kind === 'view' && gate.calculate
-        ? { ...gate, row: captioned(stateFrom(simulateFrom(doc, at), doc.qubits, opts), gate.caption) }
+        ? { ...gate, rows: calculated(doc, at, gate.caption, opts) }
         : gate,
     ),
   }))
 
   const output = doc.calculateOutput
-    ? captioned(
-        stateFrom(simulateFrom(doc, doc.layers.length), doc.qubits, opts),
-        doc.calculateCaption,
-      )
+    ? calculated(doc, doc.layers.length, doc.calculateCaption, opts)
     : doc.output
 
   return { ...doc, layers, output }

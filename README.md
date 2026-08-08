@@ -220,9 +220,41 @@ A circuit that writes no input starts from **every wire white**, so `H 1` alone
 calculates to `0|1` and no `in` line is needed for the usual case.
 
 It refuses rather than guessing: `S`, `T` and `Y` need complex amplitudes the
-notation cannot draw, `BOX` and `BLANK` are pictures rather than operations, `?`
-has no value to propagate, and a measurement is not yet handled. Each says which
-gate and why.
+notation cannot draw, `BOX` and `BLANK` are pictures rather than operations, and
+`?` has no value to propagate. Each says which gate and why.
+
+### Measurement
+
+A measurement leaves several possible states, so `calculate` draws them all —
+one row per outcome, labelled with how likely it is:
+
+```
+in 00
+H 1
+CNOT 1 -> 2
+measure 1 Z; measure 2 Z
+out calculate        # 50%: 00
+                     # 50%: 11
+```
+
+The odds come from the Born rule on exact integers, so they are exact
+fractions. Settings chooses how they are written: a **rounded percentage** by
+default, or **exact odds**, which falls back to a fraction only where a
+percentage would have to round — `9/13` rather than `69%`. An even split reads
+`50%` either way.
+
+The measured qubit keeps its collapsed value and the rest stay in
+superposition, so `00|10|-01|11` measured on the first wire gives `50%: 0(0|-1)`
+and `50%: 1(0|1)`, minus sign intact. Gates below a measurement apply to every
+branch, and a second measurement branches again. An outcome with no amplitude is
+dropped rather than drawn at 0%.
+
+A single outcome is still labelled `100%` once a measurement has happened —
+that a measurement told you nothing is worth saying. Before any measurement
+there are no odds to report and no label appears.
+
+Only the Z basis is handled: an X or Y measurement has no white-or-black outcome
+the notation could draw, and says so.
 
 **How it is checked.** Three independent ways, because a simulator that is
 subtly wrong draws plausible diagrams rather than obvious errors:

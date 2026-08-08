@@ -40,6 +40,7 @@
     { code: 'view 2-3 00|11', text: 'A view of some qubits; the rest flow past' },
     { code: 'out calculate', text: 'Work the state out from the input ("calc" too)' },
     { code: 'after H: calc', text: 'Calculated part-way through, with a caption' },
+    { code: 'measure 1 Z', text: 'calculate draws every outcome, with its odds' },
     { code: 'window 010', text: 'The same, framed with a pane; fill= colours the pane' },
     { code: 'I 2 0', text: 'An identity that shows what its qubit holds' },
     { code: 'after H: 0(0|1)', text: 'A caption, drawn in the left gutter' },

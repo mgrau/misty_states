@@ -183,6 +183,11 @@ function stateWidth(row: StateRow | undefined): number {
   return row.sides.reduce((max, side) => Math.max(max, productWidth(side)), 0)
 }
 
+/** Widest of several stacked states — an output can be a list of outcomes. */
+function rowsWidth(rows: StateRow[] | undefined): number {
+  return (rows ?? []).reduce((max, row) => Math.max(max, stateWidth(row)), 0)
+}
+
 /** The keywords that open a statement, so anything else can be tried as a state. */
 const KEYWORDS = new Set([
   'qubits', 'shapes', 'header', 'labels', 'in', 'out', 'view', 'show', 'window',
@@ -304,7 +309,7 @@ function viewOf(stateText: string, qubits: number[], lineNo: number): ViewGate {
       lineNo,
     )
   }
-  return { kind: 'view', qubits, row }
+  return { kind: 'view', qubits, rows: [row] }
 }
 
 function parseGate(src: string, line: number): Gate {
@@ -488,7 +493,7 @@ export function parseCircuit(text: string): CircuitDoc {
   let header = false
   let shapeIndices: number[] | undefined
   let input: StateRow | undefined
-  let output: StateRow | undefined
+  let output: StateRow[] | undefined
   let calculateOutput = false
   let calculateCaption: string | undefined
   const groups: Group[] = []
@@ -605,7 +610,7 @@ export function parseCircuit(text: string): CircuitDoc {
       }
       const doc = parseState(arg)
       if (kw === 'in') input = doc.rows[0]
-      else output = doc.rows[0]
+      else output = [doc.rows[0]]
       continue
     }
 
@@ -636,7 +641,7 @@ export function parseCircuit(text: string): CircuitDoc {
       calculateOutput = true
       calculateCaption = pendingTail.caption
     }
-    else output = pendingTail.row
+    else output = pendingTail.rows
     pendingTail = null
   }
 
@@ -651,7 +656,7 @@ export function parseCircuit(text: string): CircuitDoc {
     declared,
     used.length ? Math.max(...used) : 0,
     stateWidth(input),
-    stateWidth(output),
+    rowsWidth(output),
     1,
   )
   for (const view of pending) {

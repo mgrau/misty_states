@@ -23,6 +23,7 @@
     cloudFluff: number
     cloudPad: number
     factorCalculated: boolean
+    exactOdds: boolean
     shapeOrder: ShapeName[]
     onclose: () => void
     oneditlibrary: () => void
@@ -33,6 +34,7 @@
     oncloudfluffchange: (value: number) => void
     oncloudpadchange: (value: number) => void
     onfactorchange: (factor: boolean) => void
+    onexactoddschange: (exact: boolean) => void
     onshapeorderchange: (order: ShapeName[]) => void
   }
 
@@ -45,6 +47,7 @@
     cloudFluff,
     cloudPad,
     factorCalculated,
+    exactOdds,
     shapeOrder,
     onclose,
     oneditlibrary,
@@ -55,6 +58,7 @@
     oncloudfluffchange,
     oncloudpadchange,
     onfactorchange,
+    onexactoddschange,
     onshapeorderchange,
   }: Props = $props()
 
@@ -267,6 +271,27 @@
         <p class="text-[11px] text-slate-400">
           Factored draws <span class="font-mono">(0|1)0</span> where the state separates;
           flat draws <span class="font-mono">00|10</span>.
+        </p>
+
+        <div class="flex rounded-md border border-slate-200 p-0.5">
+          {#each [{ id: false, label: 'Percentage' }, { id: true, label: 'Exact odds' }] as const as opt (opt.label)}
+            <button
+              type="button"
+              onclick={() => onexactoddschange(opt.id)}
+              aria-pressed={exactOdds === opt.id}
+              class="flex-1 rounded px-2 py-1 text-xs transition-colors
+                     {exactOdds === opt.id
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-600 hover:text-slate-900'}"
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="text-[11px] text-slate-400">
+          How a measurement outcome's likelihood is written. An even split reads
+          <span class="font-mono">50%</span> either way; uneven amplitudes give
+          <span class="font-mono">69%</span> or <span class="font-mono">9/13</span>.
         </p>
       </section>
 

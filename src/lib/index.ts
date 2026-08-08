@@ -25,6 +25,11 @@ export interface RenderOptions {
    * one cloud of terms. On by default: it is how the course writes answers.
    */
   factorCalculated?: boolean
+  /**
+   * Write a measurement outcome's likelihood exactly where a percentage would
+   * have to round — `9/13` rather than `69%`. An even split still reads `50%`.
+   */
+  exactOdds?: boolean
 }
 
 export interface RenderResult {
@@ -72,6 +77,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     // circuit to work anything out, and layout should only ever see states.
     const doc = resolveCalculations(parseCircuit(source), {
       factor: opts.factorCalculated ?? true,
+      exactOdds: opts.exactOdds,
     })
     return layoutCircuit(doc, { metrics, shapeOrder, attach: theme.attach })
   }

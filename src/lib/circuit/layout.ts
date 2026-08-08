@@ -53,6 +53,8 @@ const CAPTION_GAP = 12
 const VIEW_PAD = 14
 /** Frame edge to pane edge on a window — the width of the surround. */
 const PANE_INSET = 8
+/** Between the outcomes of a measurement, stacked one above another. */
+const ROW_GAP = 12
 
 /** Radius of a control dot and of a ⊕ target, as fractions of the pipe width. */
 const CONTROL_R = 0.22
@@ -158,9 +160,9 @@ function spreadOverColumns(pieces: { laid: Layout; mid: number }[], gap: number)
  * runs between parsing and here — so an empty one is a wiring mistake rather
  * than something a source file can cause.
  */
-function viewRow(gate: ViewGate): StateRow {
-  if (!gate.row) throw new Error('a calculated view reached layout unresolved')
-  return gate.row
+function viewRows(gate: ViewGate): StateRow[] {
+  if (!gate.rows?.length) throw new Error('a calculated view reached layout unresolved')
+  return gate.rows
 }
 
 /** Complement of `blocked` within [from, to], as drawable pipe segments. */
@@ -311,16 +313,39 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   }
 
   /** Place a state at either end, lifting its caption into the shared gutter. */
-  const placeEndState = (raw: StateRow, top: number): { prims: Prim[]; box: Box } => {
-    const { caption, row } = liftCaption(raw)
-    const placed = placeState(row, top)
-    if (caption) captions.push({ text: caption, cy: placed.box.y + placed.box.h / 2 })
-    return placed
+  /**
+   * Stack states one above another, sharing the register's columns.
+   *
+   * Usually there is one. A measurement leaves several possible outcomes, and
+   * they read as a list — which is how the course writes them.
+   */
+  const placeStack = (
+    raws: StateRow[],
+    top: number,
+    q0 = 1,
+    q1 = doc.qubits,
+  ): { prims: Prim[]; box: Box; content: Box } => {
+    const prims: Prim[] = []
+    const boxes: Box[] = []
+    const contents: Box[] = []
+    let at = top
+    for (const raw of raws) {
+      const { caption, row } = liftCaption(raw)
+      const placed = placeState(row, at, q0, q1)
+      if (caption) captions.push({ text: caption, cy: placed.box.y + placed.box.h / 2 })
+      prims.push(...placed.prims)
+      boxes.push(placed.box)
+      contents.push(placed.content)
+      at = placed.box.y + placed.box.h + ROW_GAP
+    }
+    return { prims, box: boxUnion(boxes), content: boxUnion(contents) }
   }
+
+  const placeEndState = (raws: StateRow[], top: number) => placeStack(raws, top)
 
   let pipeTop: number
   if (doc.input) {
-    const placed = placeEndState(doc.input, 0)
+    const placed = placeEndState([doc.input], 0)
     caps.push(...placed.prims)
     boxes.push(placed.box)
     pipeTop = placed.box.y + placed.box.h + STATE_GAP
@@ -355,7 +380,9 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       ...layer.gates.map((gate) => {
         if (gate.kind !== 'view') return m.gateHeight
         const [q0, q1] = gateSpan(gate)
-        return stateHeight(liftCaption(viewRow(gate)).row, q0, q1) + 2 * VIEW_PAD
+        const rows = viewRows(gate).map((r) => stateHeight(liftCaption(r).row, q0, q1))
+        const stacked = rows.reduce((a, b) => a + b, 0) + ROW_GAP * (rows.length - 1)
+        return stacked + 2 * VIEW_PAD
       }),
     )
 
@@ -394,16 +421,18 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   /** Work out where a view goes, without committing it to the drawing. */
   const measureView = (gate: ViewGate, top: number, height: number) => {
     const [q0, q1] = gateSpan(gate)
-    const { caption, row } = liftCaption(viewRow(gate))
+    const rows = viewRows(gate)
+    const heights = rows.map((r) => stateHeight(liftCaption(r).row, q0, q1))
+    const stacked = heights.reduce((a, b) => a + b, 0) + ROW_GAP * (rows.length - 1)
     // Centred in the layer rather than pinned below its top, so a short state
     // still lines up with a taller one sharing the layer. With a layer of its
     // own this leaves exactly VIEW_PAD of clear pipe above and below.
-    const laid = placeState(row, top + (height - stateHeight(row, q0, q1)) / 2, q0, q1)
+    const laid = placeStack(rows, top + (height - stacked) / 2, q0, q1)
 
     // A frame is plumbed in like a gate: it takes the full layer, the pipes
     // meet it at the junction the theme describes, and its contents sit on the
     // visible face rather than on the column centres.
-    if (!gate.boxed) return { prims: laid.prims, box: laid.box, caption }
+    if (!gate.boxed) return { prims: laid.prims, box: laid.box }
 
     // As wide as its columns, or as wide as what is inside it — whichever is
     // more. A cloud is easily wider than the wires it describes, and a frame
@@ -414,15 +443,10 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     // too keeps the two concentric however far either has grown.
     const mid = (colX(q0) + colX(q1)) / 2 + attach.dx
     const frame: Box = { x: mid - w / 2, y: top, w, h: height }
-    return { prims: translatePrims(laid.prims, attach.dx, 0), box: frame, caption }
+    return { prims: translatePrims(laid.prims, attach.dx, 0), box: frame }
   }
 
-  const emitView = (item: {
-    gate: ViewGate
-    prims: Prim[]
-    box: Box
-    caption?: string
-  }) => {
+  const emitView = (item: { gate: ViewGate; prims: Prim[]; box: Box }) => {
     const { gate, prims, box } = item
     if (gate.boxed) {
       // Frame first, in the stack where the pipes meet it — it is built like
@@ -447,7 +471,6 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     // pass in front of it.
     glyphs.push(...prims)
     boxes.push(box)
-    if (item.caption) captions.push({ text: item.caption, cy: box.y + box.h / 2 })
 
     // A frame is joined to its pipes; a bare state is not. It stands clear of
     // them by the same distance an input or output state stands clear of the
