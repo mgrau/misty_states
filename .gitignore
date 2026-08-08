@@ -10,3 +10,6 @@ library.yaml
 
 # Course materials the figures were transcribed from.
 *.pdf
+
+# Scratch notes that live alongside library.yaml.
+features.md
