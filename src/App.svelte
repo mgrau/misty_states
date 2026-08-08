@@ -244,12 +244,50 @@
     libraryNote = [entry.origin, entry.note].filter(Boolean).join(' — ')
   }
 
+  /**
+   * Step a picker with the arrow keys instead of opening it.
+   *
+   * A native select opens its menu on an arrow press, so browsing a list means
+   * open, move, commit, repeat. Flicking through figures one at a time is the
+   * common thing to want here, so the arrows do that directly and the menu
+   * stays a click — or Alt+Arrow, which is why that case is let through.
+   */
+  function stepPicker(
+    event: KeyboardEvent,
+    ids: string[],
+    current: string,
+    use: (id: string) => void,
+  ) {
+    if (event.altKey || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return
+    // Stopped at either end rather than wrapping, and the menu is kept shut
+    // even then: an arrow that sometimes opens it would be worse than one that
+    // never does.
+    event.preventDefault()
+    if (!ids.length) return
+
+    const at = ids.indexOf(current)
+    const down = event.key === 'ArrowDown'
+    // From the placeholder there is no position to move from, so an arrow
+    // enters the list at the end it came from.
+    if (at < 0) return use(down ? ids[0] : ids[ids.length - 1])
+
+    const next = at + (down ? 1 : -1)
+    if (next >= 0 && next < ids.length) use(ids[next])
+  }
+
+  const exampleIds = EXAMPLES.map((e) => e.id)
+
   /* -- The library ------------------------------------------------------- */
 
   // Nothing ships with the app; the dev server seeds from library.yaml when
   // there is one. Until then the picker has nothing to show, so it stays away.
   const libraryCount = $derived(
     libraryStore.doc.groups.reduce((n, g) => n + g.entries.length, 0),
+  )
+
+  /** Every entry in drawn order, so the arrows run straight across groups. */
+  const libraryIds = $derived(
+    libraryStore.doc.groups.flatMap((g) => g.entries.map((e) => e.id)),
   )
 
   $effect(() => {
@@ -520,6 +558,11 @@
         <select
           bind:value={examplePick}
           onchange={(e) => useExample((e.currentTarget as HTMLSelectElement).value)}
+          onkeydown={(e) =>
+            stepPicker(e, exampleIds, examplePick, (id) => {
+              examplePick = id
+              useExample(id)
+            })}
           class="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
         >
           <option value="">Choose an example…</option>
@@ -536,6 +579,11 @@
           <select
             bind:value={libraryPick}
             onchange={(e) => useLibrary((e.currentTarget as HTMLSelectElement).value)}
+            onkeydown={(e) =>
+              stepPicker(e, libraryIds, libraryPick, (id) => {
+                libraryPick = id
+                useLibrary(id)
+              })}
             class="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
           >
             <!-- The library says what it is; failing that, how big it is. -->

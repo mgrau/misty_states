@@ -657,6 +657,81 @@ describe('the example and library pickers', () => {
     expect(selects()[1].value).toBe('')
     expect(selects()[0].value).not.toBe('')
   })
+
+  /**
+   * Arrow keys step the selection instead of opening the menu, since flicking
+   * through figures one at a time is the common thing to want.
+   */
+  describe('arrow keys', () => {
+    const arrow = (which: 0 | 1, key: 'ArrowDown' | 'ArrowUp', alt = false) => {
+      const event = new KeyboardEvent('keydown', { key, altKey: alt, bubbles: true, cancelable: true })
+      selects()[which].dispatchEvent(event)
+      flushSync()
+      return event
+    }
+
+    const libraryIds = () =>
+      [...selects()[1].querySelectorAll('optgroup option')].map(
+        (o) => (o as HTMLOptionElement).value,
+      )
+
+    it('enters the list from the placeholder', () => {
+      boot()
+      expect(selects()[1].value).toBe('')
+      arrow(1, 'ArrowDown')
+      expect(selects()[1].value).toBe(libraryIds()[0])
+    })
+
+    it('comes in at the far end going up', () => {
+      boot()
+      arrow(1, 'ArrowUp')
+      expect(selects()[1].value).toBe(libraryIds().at(-1))
+    })
+
+    it('moves one at a time and loads as it goes', () => {
+      boot()
+      arrow(1, 'ArrowDown')
+      const first = editor().value
+      arrow(1, 'ArrowDown')
+      expect(selects()[1].value).toBe(libraryIds()[1])
+      expect(editor().value).not.toBe(first)
+      arrow(1, 'ArrowUp')
+      expect(selects()[1].value).toBe(libraryIds()[0])
+      expect(editor().value).toBe(first)
+    })
+
+    it('stops at either end rather than wrapping', () => {
+      boot()
+      const ids = libraryIds()
+      arrow(1, 'ArrowUp')
+      expect(selects()[1].value).toBe(ids.at(-1))
+      arrow(1, 'ArrowDown')
+      expect(selects()[1].value).toBe(ids.at(-1))
+    })
+
+    it('keeps the menu shut, including at the ends', () => {
+      boot()
+      expect(arrow(1, 'ArrowDown').defaultPrevented).toBe(true)
+      const ids = libraryIds()
+      for (let i = 1; i < ids.length; i++) arrow(1, 'ArrowDown')
+      expect(arrow(1, 'ArrowDown').defaultPrevented).toBe(true)
+    })
+
+    it('leaves Alt+Arrow alone, which is how the menu still opens', () => {
+      boot()
+      const event = arrow(1, 'ArrowDown', true)
+      expect(event.defaultPrevented).toBe(false)
+      expect(selects()[1].value).toBe('')
+    })
+
+    it('steps the examples too, and the two still clear each other', () => {
+      boot()
+      arrow(1, 'ArrowDown')
+      arrow(0, 'ArrowDown')
+      expect(selects()[0].value).not.toBe('')
+      expect(selects()[1].value).toBe('')
+    })
+  })
 })
 
 describe('settings panel', () => {
