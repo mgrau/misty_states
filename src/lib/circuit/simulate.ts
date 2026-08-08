@@ -220,23 +220,26 @@ export function canonical(amps: Amplitudes): [string, number][] {
   return terms.map(([bits, amp]) => [bits, (amp / divisor) * sign])
 }
 
-const qubitsOf = (bits: string, from: number): QubitNode[] =>
-  [...bits].map((bit, i) => ({
-    kind: 'qubit',
-    value: bit === '0' ? 0 : 1,
-    shapeIndex: from + i,
-  }))
+/**
+ * Qubits for one bit string.
+ *
+ * No shape is pinned. Layout numbers them from their position, and that is what
+ * lets a circuit's `shapes` override reach a calculated state as well as a
+ * written one — pinning here would silently win over it.
+ */
+const qubitsOf = (bits: string): QubitNode[] =>
+  [...bits].map((bit) => ({ kind: 'qubit', value: bit === '0' ? 0 : 1 }))
 
 /** One block of wires as a drawable factor: a bare run, or a cloud of terms. */
-function blockFactor(amps: Amplitudes, from: number): Factor[] {
+function blockFactor(amps: Amplitudes): Factor[] {
   const terms = canonical(amps)
-  if (terms.length === 1 && terms[0][1] === 1) return qubitsOf(terms[0][0], from)
+  if (terms.length === 1 && terms[0][1] === 1) return qubitsOf(terms[0][0])
   const cloud: CloudNode = {
     kind: 'cloud',
     terms: terms.map(([bits, amp]): Term => ({
       sign: amp < 0 ? -1 : 1,
       coeff: Math.abs(amp) === 1 ? undefined : Math.abs(amp),
-      factors: qubitsOf(bits, from),
+      factors: qubitsOf(bits),
     })),
   }
   return [cloud]
@@ -368,13 +371,7 @@ export function stateFrom(amps: Amplitudes, qubits: number, opts: PresentOptions
     throw new SimulationError('the terms all cancel, leaving no state to draw')
   }
   const blocks = opts.factor ? factorise(amps, qubits) : [amps]
-  const factors: Factor[] = []
-  let at = 0
-  for (const block of blocks) {
-    const width = [...block.keys()][0].length
-    factors.push(...blockFactor(block, at))
-    at += width
-  }
+  const factors = blocks.flatMap((block) => blockFactor(block))
   return { sides: [{ factors }], relations: [] }
 }
 

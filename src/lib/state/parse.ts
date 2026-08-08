@@ -25,6 +25,7 @@
  */
 
 import type { CloudNode, Factor, Product, StateDoc, StateRow, Term } from './ast'
+import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
 
 export class ParseError extends Error {
   constructor(message: string, readonly index: number, readonly line: number) {
@@ -259,12 +260,27 @@ function parseRow(src: string, lineNo: number): StateRow {
 
 export function parseState(text: string): StateDoc {
   const rows: StateRow[] = []
+  let shapePicks: ShapePick[] | undefined
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].replace(/(^|\s)#.*$/, '').trim()
     if (!line) continue
+
+    // The one thing in a state document that is not a state: which shape each
+    // position draws with. It reads the same here as it does in a circuit.
+    const shapeLine = SHAPE_LINE.exec(line)
+    if (shapeLine) {
+      const spec = parseShapeSpec(shapeLine[1])
+      if (!spec) throw new ParseError('shape needs at least one symbol, e.g. shape os^', 0, i + 1)
+      if (spec.bad !== undefined) {
+        throw new ParseError(`"${spec.bad}" is not a shape — use ${SHAPE_SYMBOL_HELP}`, 0, i + 1)
+      }
+      shapePicks = spec.picks
+      continue
+    }
+
     rows.push(parseRow(line, i + 1))
   }
   if (!rows.length) throw new ParseError('nothing to draw', 0, 1)
-  return { kind: 'state', rows }
+  return { kind: 'state', rows, shapePicks }
 }

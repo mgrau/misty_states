@@ -39,11 +39,40 @@ the first qubit is a circle, the second a square, the third a triangle, and so o
 | `50%: 0(0\|1)` | Text before `:` becomes a caption in the left gutter |
 | `0?1` | `?` is a qubit of unknown value, one per wire |
 | `("???")` | Quoted text inside a cloud — `???`, or any other caption |
-| `0@3` | Force this qubit to use shape 3 |
+| `shape os^` | Set which shape each position draws with |
+| `0@3` | Force this qubit to use shape 3, whatever `shape` says |
 | `"text"` | A literal text label |
 
 Each input line is drawn as its own row, stacked vertically — which is how the
 "50% / 50%" measurement-outcome figures are made. `#` starts a comment.
+
+### Naming the register
+
+Position picks the shape, but not every figure uses the default order. A
+`shape` line says which shape each position draws with, one character apiece:
+
+| | | | | | | | |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `o` | `s` | `^` | `d` | `v` | `*` | `p` | `h` |
+| circle | square | triangle | diamond | heart | star | pentagon | hexagon |
+
+```
+shape s^o
+010            # a black square, a white triangle, a white circle
+```
+
+Pictographic where a character allows — `o`, `^`, `*` — and the shape's initial
+otherwise. Not `#` for square, obvious though that looks: `#` starts a comment,
+so `shape #^o` would lose its own argument. `O S T t D < V P H` are accepted as
+alternatives.
+
+It reads the same in a state and in a circuit, where it also sets the header,
+the input and output, and anything `calculate` works out. Spacing is ignored, so
+`shape o s ^` and `shape os^` agree.
+
+A name means that shape whatever order the shapes are configured in, unlike the
+older numeric form — `shapes 2 3 1` still works and picks the 2nd, 3rd and 1st
+of the *current* order. `0@3` overrides a `shape` line for one qubit.
 
 ### The six rules
 

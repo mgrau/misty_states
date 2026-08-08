@@ -240,7 +240,22 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
    * so each qubit sits over its own pipe, exactly like the header; anything else
    * — a superposition lives in one cloud — is centred over the span as a group.
    */
-  const pickShape = (slot: number) => doc.shapeIndices?.[slot] ?? slot
+  /**
+   * Which of `order` a wire draws with.
+   *
+   * A `shape` line can pin a shape by name, which has to be turned back into a
+   * position here — everything downstream numbers shapes, and the numbering is
+   * what carries through nested clouds.
+   */
+  const pickShape = (slot: number): number => {
+    const pick = doc.shapePicks?.[slot]
+    if (pick === undefined) return slot
+    if (typeof pick === 'number') return pick
+    const at = order.indexOf(pick)
+    return at < 0 ? slot : at
+  }
+
+  const shapeFor = (slot: number): ShapeName => shapeAt(pickShape(slot), order)
 
   /**
    * Break a row into per-column pieces, or null if it has no such structure.
@@ -351,7 +366,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     pipeTop = placed.box.y + placed.box.h + STATE_GAP
   } else if (showHeader) {
     const shapes = Array.from({ length: doc.qubits }, (_, i) =>
-      shapeAt(doc.shapeIndices?.[i] ?? i, order),
+      shapeFor(i),
     )
     // All header glyphs share one centre line, whatever their outlines.
     const tallest = Math.max(...shapes.map((s) => shapeHeight(s, m.qubit)))

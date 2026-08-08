@@ -41,6 +41,7 @@ import { ParseError } from '../state/parse'
 import { parseState } from '../state/parse'
 import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
+import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
 import type { CircuitDoc, Gate, Layer, ViewGate } from './ast'
 import { gateSpan } from './ast'
 
@@ -188,9 +189,26 @@ function rowsWidth(rows: StateRow[] | undefined): number {
   return (rows ?? []).reduce((max, row) => Math.max(max, stateWidth(row)), 0)
 }
 
+/**
+ * Read a `shape` argument, failing with what is on offer rather than a bare
+ * rejection — the symbols are only memorable once you have seen the list.
+ */
+export function readShapes(arg: string, lineNo: number): ShapePick[] {
+  const spec = parseShapeSpec(arg)
+  if (!spec) throw new ParseError('shape needs at least one symbol, e.g. shape os^', 0, lineNo)
+  if (spec.bad !== undefined) {
+    throw new ParseError(
+      `"${spec.bad}" is not a shape — use ${SHAPE_SYMBOL_HELP}`,
+      0,
+      lineNo,
+    )
+  }
+  return spec.picks
+}
+
 /** The keywords that open a statement, so anything else can be tried as a state. */
 const KEYWORDS = new Set([
-  'qubits', 'shapes', 'header', 'labels', 'in', 'out', 'view', 'show', 'window',
+  'qubits', 'shape', 'shapes', 'header', 'labels', 'in', 'out', 'view', 'show', 'window',
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
   'cz', 'swap', 'measure', 'm', 'box', 'gate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
@@ -491,7 +509,7 @@ export function parseCircuit(text: string): CircuitDoc {
   // Off by default: a circuit draws only what you ask for. Use `in <state>` for
   // a misty state above it, or `header on` for the bare qubit shapes.
   let header = false
-  let shapeIndices: number[] | undefined
+  let shapePicks: ShapePick[] | undefined
   let input: StateRow | undefined
   let output: StateRow[] | undefined
   let calculateOutput = false
@@ -525,8 +543,17 @@ export function parseCircuit(text: string): CircuitDoc {
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i++) {
     const lineNo = i + 1
+
     const line = lines[i].replace(/(^|\s)#.*$/, '').trim()
     if (!line) continue
+
+    // `shape os^` says which shape each wire draws with, for figures whose
+    // register is not in the default order.
+    const shapeLine = SHAPE_LINE.exec(line)
+    if (shapeLine) {
+      shapePicks = readShapes(shapeLine[1], lineNo)
+      continue
+    }
 
     if (/^-{3,}$/.test(line)) { flushTail(); pendingBreak = true; continue }
 
@@ -570,20 +597,6 @@ export function parseCircuit(text: string): CircuitDoc {
       const v = Number(arg)
       if (!Number.isInteger(v) || v < 1) throw new ParseError('qubits needs a positive integer', 0, lineNo)
       declared = v
-      continue
-    }
-    if (kw === 'shapes') {
-      // `shapes 2 1` puts a square on the first wire and a circle on the second,
-      // for figures whose register is not in the default order.
-      const nums = arg.split(/[\s,]+/).filter(Boolean)
-      if (!nums.length) throw new ParseError('shapes needs at least one number', 0, lineNo)
-      shapeIndices = nums.map((tok) => {
-        const v = Number(tok)
-        if (!Number.isInteger(v) || v < 1) {
-          throw new ParseError(`"${tok}" is not a shape number (they start at 1)`, 0, lineNo)
-        }
-        return v - 1
-      })
       continue
     }
     if (kw === 'header' || kw === 'labels') {
@@ -666,6 +679,6 @@ export function parseCircuit(text: string): CircuitDoc {
   const layers = schedule(groups)
   return {
     kind: 'circuit', qubits, layers, input, output,
-    calculateOutput, calculateCaption, header, shapeIndices,
+    calculateOutput, calculateCaption, header, shapePicks,
   }
 }

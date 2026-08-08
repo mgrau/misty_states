@@ -22,6 +22,76 @@ export const DEFAULT_SHAPE_ORDER: ShapeName[] = [
   'circle', 'square', 'triangle', 'diamond', 'heart', 'star', 'pentagon', 'hexagon',
 ]
 
+/**
+ * One character per shape, for writing a register out: `shape os^` is a
+ * circle, a square and a triangle.
+ *
+ * Pictographic where a character allows — `o`, `^`, `*` — and the shape's
+ * initial otherwise. Deliberately *not* `#` for square, obvious though it
+ * looks: `#` starts a comment, so `shape #^o` would lose its own argument.
+ * No digits either, so a run of symbols can never be mistaken for the numeric
+ * form.
+ */
+export const SHAPE_SYMBOLS: Record<string, ShapeName> = {
+  o: 'circle', O: 'circle',
+  s: 'square', S: 'square',
+  '^': 'triangle', t: 'triangle', T: 'triangle',
+  d: 'diamond', D: 'diamond', '<': 'diamond',
+  v: 'heart', V: 'heart',
+  '*': 'star',
+  p: 'pentagon', P: 'pentagon',
+  h: 'hexagon', H: 'hexagon',
+}
+
+/** The character each shape is written with, for reporting what is available. */
+export const SHAPE_SYMBOL_HELP =
+  'o circle, s square, ^ triangle, d diamond, v heart, * star, p pentagon, h hexagon'
+
+/**
+ * How one wire's shape was chosen.
+ *
+ * A name pins the shape outright — that is what `shape o#^` writes, and it
+ * means the same whatever order the shapes are configured in. A number picks
+ * the Nth of the current order, which is what the older `shapes 2 3 1` writes.
+ */
+export type ShapePick = ShapeName | number
+
+export function resolveShape(pick: ShapePick, order: ShapeName[] = DEFAULT_SHAPE_ORDER): ShapeName {
+  return typeof pick === 'number' ? order[pick % order.length] : pick
+}
+
+/** A `shape` line, in either kind of document. */
+export const SHAPE_LINE = /^\s*shapes?\s+(\S.*?)\s*$/i
+
+/**
+ * Read a `shape` argument, in either form, or null if it is neither.
+ *
+ * `2 3 1` is the older numeric form; anything else is read a character at a
+ * time. Whitespace is ignored either way, so `o s ^` and `os^` agree.
+ */
+export function parseShapeSpec(text: string): { picks: ShapePick[]; bad?: string } | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  if (/^[\d\s,]+$/.test(trimmed)) {
+    const picks: ShapePick[] = []
+    for (const tok of trimmed.split(/[\s,]+/).filter(Boolean)) {
+      const v = Number(tok)
+      if (!Number.isInteger(v) || v < 1) return { picks: [], bad: tok }
+      picks.push(v - 1)
+    }
+    return { picks }
+  }
+
+  const picks: ShapePick[] = []
+  for (const ch of trimmed.replace(/[\s,]+/g, '')) {
+    const shape = SHAPE_SYMBOLS[ch]
+    if (!shape) return { picks: [], bad: ch }
+    picks.push(shape)
+  }
+  return { picks }
+}
+
 interface ShapeGeom {
   /**
    * Weight correction. A square at the circle's full size reads as much

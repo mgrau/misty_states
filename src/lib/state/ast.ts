@@ -7,6 +7,8 @@
  * makes rules 4 and 6 (flattening and distribution) expressible.
  */
 
+import type { ShapePick } from '../shapes'
+
 export type QubitValue = 0 | 1 | 'unknown'
 
 export interface QubitNode {
@@ -63,6 +65,8 @@ export interface StateRow {
 export interface StateDoc {
   kind: 'state'
   rows: StateRow[]
+  /** Per-position shape override from a `shape` line; defaults to order. */
+  shapePicks?: ShapePick[]
 }
 
 /** Number of qubit slots a factor occupies, used to advance shape numbering. */

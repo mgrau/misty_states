@@ -4,6 +4,7 @@
  */
 
 import type { StateRow } from '../state/ast'
+import type { ShapePick } from '../shapes'
 
 /** Single-qubit gate drawn as a labelled box on one pipe. */
 export interface SingleGate {
@@ -129,8 +130,8 @@ export interface CircuitDoc {
   calculateOutput?: boolean
   /** Caption for that output, held until there is a state to hang it on. */
   calculateCaption?: string
-  /** Per-qubit shape override; defaults to position order. */
-  shapeIndices?: number[]
+  /** Per-wire shape override; defaults to position order. */
+  shapePicks?: ShapePick[]
   /**
    * Draw the bare qubit shapes above the circuit. Off unless asked for, so a
    * circuit shows only what was specified; gates keep short input and output

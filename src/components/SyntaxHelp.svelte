@@ -17,11 +17,13 @@
     { code: '50%: 0(0|1)', text: 'Text before ":" becomes a caption in the left gutter' },
     { code: '0?1', text: 'Each "?" is a qubit of unknown value' },
     { code: '("???")', text: 'Quoted text inside a cloud — any caption, not just ???' },
+    { code: 'shape os^', text: 'Set the register: o s ^ d v * p h' },
     { code: '0@3', text: 'Force this qubit to use shape 3' },
   ]
 
   const circuitRows: Row[] = [
     { code: 'qubits 3', text: 'Declare the register (otherwise inferred)' },
+    { code: 'shape s^o', text: 'Which shape each wire draws with' },
     { code: 'H 2', text: 'Single-qubit gate — also X Y Z S T' },
     { code: 'H', text: 'No wire given means the first: same as H 1' },
     { code: 'HZT', text: 'A row of one-letter gates, one per wire' },

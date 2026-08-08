@@ -18,6 +18,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
+import { layoutCircuit } from './layout'
 import { amplitudesOf, resolveCalculations, simulate, stateFrom, SimulationError } from './simulate'
 import { parseState } from '../state/parse'
 import { render } from '../index'
@@ -183,6 +184,21 @@ describe('writing the answer out', () => {
   it('divides out the common factor', () => {
     // Two Hadamards on the same wire leave an amplitude of 2.
     expect(outputOf('in 00\nH 1\nH 1\nH 2\nH 2')).toBe('00')
+  })
+
+  it('lets the circuit choose the shapes, as it does for a written state', () => {
+    // `shapes` reorders the register. A calculated state must go through the
+    // same numbering as a written one — pinning shapes while building it would
+    // silently win over the override.
+    const shaped = resolveCalculations(
+      parseCircuit('shapes 2 3 1\nin 100\nout calculate'),
+      {},
+    )
+    const laid = layoutCircuit(shaped)
+    const drawn = laid.prims.filter((p) => p.t === 'qubit').map((p) => (p.t === 'qubit' ? p.shape : ''))
+    // Input and output are the same state, so they must draw the same shapes.
+    expect(drawn.slice(0, 3)).toEqual(['square', 'triangle', 'circle'])
+    expect(drawn.slice(3, 6)).toEqual(['square', 'triangle', 'circle'])
   })
 
   it('settles the overall sign, which is unobservable', () => {

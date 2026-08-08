@@ -25,6 +25,8 @@ export interface StateLayoutOptions {
 interface Ctx {
   m: Metrics
   order: ShapeName[]
+  /** Position to index in `order`, honouring a `shape` line. */
+  pick: (slot: number) => number
 }
 
 /** Vertical gap between stacked rows. */
@@ -54,7 +56,8 @@ function layoutFactors(
     if (i > 0) cursor += ctx.m.qubitGap
 
     if (f.kind === 'qubit') {
-      const shape = shapeAt(f.shapeIndex ?? index, ctx.order)
+      // `@N` overrides the shape line rather than being read through it.
+      const shape = shapeAt(f.shapeIndex ?? ctx.pick(index), ctx.order)
       const w = shapeWidth(shape, ctx.m.qubit)
       const h = shapeHeight(shape, ctx.m.qubit)
       // Every glyph is centred on its bounding box, so all shapes in a row
@@ -235,9 +238,19 @@ function layoutRow(row: StateRow, cy: number, ctx: Ctx): Layout {
 }
 
 export function layoutState(doc: StateDoc, opts: StateLayoutOptions = {}): Layout {
+  const order = opts.shapeOrder ?? DEFAULT_SHAPE_ORDER
   const ctx: Ctx = {
     m: opts.metrics ?? DEFAULT_METRICS,
-    order: opts.shapeOrder ?? DEFAULT_SHAPE_ORDER,
+    order,
+    // A `shape` line pins shapes by name; everything downstream numbers them,
+    // so a name is turned back into its position in the current order here.
+    pick: (slot) => {
+      const p = doc.shapePicks?.[slot]
+      if (p === undefined) return slot
+      if (typeof p === 'number') return p
+      const at = order.indexOf(p)
+      return at < 0 ? slot : at
+    },
   }
 
   const laidRows = doc.rows.map((row) => ({

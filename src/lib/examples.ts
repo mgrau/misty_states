@@ -79,6 +79,12 @@ export const EXAMPLES: Example[] = [
     source: '50%: (00|11)0\n50%: (00|11)1',
   },
   {
+    id: 'shape-line',
+    title: 'Naming the register',
+    note: 'One character per shape: o s ^ d v * p h. Works in states and circuits alike.',
+    source: 'shape s^o\n010\n(01|10)0',
+  },
+  {
     id: 'mystery',
     title: 'Unknown values',
     note: 'Each "?" is one unknown qubit. Quoted text inside a cloud says the rest is unknown.',
