@@ -34,6 +34,7 @@
     cloudPad: number
     factorCalculated: boolean
     exactOdds: boolean
+    helpOpen: boolean
   }
 
   function load(): Saved {
@@ -49,6 +50,7 @@
       cloudPad: 14,
       factorCalculated: true,
       exactOdds: false,
+      helpOpen: true,
     }
 
     // A ?src= deep link wins over the saved session, so a shared link always
@@ -100,6 +102,7 @@
   let cloudPad = $state(initial.cloudPad)
   let factorCalculated = $state(initial.factorCalculated)
   let exactOdds = $state(initial.exactOdds)
+  let helpOpen = $state(initial.helpOpen)
   let zoom = $state(1)
   let pngScale = $state(3)
   let settingsOpen = $state(false)
@@ -143,7 +146,7 @@
   $effect(() => {
     const snapshot: Saved = {
       source, name, theme, dark, shapeOrder, qubitSize, separator, cloudFluff, cloudPad,
-      factorCalculated, exactOdds,
+      factorCalculated, exactOdds, helpOpen,
     }
     try {
       localStorage.setItem(STORE, JSON.stringify(snapshot))
@@ -498,7 +501,7 @@
         </p>
       {/if}
 
-      <SyntaxHelp />
+      <SyntaxHelp open={helpOpen} onopenchange={(v) => (helpOpen = v)} />
     </section>
 
     <!-- Preview ----------------------------------------------------------- -->

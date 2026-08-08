@@ -250,6 +250,48 @@ describe('reopening a saved figure', () => {
   })
 })
 
+describe('the syntax reference', () => {
+  const toggle = () =>
+    [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Syntax')!
+  const rows = () => host.querySelector('[data-syntax-rows]')
+
+  it('opens by default and lists the syntax', () => {
+    boot()
+    expect(toggle().getAttribute('aria-expanded')).toBe('true')
+    expect(rows()!.querySelectorAll('dt').length).toBeGreaterThan(10)
+  })
+
+  it('caps its height rather than pushing the editor off the top', () => {
+    boot()
+    // The reference is far longer than the column, so it scrolls in its own
+    // right instead of stretching the page.
+    expect(rows()!.className).toMatch(/max-h-/)
+    expect(rows()!.className).toMatch(/overflow-y-auto/)
+  })
+
+  it('collapses away entirely', () => {
+    boot()
+    toggle().click()
+    flushSync()
+    expect(toggle().getAttribute('aria-expanded')).toBe('false')
+    expect(rows()).toBeNull()
+    // The tabs go with it.
+    expect(host.querySelector('[role="tablist"]')).toBeNull()
+  })
+
+  it('stays collapsed across a reload', () => {
+    boot()
+    toggle().click()
+    flushSync()
+    expect(localStorage.getItem('misty.v1')).toContain('"helpOpen":false')
+
+    unmount(app!)
+    app = undefined
+    boot()
+    expect(rows()).toBeNull()
+  })
+})
+
 describe('naming a diagram and saving it to the library', () => {
   const nameBox = () => host.querySelector('input[aria-label="Diagram name"]') as HTMLInputElement
   const button = (label: string) =>

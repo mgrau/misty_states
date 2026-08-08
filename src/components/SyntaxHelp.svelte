@@ -55,6 +55,9 @@
     { id: 'circuit', label: 'Circuits', rows: circuitRows },
   ] as const
 
+  const { open, onopenchange }: { open: boolean; onopenchange: (open: boolean) => void } =
+    $props()
+
   let active = $state<'state' | 'circuit'>('state')
   const rows = $derived(tabs.find((t) => t.id === active)!.rows)
 
@@ -67,32 +70,63 @@
   }
 </script>
 
-<div class="flex flex-col">
-  <div role="tablist" aria-label="Syntax reference" class="flex border-b border-slate-200">
-    {#each tabs as tab (tab.id)}
-      <button
-        type="button"
-        role="tab"
-        aria-selected={active === tab.id}
-        tabindex={active === tab.id ? 0 : -1}
-        onclick={() => (active = tab.id)}
-        onkeydown={onKey}
-        class="-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors
-               {active === tab.id
-          ? 'border-slate-800 text-slate-900'
-          : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'}"
-      >
-        {tab.label}
-      </button>
-    {/each}
-  </div>
+<div class="flex min-h-0 flex-col">
+  <button
+    type="button"
+    onclick={() => onopenchange(!open)}
+    aria-expanded={open}
+    class="flex items-center gap-1.5 py-1 text-xs font-medium text-slate-500
+           hover:text-slate-800"
+  >
+    <svg
+      viewBox="0 0 16 16"
+      class="h-3.5 w-3.5 transition-transform {open ? '' : '-rotate-90'}"
+      aria-hidden="true"
+    >
+      <path
+        d="M4 6l4 4 4-4"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+    Syntax
+  </button>
 
-  <dl class="divide-y divide-slate-100">
-    {#each rows as row (row.code)}
-      <div class="grid grid-cols-[minmax(0,9rem)_1fr] gap-3 px-1 py-1.5 text-xs">
-        <dt class="font-mono whitespace-pre text-slate-800">{row.code}</dt>
-        <dd class="text-slate-500">{row.text}</dd>
-      </div>
-    {/each}
-  </dl>
+  {#if open}
+    <div role="tablist" aria-label="Syntax reference" class="flex border-b border-slate-200">
+      {#each tabs as tab (tab.id)}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={active === tab.id}
+          tabindex={active === tab.id ? 0 : -1}
+          onclick={() => (active = tab.id)}
+          onkeydown={onKey}
+          class="-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors
+                 {active === tab.id
+            ? 'border-slate-800 text-slate-900'
+            : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'}"
+        >
+          {tab.label}
+        </button>
+      {/each}
+    </div>
+
+    <!--
+      Capped and scrolled in its own right. The reference is far longer than
+      the editor above it, and without a ceiling it pushes the source box off
+      the top of the column.
+    -->
+    <dl data-syntax-rows class="max-h-72 divide-y divide-slate-100 overflow-y-auto">
+      {#each rows as row (row.code)}
+        <div class="grid grid-cols-[minmax(0,9rem)_1fr] gap-3 px-1 py-1.5 text-xs">
+          <dt class="font-mono whitespace-pre text-slate-800">{row.code}</dt>
+          <dd class="text-slate-500">{row.text}</dd>
+        </div>
+      {/each}
+    </dl>
+  {/if}
 </div>
