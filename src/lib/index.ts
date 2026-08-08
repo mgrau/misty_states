@@ -32,6 +32,12 @@ export interface RenderOptions {
    */
   exactOdds?: boolean
   /**
+   * Draw an overall minus sign on a calculated state rather than normalising it
+   * away. Off by default — it is unobservable, so it is noise unless the figure
+   * exists to show a phase flip.
+   */
+  keepSign?: boolean
+  /**
    * Settle the claims the diagram makes — that an equation holds, that a
    * circuit's written output is the one it produces. On by default; it costs a
    * simulation of a diagram already being drawn.
@@ -97,6 +103,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     const doc = resolveCalculations(parseCircuit(source), {
       factor: opts.factorCalculated ?? true,
       exactOdds: opts.exactOdds,
+      keepSign: opts.keepSign,
     })
     return {
       layout: layoutCircuit(doc, { metrics, shapeOrder, attach: theme.attach }),

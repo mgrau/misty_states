@@ -34,6 +34,7 @@
     cloudPad: number
     factorCalculated: boolean
     exactOdds: boolean
+    keepSign: boolean
     helpOpen: boolean
     checking: boolean
   }
@@ -51,6 +52,7 @@
       cloudPad: 14,
       factorCalculated: true,
       exactOdds: false,
+      keepSign: false,
       helpOpen: true,
       checking: true,
     }
@@ -104,6 +106,7 @@
   let cloudPad = $state(initial.cloudPad)
   let factorCalculated = $state(initial.factorCalculated)
   let exactOdds = $state(initial.exactOdds)
+  let keepSign = $state(initial.keepSign)
   let helpOpen = $state(initial.helpOpen)
   let checking = $state(initial.checking)
   let zoom = $state(1)
@@ -122,6 +125,7 @@
         shapeOrder,
         factorCalculated,
         exactOdds,
+        keepSign,
         check: checking,
         metrics: {
           qubit: qubitSize,
@@ -152,7 +156,7 @@
   $effect(() => {
     const snapshot: Saved = {
       source, name, theme, dark, shapeOrder, qubitSize, separator, cloudFluff, cloudPad,
-      factorCalculated, exactOdds, helpOpen, checking,
+      factorCalculated, exactOdds, keepSign, helpOpen, checking,
     }
     try {
       localStorage.setItem(STORE, JSON.stringify(snapshot))
@@ -791,6 +795,7 @@
     {cloudPad}
     {factorCalculated}
     {exactOdds}
+    {keepSign}
     {checking}
     {shapeOrder}
     onclose={() => (settingsOpen = false)}
@@ -806,6 +811,7 @@
     oncloudpadchange={(v) => (cloudPad = v)}
     onfactorchange={(v) => (factorCalculated = v)}
     onexactoddschange={(v) => (exactOdds = v)}
+    onkeepsignchange={(v) => (keepSign = v)}
     oncheckingchange={(v) => (checking = v)}
     onshapeorderchange={(o) => (shapeOrder = o)}
   />

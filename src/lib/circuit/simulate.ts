@@ -222,12 +222,20 @@ function gcd(a: number, b: number): number {
  * `3*0|2*1` are the same state, as are `-00|01` and `00|-01`. Fixing them
  * makes the answer deterministic: smallest whole numbers, leading term
  * positive.
+ *
+ * `keepSign` does only the first of the two. Every comparison in the codebase
+ * wants the default — two states differing by an overall sign really are the
+ * same state, and both the checker and the library cross-check depend on that —
+ * so this is a presentation choice, never a comparison one.
  */
-export function canonical(amps: Amplitudes): [string, number][] {
+export function canonical(
+  amps: Amplitudes,
+  opts: { keepSign?: boolean } = {},
+): [string, number][] {
   const terms = [...amps].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
   if (!terms.length) return terms
   const divisor = terms.reduce((g, [, amp]) => gcd(g, amp), 0) || 1
-  const sign = terms[0][1] < 0 ? -1 : 1
+  const sign = !opts.keepSign && terms[0][1] < 0 ? -1 : 1
   return terms.map(([bits, amp]) => [bits, (amp / divisor) * sign])
 }
 
@@ -242,8 +250,8 @@ const qubitsOf = (bits: string): QubitNode[] =>
   [...bits].map((bit) => ({ kind: 'qubit', value: bit === '0' ? 0 : 1 }))
 
 /** One block of wires as a drawable factor: a bare run, or a cloud of terms. */
-function blockFactor(amps: Amplitudes): Factor[] {
-  const terms = canonical(amps)
+function blockFactor(amps: Amplitudes, keepSign = false): Factor[] {
+  const terms = canonical(amps, { keepSign })
   if (terms.length === 1 && terms[0][1] === 1) return qubitsOf(terms[0][0])
   const cloud: CloudNode = {
     kind: 'cloud',
@@ -312,6 +320,14 @@ export interface PresentOptions {
    * — `9/13` rather than `69%`. An even split still reads `50%`.
    */
   exactOdds?: boolean
+  /**
+   * Draw an overall minus sign rather than normalising it away.
+   *
+   * It is unobservable, so the default is right for a state standing alone. It
+   * is worth seeing when the figure exists to show a phase flip happening —
+   * `1 / H / X / H` lands on `-1`, and the minus *is* the answer.
+   */
+  keepSign?: boolean
 }
 
 /* -- Measurement --------------------------------------------------------- */
@@ -381,8 +397,26 @@ export function stateFrom(amps: Amplitudes, qubits: number, opts: PresentOptions
   if (!amps.size) {
     throw new SimulationError('the terms all cancel, leaving no state to draw')
   }
-  const blocks = opts.factor ? factorise(amps, qubits) : [amps]
-  const factors = blocks.flatMap((block) => blockFactor(block))
+  // A product has no overall sign of its own — it belongs to the whole state,
+  // and each block is canonicalised separately, so left alone it would be
+  // normalised away inside one of them and vanish. It is carried on the first
+  // block by convention: any single one would do, and doubling it would cancel.
+  const negative = !!opts.keepSign && canonical(amps, { keepSign: true })[0][1] < 0
+
+  let blocks = opts.factor ? factorise(amps, qubits) : [amps]
+
+  // Factoring earns its keep by removing brackets. Where every block is a bare
+  // run, carrying a sign would instead *add* one — `(-1)1` where the course
+  // writes `(-11)` — so the product is given up and the state drawn whole.
+  if (negative && blocks.every((block) => block.size === 1)) blocks = [amps]
+
+  if (negative) {
+    blocks = blocks.map((block, i) =>
+      i === 0 ? new Map(canonical(block).map(([bits, amp]) => [bits, -amp])) : block,
+    )
+  }
+
+  const factors = blocks.flatMap((block, i) => blockFactor(block, negative && i === 0))
   return { sides: [{ factors }], relations: [] }
 }
 

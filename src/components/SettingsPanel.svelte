@@ -24,6 +24,7 @@
     cloudPad: number
     factorCalculated: boolean
     exactOdds: boolean
+    keepSign: boolean
     checking: boolean
     shapeOrder: ShapeName[]
     onclose: () => void
@@ -36,6 +37,7 @@
     oncloudpadchange: (value: number) => void
     onfactorchange: (factor: boolean) => void
     onexactoddschange: (exact: boolean) => void
+    onkeepsignchange: (keep: boolean) => void
     oncheckingchange: (on: boolean) => void
     onshapeorderchange: (order: ShapeName[]) => void
   }
@@ -50,6 +52,7 @@
     cloudPad,
     factorCalculated,
     exactOdds,
+    keepSign,
     checking,
     shapeOrder,
     onclose,
@@ -62,6 +65,7 @@
     oncloudpadchange,
     onfactorchange,
     onexactoddschange,
+    onkeepsignchange,
     oncheckingchange,
     onshapeorderchange,
   }: Props = $props()
@@ -303,6 +307,28 @@
           How a measurement outcome's likelihood is written. An even split reads
           <span class="font-mono">50%</span> either way; uneven amplitudes give
           <span class="font-mono">69%</span> or <span class="font-mono">9/13</span>.
+        </p>
+
+        <div class="flex rounded-md border border-slate-200 p-0.5">
+          {#each [{ id: false, label: 'Tidy sign' }, { id: true, label: 'Keep minus' }] as const as opt (opt.label)}
+            <button
+              type="button"
+              onclick={() => onkeepsignchange(opt.id)}
+              aria-pressed={keepSign === opt.id}
+              class="flex-1 rounded px-2 py-1 text-xs transition-colors
+                     {keepSign === opt.id
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-600 hover:text-slate-900'}"
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="text-[11px] text-slate-400">
+          An overall minus sign is unobservable, so it is normally tidied away.
+          Keep it when the figure exists to show a phase flip:
+          <span class="font-mono">1 / H / X / H</span> then reads
+          <span class="font-mono">-1</span> rather than <span class="font-mono">1</span>.
         </p>
       </section>
 

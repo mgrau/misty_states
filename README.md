@@ -319,6 +319,14 @@ separates — `(00|11)0` — or drawn **flat** as one cloud — `00|11 0` writte
 in full. Only contiguous runs of wires can be factored, since that is what the
 drawing can express.
 
+An overall minus sign is unobservable, so it is normally tidied away with the
+scale. Settings can **keep** it, for the figures that exist to show a phase flip
+happening: `1 / H / X / H` then reads `-1` rather than `1`, which is the whole
+point of that circuit being a Z. The sign belongs to the state rather than to
+any one factor, so it is carried on the first block of a product — and where
+every block is a bare run, the product is given up rather than grow a bracket
+just to hold it, so `11 / CZ` draws `(-11)` and not `(-1)1`.
+
 A circuit that writes no input starts from **every wire white**, so `H 1` alone
 calculates to `0|1` and no `in` line is needed for the usual case.
 

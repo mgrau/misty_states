@@ -19,8 +19,11 @@
 import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
 import { layoutCircuit } from './layout'
-import { amplitudesOf, resolveCalculations, simulate, stateFrom, SimulationError } from './simulate'
+import {
+  amplitudesOf, canonical, resolveCalculations, simulate, stateFrom, SimulationError,
+} from './simulate'
 import { parseState } from '../state/parse'
+import type { Factor } from '../state/ast'
 import { render } from '../index'
 
 /** The calculated output of a circuit, as the source text that would draw it. */
@@ -419,5 +422,106 @@ describe('where calculate can go', () => {
     const flat = render('in 00\nH 1\nout calculate', { factorCalculated: false })
     const factored = render('in 00\nH 1\nout calculate', { factorCalculated: true })
     expect(factored.svg).not.toBe(flat.svg)
+  })
+})
+
+/**
+ * An overall minus sign.
+ *
+ * Unobservable, so it is normalised away by default — but a figure drawn to
+ * show a phase flip happening needs it, and those outputs were otherwise
+ * written by hand against the arithmetic.
+ */
+describe('keeping a meaningful minus sign', () => {
+  const outOf = (src: string, keepSign: boolean) =>
+    resolveCalculations(parseCircuit(src), { factor: true, keepSign }).output![0].sides[0]
+
+  /** The written form, so these read as the notation rather than as an AST. */
+  const written = (side: { factors: Factor[] }): string =>
+    side.factors
+      .map((f) => {
+        if (f.kind === 'qubit') return String(f.value)
+        if (f.kind !== 'cloud') return '?'
+        return f.terms
+          .map(
+            (t) =>
+              (t.sign < 0 ? '-' : '') +
+              (t.coeff ?? '') +
+              t.factors.map((q) => (q.kind === 'qubit' ? String(q.value) : '?')).join(''),
+          )
+          .join('|')
+      })
+      .join('')
+
+  const FLIP = 'in 1\nH 1\nX 1\nH 1\nout calculate'
+
+  it('draws the minus when asked and tidies it away when not', () => {
+    expect(written(outOf(FLIP, true))).toBe('-1')
+    expect(written(outOf(FLIP, false))).toBe('1')
+  })
+
+  it('produces exactly what writing it by hand produces', () => {
+    const byHand = parseState('-1').rows[0].sides[0]
+    expect(outOf(FLIP, true)).toEqual(byHand)
+  })
+
+  it('keeps the sign on one block of a product, not on every one', () => {
+    // Doubling it would cancel, which is the trap in canonicalising blocks
+    // separately. Here the second wire is a cloud in its own right, so the
+    // product survives and there is a real choice of where the sign lands.
+    const side = outOf('in 11\nH 1; H 2\nX 1\nH 1\nout calculate', true)
+    expect(written(side)).toBe('-10|-1')
+    expect(side.factors.filter((f) => f.kind === 'cloud' && f.terms[0].sign < 0)).toHaveLength(1)
+  })
+
+  it('gives up the product rather than add a bracket to carry the sign', () => {
+    // `(-1)1` would be a bracket the notation does not otherwise need; the
+    // course writes `(-11)`, which is this.
+    const side = outOf('in 11\nCZ 2 1\nout calculate', true)
+    expect(side).toEqual(parseState('(-11)').rows[0].sides[0])
+  })
+
+  it('reproduces the figures that were written by hand against it', () => {
+    // PS7 §3 and §5 draw the minus deliberately; those outputs are the reason
+    // this option exists.
+    for (const [src, hand] of [
+      ['in 11\nCZ 2 1\nout calculate', '(-11)'],
+      ['in 11\nCZ 1 2\nout calculate', '(-11)'],
+      ['in 1\nH 1\nX 1\nH 1\nout calculate', '(-1)'],
+    ] as const) {
+      expect(outOf(src, true), src).toEqual(parseState(hand).rows[0].sides[0])
+    }
+  })
+
+  it('leaves a state whose leading term is already positive alone', () => {
+    const src = 'in 11\nH 1; H 2\nZ 1\nH 1\nout calculate'
+    expect(written(outOf(src, true))).toBe(written(outOf(src, false)))
+  })
+
+  it('keeps a relative sign either way, which was always observable', () => {
+    expect(written(outOf('in 1\nH 1\nout calculate', false))).toBe('0|-1')
+    expect(written(outOf('in 1\nH 1\nout calculate', true))).toBe('0|-1')
+  })
+
+  it('does not disturb comparison, which wants both states equal', () => {
+    // Every check in the codebase compares through the default canonical form.
+    expect(canonical(new Map([['0', -1]]))).toEqual([['0', 1]])
+    expect(canonical(new Map([['0', -1]]), { keepSign: true })).toEqual([['0', -1]])
+    expect(render('in 1\nH 1\nX 1\nH 1\nout 1', { keepSign: true }).check!.ok).toBe(true)
+  })
+
+  it('still divides out the common factor', () => {
+    expect(canonical(new Map([['0', -2], ['1', -4]]), { keepSign: true })).toEqual([
+      ['0', -1],
+      ['1', -2],
+    ])
+  })
+
+  it('follows the option through render, in every theme', () => {
+    for (const theme of ['solid', 'flat', 'isometric'] as const) {
+      const kept = render(FLIP, { theme, keepSign: true })
+      expect(kept.svg, theme).not.toContain('NaN')
+      expect(kept.svg, theme).not.toBe(render(FLIP, { theme, keepSign: false }).svg)
+    }
   })
 })
