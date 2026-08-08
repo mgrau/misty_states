@@ -35,6 +35,7 @@
     factorCalculated: boolean
     exactOdds: boolean
     helpOpen: boolean
+    checking: boolean
   }
 
   function load(): Saved {
@@ -51,6 +52,7 @@
       factorCalculated: true,
       exactOdds: false,
       helpOpen: true,
+      checking: true,
     }
 
     // A ?src= deep link wins over the saved session, so a shared link always
@@ -103,6 +105,7 @@
   let factorCalculated = $state(initial.factorCalculated)
   let exactOdds = $state(initial.exactOdds)
   let helpOpen = $state(initial.helpOpen)
+  let checking = $state(initial.checking)
   let zoom = $state(1)
   /** 300 dpi at 96 CSS pixels to the inch — the usual print requirement. */
   let pngScale = $state(300 / 96)
@@ -119,6 +122,7 @@
         shapeOrder,
         factorCalculated,
         exactOdds,
+        check: checking,
         metrics: {
           qubit: qubitSize,
           separator,
@@ -148,7 +152,7 @@
   $effect(() => {
     const snapshot: Saved = {
       source, name, theme, dark, shapeOrder, qubitSize, separator, cloudFluff, cloudPad,
-      factorCalculated, exactOdds, helpOpen,
+      factorCalculated, exactOdds, helpOpen, checking,
     }
     try {
       localStorage.setItem(STORE, JSON.stringify(snapshot))
@@ -167,6 +171,20 @@
     return embedSvgMeta(drawing, { source: meta.source, name: meta.name.trim() || undefined })
   })
   const filename = $derived(result.ok && result.kind === 'circuit' ? 'circuit' : 'misty-state')
+
+  /* -- Does the diagram check out? --------------------------------------- */
+
+  /**
+   * The source a verdict was waved away for.
+   *
+   * Dismissal is deliberate rather than sticky: a figure that is wrong on
+   * purpose stays dismissed while you look at it, and the verdict returns the
+   * moment the diagram changes, because then it is about something else.
+   */
+  let dismissed = $state<string | null>(null)
+
+  const check = $derived(result.ok ? result.check : undefined)
+  const showCheck = $derived(!!check && dismissed !== source)
 
   function flash(message: string) {
     toast = message
@@ -536,7 +554,12 @@
         </p>
       {/if}
 
-      <label class="flex min-h-0 flex-col gap-1">
+      <!--
+        `shrink-0`: the box has a minimum height, and a flex item that is
+        allowed to shrink below its content would let the reference below it
+        ride up over the box in a short window. The column scrolls instead.
+      -->
+      <label class="flex shrink-0 flex-col gap-1">
         <span class="text-xs font-medium text-slate-500">Source</span>
         <textarea
           bind:value={source}
@@ -647,6 +670,53 @@
           />
         </label>
 
+        {#if showCheck && check}
+          <!--
+            Subtle by design: a verdict, not an error. A figure that does not
+            check out still draws, because drawing a wrong one is sometimes the
+            exercise.
+          -->
+          <span
+            role="status"
+            title={check.problems.join('\n') ||
+              `${check.checked} claim${check.checked === 1 ? '' : 's'} in this diagram check out`}
+            class="flex items-center gap-1.5 rounded-full border px-2 py-0.5
+                   {check.ok
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border-red-200 bg-red-50 text-red-700'}"
+          >
+            <svg viewBox="0 0 20 20" class="h-3 w-3" aria-hidden="true">
+              {#if check.ok}
+                <path
+                  d="M4.5 10.5l3.5 3.5 7.5-8"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              {:else}
+                <path
+                  d="M5 5l10 10M15 5L5 15"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.2"
+                  stroke-linecap="round"
+                />
+              {/if}
+            </svg>
+            {check.ok ? 'Checks out' : "Doesn't check out"}
+            <button
+              type="button"
+              onclick={() => (dismissed = source)}
+              aria-label="Dismiss the check"
+              class="-mr-1 rounded px-1 opacity-60 hover:opacity-100"
+            >
+              ✕
+            </button>
+          </span>
+        {/if}
+
         <button
           type="button"
           onclick={saveToLibrary}
@@ -721,6 +791,7 @@
     {cloudPad}
     {factorCalculated}
     {exactOdds}
+    {checking}
     {shapeOrder}
     onclose={() => (settingsOpen = false)}
     oneditlibrary={() => {
@@ -735,6 +806,7 @@
     oncloudpadchange={(v) => (cloudPad = v)}
     onfactorchange={(v) => (factorCalculated = v)}
     onexactoddschange={(v) => (exactOdds = v)}
+    oncheckingchange={(v) => (checking = v)}
     onshapeorderchange={(o) => (shapeOrder = o)}
   />
 

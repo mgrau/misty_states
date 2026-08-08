@@ -5,6 +5,7 @@
 import { parseState, ParseError } from './state/parse'
 import { isGateRun, parseCircuit } from './circuit/parse'
 import { resolveCalculations } from './circuit/simulate'
+import { checkCircuit, checkState, type Check } from './check'
 import { layoutState } from './state/layout'
 import { layoutCircuit } from './circuit/layout'
 import { DEFAULT_METRICS, type Metrics } from './render/primitives'
@@ -30,6 +31,12 @@ export interface RenderOptions {
    * have to round — `9/13` rather than `69%`. An even split still reads `50%`.
    */
   exactOdds?: boolean
+  /**
+   * Settle the claims the diagram makes — that an equation holds, that a
+   * circuit's written output is the one it produces. On by default; it costs a
+   * simulation of a diagram already being drawn.
+   */
+  check?: boolean
 }
 
 export interface RenderResult {
@@ -37,6 +44,8 @@ export interface RenderResult {
   kind: 'state' | 'circuit'
   width: number
   height: number
+  /** Absent when the diagram claims nothing this could settle. */
+  check?: Check
 }
 
 const CIRCUIT_KEYWORDS = new Set([
@@ -71,15 +80,28 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
   const theme = THEMES[opts.theme ?? 'solid']
   const palette = opts.palette ?? (opts.dark ? DARK_PALETTE : LIGHT_PALETTE)
 
+  const wantCheck = opts.check ?? true
+
   const build = (kind: 'state' | 'circuit') => {
-    if (kind === 'state') return layoutState(parseState(source), { metrics, shapeOrder })
+    if (kind === 'state') {
+      const doc = parseState(source)
+      return {
+        layout: layoutState(doc, { metrics, shapeOrder }),
+        check: wantCheck ? checkState(doc) : undefined,
+      }
+    }
     // `calculate` is resolved between parsing and layout: it needs the whole
     // circuit to work anything out, and layout should only ever see states.
+    // Checking happens after, where a calculated view can still be told apart
+    // from a written one by its `calculate` flag.
     const doc = resolveCalculations(parseCircuit(source), {
       factor: opts.factorCalculated ?? true,
       exactOdds: opts.exactOdds,
     })
-    return layoutCircuit(doc, { metrics, shapeOrder, attach: theme.attach })
+    return {
+      layout: layoutCircuit(doc, { metrics, shapeOrder, attach: theme.attach }),
+      check: wantCheck ? checkCircuit(doc) : undefined,
+    }
   }
 
   // A source with no circuit keyword in it parses as both — as a bare state, or
@@ -89,18 +111,19 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
   // that is the one the author was more likely writing.
   const guess = detectMode(source)
   let kind = guess
-  let layout
+  let built
   try {
-    layout = build(guess)
+    built = build(guess)
   } catch (err) {
     const other = guess === 'state' ? 'circuit' : 'state'
     try {
-      layout = build(other)
+      built = build(other)
       kind = other
     } catch {
       throw err
     }
   }
+  const { layout, check } = built
 
   const svg = renderPrims(layout.prims, layout.box, theme, palette, metrics, {
     scale: opts.scale,
@@ -112,10 +135,13 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     kind,
     width: layout.box.w + theme.bleed.left + theme.bleed.right,
     height: layout.box.h + theme.bleed.top + theme.bleed.bottom,
+    // Nothing checkable is the common case; saying nothing beats saying "0 of 0".
+    check: check?.checked ? check : undefined,
   }
 }
 
 export { ParseError }
+export type { Check } from './check'
 export { THEMES, THEME_IDS } from './render/themes'
 export { LIGHT_PALETTE, DARK_PALETTE } from './render/theme'
 export type { Palette, ThemeId } from './render/theme'

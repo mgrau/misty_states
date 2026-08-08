@@ -74,6 +74,33 @@ A name means that shape whatever order the shapes are configured in, unlike the
 older numeric form — `shapes 2 3 1` still works and picks the 2nd, 3rd and 1st
 of the *current* order. `0@3` overrides a `shape` line for one qubit.
 
+### Checking a figure
+
+A figure often makes a claim — that two expressions are the same state, or that
+a circuit turns this input into that output. Both are claims the arithmetic can
+settle, so the toolbar shows a quiet **Checks out** or **Doesn't check out**
+beside the diagram's name, with the detail on hover.
+
+Three rules govern it:
+
+- **A claim that cannot be evaluated is not a failure.** `?` is an unknown, a
+  text label is prose, a `box` is a picture. A figure full of them is a
+  question, not a wrong answer, and nothing is said.
+- **Nothing is blocked.** A wrong figure still draws — drawing a wrong one is
+  sometimes the exercise, which is why the verdict can be waved away. It comes
+  back when the diagram changes, since by then it is about something else.
+- **Anything derived is not a claim.** A `calculate` came from the simulator, so
+  checking it would only confirm the simulator agrees with itself.
+
+In a circuit it settles the written `out`, and any state written part-way
+through — so a worked solution is checked at every step, not just at the end.
+Comparison ignores overall scale and overall sign, both of which are
+unobservable, so `00|11` and `2*00|2*11` agree. An equation's two sides are
+*not* padded to a common width, though: describing different registers is a
+mistake worth naming.
+
+Turn it off in Settings if you never want it.
+
 ### The six rules
 
 All of the misty-state algebra rules are expressible directly:

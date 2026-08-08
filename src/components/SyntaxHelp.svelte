@@ -13,7 +13,7 @@
     { code: '(0|1) x (0|1)', text: 'An explicit × between factors ("*" is for coefficients)' },
     { code: '(0|1)|(0|1)', text: 'Clouds nested inside a cloud' },
     { code: '3*0|2*1', text: 'Numeric amplitudes — same as 0|0|0|1|1' },
-    { code: '0|1|-1 = 0', text: '"=" chains expressions into an equation' },
+    { code: '0|1|-1 = 0', text: '"=" chains expressions into an equation — and is checked' },
     { code: '50%: 0(0|1)', text: 'Text before ":" becomes a caption in the left gutter' },
     { code: '0?1', text: 'Each "?" is a qubit of unknown value' },
     { code: '("???")', text: 'Quoted text inside a cloud — any caption, not just ???' },
@@ -47,6 +47,7 @@
     { code: 'I 2 0', text: 'An identity that shows what its qubit holds' },
     { code: 'after H: 0(0|1)', text: 'A caption, drawn in the left gutter' },
     { code: 'in 00|11', text: 'Names the input explicitly (out for below)' },
+    { code: 'out 00|11', text: 'A written output is checked against the circuit' },
     { code: 'header on', text: 'Label the columns with qubit shapes (off by default)' },
   ]
 

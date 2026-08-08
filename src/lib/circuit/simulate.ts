@@ -20,7 +20,7 @@
 
 import type { CircuitDoc, Gate } from './ast'
 import { gateQubits } from './ast'
-import type { CloudNode, Factor, QubitNode, StateRow, Term } from '../state/ast'
+import type { CloudNode, Factor, Product, QubitNode, StateRow, Term } from '../state/ast'
 
 /** Bit string → amplitude. Zero amplitudes are absent, not stored. */
 export type Amplitudes = Map<string, number>
@@ -81,6 +81,17 @@ function factorAmplitudes(factor: Factor): Amplitudes {
     case 'op':
       throw new SimulationError('“×” cannot be calculated through')
   }
+}
+
+/**
+ * One side of an equation, as amplitudes over exactly the wires it names.
+ *
+ * Unlike `amplitudesOf` this neither rejects a row with relations nor pads to a
+ * register — an equation's two sides are compared with each other, and how wide
+ * they are is part of what is being checked.
+ */
+export function sideAmplitudes(side: Product): Amplitudes {
+  return productAmplitudes(side.factors)
 }
 
 function productAmplitudes(factors: Factor[]): Amplitudes {

@@ -455,6 +455,73 @@ describe('PNG resolution', () => {
   })
 })
 
+describe('the correctness badge', () => {
+  const badge = () => host.querySelector('[role="status"]')
+  const dismiss = () =>
+    host.querySelector('button[aria-label="Dismiss the check"]') as HTMLElement
+
+  it('stays away when the diagram claims nothing', () => {
+    boot()
+    setSource('00|11')
+    expect(badge()).toBeNull()
+  })
+
+  it('says so quietly when an equation holds', () => {
+    boot()
+    setSource('00|01 = 0(0|1)')
+    expect(badge()!.textContent).toContain('Checks out')
+  })
+
+  it('says so when it does not', () => {
+    boot()
+    setSource('00|01 = 0(0|-1)')
+    expect(badge()!.textContent).toContain("Doesn't check out")
+    expect(badge()!.getAttribute('title')).toMatch(/not the same state/)
+  })
+
+  it('still draws the wrong diagram', () => {
+    boot()
+    setSource('00|01 = 0(0|-1)')
+    expect(diagram()).not.toBeNull()
+    expect(host.textContent).not.toMatch(/unclosed|unexpected/i)
+  })
+
+  it('can be waved away, for a figure that is wrong on purpose', () => {
+    boot()
+    setSource('00|01 = 0(0|-1)')
+    dismiss().click()
+    flushSync()
+    expect(badge()).toBeNull()
+  })
+
+  it('comes back when the diagram changes, since it is about something else now', () => {
+    boot()
+    setSource('00|01 = 0(0|-1)')
+    dismiss().click()
+    flushSync()
+    expect(badge()).toBeNull()
+    setSource('00|01 = 0(0|-1)|0')
+    expect(badge()).not.toBeNull()
+  })
+
+  it('turns off from settings', () => {
+    boot()
+    setSource('00|01 = 0(0|-1)')
+    expect(badge()).not.toBeNull()
+    const gear = [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Settings',
+    )!
+    gear.click()
+    flushSync()
+    const toggle = host.querySelector(
+      'button[aria-label="Check the diagram"]',
+    ) as HTMLElement
+    toggle.click()
+    flushSync()
+    expect(badge()).toBeNull()
+  })
+})
+
 describe('naming a diagram and saving it to the library', () => {
   const nameBox = () => host.querySelector('input[aria-label="Diagram name"]') as HTMLInputElement
   const button = (label: string) =>

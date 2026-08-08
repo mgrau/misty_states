@@ -24,6 +24,7 @@
     cloudPad: number
     factorCalculated: boolean
     exactOdds: boolean
+    checking: boolean
     shapeOrder: ShapeName[]
     onclose: () => void
     oneditlibrary: () => void
@@ -35,6 +36,7 @@
     oncloudpadchange: (value: number) => void
     onfactorchange: (factor: boolean) => void
     onexactoddschange: (exact: boolean) => void
+    oncheckingchange: (on: boolean) => void
     onshapeorderchange: (order: ShapeName[]) => void
   }
 
@@ -48,6 +50,7 @@
     cloudPad,
     factorCalculated,
     exactOdds,
+    checking,
     shapeOrder,
     onclose,
     oneditlibrary,
@@ -59,6 +62,7 @@
     oncloudpadchange,
     onfactorchange,
     onexactoddschange,
+    oncheckingchange,
     onshapeorderchange,
   }: Props = $props()
 
@@ -300,6 +304,30 @@
           <span class="font-mono">50%</span> either way; uneven amplitudes give
           <span class="font-mono">69%</span> or <span class="font-mono">9/13</span>.
         </p>
+      </section>
+
+      <!-- Checking ----------------------------------------------------------- -->
+      <section class="flex items-center justify-between gap-3">
+        <div class="flex flex-col">
+          <h3 class="text-xs font-medium text-slate-500">Check the diagram</h3>
+          <p class="text-[11px] text-slate-400">
+            Settle equations and circuit outputs against the arithmetic.
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick={() => oncheckingchange(!checking)}
+          role="switch"
+          aria-checked={checking}
+          aria-label="Check the diagram"
+          class="relative h-5 w-9 shrink-0 rounded-full transition-colors
+                 {checking ? 'bg-slate-800' : 'bg-slate-300'}"
+        >
+          <span
+            class="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all
+                   {checking ? 'left-4.5' : 'left-0.5'}"
+          ></span>
+        </button>
       </section>
 
       <!-- Clouds ------------------------------------------------------------- -->
