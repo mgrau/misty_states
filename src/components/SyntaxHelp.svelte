@@ -42,6 +42,7 @@
     { code: '0(0|1)0', text: 'Between gates it is a view — the state at that point' },
     { code: 'view 2-3 00|11', text: 'A view of some qubits; the rest flow past' },
     { code: 'out calculate', text: 'Work the state out from the input ("calc" too)' },
+    { code: 'in calculate', text: 'Work the input back from a state written later' },
     { code: 'after H: calc', text: 'Calculated part-way through, with a caption' },
     { code: 'measure 1 Z', text: 'calculate draws every outcome, with its odds' },
     { code: 'tabulate', text: 'The outcomes as a table instead ("table" too)' },
@@ -52,6 +53,11 @@
     { code: 'step: H 1 : note', text: 'A gate line takes annotations the same way' },
     { code: 'in 00|11', text: 'Names the input explicitly (out for below)' },
     { code: 'out 00|11', text: 'A written output is checked against the circuit' },
+    { code: 'answer 010', text: 'What the question asks for — hidden until "Show answer"' },
+    { code: 'answer', text: 'On its own: the state worked out, and hidden' },
+    { code: 'animate', text: 'The state travels through the circuit; a superposition a term at a time' },
+    { code: 'animate speed=1.5', text: 'Also dwell=, hold= and loop=off; the toolbar plays and steps it' },
+    { code: 'animate inside=off', text: 'Gates as closed boxes: qubits in, qubits out' },
     { code: 'header on', text: 'Label the columns with qubit shapes (off by default)' },
   ]
 

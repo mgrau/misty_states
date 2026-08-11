@@ -57,6 +57,8 @@ export interface Product {
 
 /** One line of input: products joined by relation glyphs. */
 export interface StateRow {
+  /** Written `answer`: hidden behind unknowns until the answer is asked for. */
+  answer?: boolean
   /** Sides separated by `=`. A single side is the common case. */
   sides: Product[]
   /** Relation glyphs between sides, one fewer than `sides`. */

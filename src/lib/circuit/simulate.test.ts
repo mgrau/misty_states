@@ -23,7 +23,7 @@ import {
   amplitudesOf, canonical, resolveCalculations, simulate, stateFrom, SimulationError,
 } from './simulate'
 import { parseState } from '../state/parse'
-import type { Factor } from '../state/ast'
+import type { Factor, StateRow } from '../state/ast'
 import { render } from '../index'
 
 /** The calculated output of a circuit, as the source text that would draw it. */
@@ -401,9 +401,17 @@ describe('where calculate can go', () => {
     expect(out[0].sides[0].caption).toBe('result')
   })
 
-  it('cannot be the input, which is what it starts from', () => {
-    expect(() => parseCircuit('in calculate\nH 1')).toThrow(/cannot be the input/)
-    expect(() => parseCircuit('calculate\nH 1')).toThrow(/cannot be the input/)
+  it('can be the input, worked back from a state written later', () => {
+    // It could not once: `calculate` was defined as reading forwards from the
+    // input. Every gate here is its own inverse, so a run is settled by the
+    // state at any point, and asking for the input is a fair question.
+    expect(() => parseCircuit('in calculate\nH 1\nout 0|1')).not.toThrow()
+    expect(() => parseCircuit('calculate\nH 1\nout 0|1')).not.toThrow()
+    expect(parseCircuit('calculate\nH 1\nout 0|1').calculateInput).toBe(true)
+  })
+
+  it('says so when there is nothing to work the input back from', () => {
+    expect(() => render('in calculate\nH 1')).toThrow(/written somewhere else/)
   })
 
   it('takes no qubit range, since it works out the whole register', () => {
@@ -523,5 +531,71 @@ describe('keeping a meaningful minus sign', () => {
       expect(kept.svg, theme).not.toContain('NaN')
       expect(kept.svg, theme).not.toBe(render(FLIP, { theme, keepSign: false }).svg)
     }
+  })
+})
+
+/**
+ * Reading a circuit backwards.
+ *
+ * Every gate this notation can follow is its own inverse — `H·H = 2I`, and the
+ * rest are permutations — so a run is determined by the state at *any* point,
+ * not only at the start. A figure that gives the output and asks for the input
+ * is the common case, and it used to be a parse error.
+ */
+describe('working out the input', () => {
+  const inputOf = (src: string) => {
+    const doc = resolveCalculations(parseCircuit(src), { factor: false })
+    return doc.input!
+  }
+  const bits = (row: StateRow): string =>
+    row.sides[0].factors
+      .map((f) => (f.kind === 'qubit' ? String(f.value) : '?'))
+      .join('')
+
+  it('undoes a permutation', () => {
+    expect(bits(inputOf('in calculate\nX 1\nout 1'))).toBe('0')
+    expect(bits(inputOf('in calculate\nSWAP 1 2\nCNOT 2 -> 1\nSWAP 1 2\nout 11'))).toBe('10')
+  })
+
+  it('undoes a Hadamard, whose square is twice the identity', () => {
+    // The factor of two is scale, which is not observable, so it comes back
+    // reduced.
+    expect(bits(inputOf('in calculate\nH 1\nout 0|1'))).toBe('0')
+    expect(bits(inputOf('in calculate\nH 1\nout 0|-1'))).toBe('1')
+  })
+
+  it('takes the whole circuit into account, not just the last gate', () => {
+    const src = 'in calculate\nH 3\nCNOT 3 -> 2\nSWAP 1 2; X 3\nout 000|101'
+    expect(bits(inputOf(src))).toBe('010')
+    // And running forwards from it lands back on what was written.
+    expect(render(src).check?.ok ?? true).toBe(true)
+    expect(render('in 010\nH 3\nCNOT 3 -> 2\nSWAP 1 2; X 3\nout 000|101').check!.ok).toBe(true)
+  })
+
+  it('reads from a state written part-way down as well as from the end', () => {
+    expect(bits(inputOf('in calculate\nX 1\n1\nX 1'))).toBe('0')
+  })
+
+  it('leaves a written input alone', () => {
+    // Nothing changes for a circuit that says where it starts.
+    const doc = parseCircuit('in 01\nX 1\nout 11')
+    expect(resolveCalculations(doc, {}).input).toEqual(doc.input)
+  })
+
+  it('still starts every wire white when nothing is written', () => {
+    expect(render('H 1\nCNOT 1 -> 2\nout 00|11').check!.ok).toBe(true)
+  })
+
+  it('refuses what cannot be undone, and says why', () => {
+    expect(() => inputOf('in calculate\nmeasure 1 Z\nout 0')).toThrow(/measurement cannot be undone/)
+    expect(() => inputOf('in calculate\nX 1')).toThrow(/written somewhere else/)
+    expect(() => inputOf('in calculate\nbox "Oracle" 1-2\nout 00')).toThrow(/is a drawing/)
+  })
+
+  it('is what a bare answer means at the top of a circuit', () => {
+    const bare = 'answer\nX 1\nout 1'
+    const spelt = 'answer in calculate\nX 1\nout 1'
+    expect(render(bare, { answers: true }).svg).toBe(render(spelt, { answers: true }).svg)
+    expect(render(bare).hasAnswer).toBe(true)
   })
 })

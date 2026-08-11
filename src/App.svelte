@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { render } from './lib/index'
   import type { ThemeId } from './lib/render/theme'
   import { DEFAULT_SHAPE_ORDER, SHAPE_NAMES, type ShapeName } from './lib/shapes'
@@ -35,6 +36,7 @@
     factorCalculated: boolean
     exactOdds: boolean
     keepSign: boolean
+    animateInside: boolean
     helpOpen: boolean
     checking: boolean
   }
@@ -53,6 +55,7 @@
       factorCalculated: true,
       exactOdds: false,
       keepSign: false,
+      animateInside: true,
       helpOpen: true,
       checking: true,
     }
@@ -107,15 +110,20 @@
   let factorCalculated = $state(initial.factorCalculated)
   let exactOdds = $state(initial.exactOdds)
   let keepSign = $state(initial.keepSign)
+  let animateInside = $state(initial.animateInside)
   let helpOpen = $state(initial.helpOpen)
   let checking = $state(initial.checking)
   let zoom = $state(1)
-  /** 300 dpi at 96 CSS pixels to the inch — the usual print requirement. */
-  let pngScale = $state(300 / 96)
-  let settingsOpen = $state(false)
-  let libraryOpen = $state(false)
-  let helpModalOpen = $state(false)
-  let toast = $state('')
+
+  /**
+   * Whether the answer is on show.
+   *
+   * A figure that marks something with `answer` is a question until it is
+   * asked, so this starts off — and starts off again for the next diagram,
+   * since having seen one answer says nothing about wanting to see the next.
+   */
+  let answers = $state(false)
+  let answersFor = $state('')
 
   const result = $derived.by(() => {
     try {
@@ -126,6 +134,8 @@
         factorCalculated,
         exactOdds,
         keepSign,
+        animateInside,
+        answers,
         check: checking,
         metrics: {
           qubit: qubitSize,
@@ -156,7 +166,7 @@
   $effect(() => {
     const snapshot: Saved = {
       source, name, theme, dark, shapeOrder, qubitSize, separator, cloudFluff, cloudPad,
-      factorCalculated, exactOdds, keepSign, helpOpen, checking,
+      factorCalculated, exactOdds, keepSign, animateInside, helpOpen, checking,
     }
     try {
       localStorage.setItem(STORE, JSON.stringify(snapshot))
@@ -175,6 +185,222 @@
     return embedSvgMeta(drawing, { source: meta.source, name: meta.name.trim() || undefined })
   })
   const filename = $derived(result.ok && result.kind === 'circuit' ? 'circuit' : 'misty-state')
+
+  /** 300 dpi at 96 CSS pixels to the inch — the usual print requirement. */
+  let pngScale = $state(300 / 96)
+  let settingsOpen = $state(false)
+  let libraryOpen = $state(false)
+  let helpModalOpen = $state(false)
+  let toast = $state('')
+
+  /* -- Playback ----------------------------------------------------------- */
+
+  /**
+   * Where the animation is, and whether it is running.
+   *
+   * The clock is ours rather than the browser's. Letting CSS free-run and only
+   * seeking on pause looks fine until you touch a control: `at` would still say
+   * nought while the picture was a second in, so pausing or stepping jumped
+   * backwards before going anywhere. Driving `--misty-at` every frame keeps the
+   * number and the picture the same thing, which is what makes stepping from
+   * mid-play land where it looks like it should.
+   *
+   * The file itself is untouched by this — its defaults still play it
+   * unattended anywhere else.
+   */
+  let playing = $state(true)
+  let at = $state(0)
+  let frame = 0
+  /** Whether to run round again. Starts from what the source asked for. */
+  let repeat = $state(true)
+
+  const animation = $derived(result.ok ? result.animation : undefined)
+
+  /**
+   * When the motion is over.
+   *
+   * Short of `duration`, which also covers the pause before it runs round
+   * again. That pause is worth having when it loops and worth nothing to look
+   * at, so the scrubber ends here and the clock keeps going past it.
+   */
+  const finishAt = $derived(animation?.steps[animation.steps.length - 1]?.t ?? 0)
+
+  const halt = () => {
+    if (frame) cancelAnimationFrame(frame)
+    frame = 0
+  }
+
+  /**
+   * Run on from wherever it is, wrapping at the end.
+   *
+   * Timed from the first frame's own stamp rather than from `performance.now()`
+   * — the two need not share an origin, and subtracting one from the other ran
+   * the clock backwards, which the drawing shows as nothing happening at all.
+   */
+  function play() {
+    halt()
+    playing = true
+    const from = at
+    const span = animation?.duration ?? 0
+    const end = finishAt
+    let began: number | null = null
+    const tick = (now: number) => {
+      began ??= now
+      const t = from + (now - began) / 1000
+      // Without repeat there is nothing to wait for, so it stops where the
+      // motion does rather than sitting through the pause.
+      if (!repeat && t >= end) {
+        at = end
+        playing = false
+        frame = 0
+        return
+      }
+      at = span > 0 ? t % span : t
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+  }
+
+  function pause() {
+    halt()
+    playing = false
+  }
+
+  /**
+   * Turn repeating on or off.
+   *
+   * Switching it on when the run has already finished starts it again, rather
+   * than waiting to be told to play as well: asking for it to repeat while
+   * looking at the end of it can only mean one thing.
+   */
+  function toggleRepeat() {
+    repeat = !repeat
+    if (!repeat) return
+    if (playing) play()
+    else if (at >= finishAt - 1e-3) {
+      at = 0
+      play()
+    }
+  }
+
+  /**
+   * Travel to `target` at the animation's own speed.
+   *
+   * A step is a piece of the run, not a slide: cutting to it would skip the
+   * qubits moving, which is the thing being shown.
+   */
+  function playTo(target: number) {
+    halt()
+    playing = false
+    const from = at
+    const seconds = Math.abs(target - from)
+    if (seconds < 1e-3) {
+      at = target
+      return
+    }
+    let began: number | null = null
+    const tick = (now: number) => {
+      began ??= now
+      const u = Math.min(1, (now - began) / (seconds * 1000))
+      at = from + (target - from) * u
+      frame = u < 1 ? requestAnimationFrame(tick) : 0
+    }
+    frame = requestAnimationFrame(tick)
+  }
+
+  /** The source the clock is currently running for. */
+  let runFor = $state('')
+
+  /**
+   * Start a new diagram's animation from its own beginning.
+   *
+   * A position part-way through one run means nothing in another. The guard is
+   * on the *source* rather than on the effect firing: `animation` is a fresh
+   * object whenever the drawing is rebuilt, so this effect re-runs far more
+   * often than the diagram actually changes, and restarting each time would
+   * hold the clock at nought — running, but never getting anywhere.
+   *
+   * `untrack` for the body as well, since `play()` reads `at` to know where to
+   * run on from, and depending on the clock it starts is the same trap again.
+   */
+  $effect(() => {
+    const key = result.ok && result.animation ? source : ''
+    if (key === runFor) return
+    untrack(() => {
+      runFor = key
+      halt()
+      at = 0
+      repeat = result.ok ? (result.animation?.loop ?? true) : true
+      playing = !!key
+      if (key) play()
+    })
+  })
+
+  $effect(() => halt)
+
+  // A different diagram is a different question.
+  $effect(() => {
+    if (source === answersFor) return
+    untrack(() => {
+      answersFor = source
+      answers = false
+    })
+  })
+
+  const hasAnswer = $derived(result.ok ? !!result.hasAnswer : false)
+
+  /** The step at or before `at`, so stepping resumes from where a scrub left off. */
+  const stepNow = $derived.by(() => {
+    const marks = animation?.steps ?? []
+    let found = 0
+    marks.forEach((step, i) => {
+      if (at >= step.t - 1e-6) found = i
+    })
+    return found
+  })
+
+  /**
+   * Pull a scrubbed value onto a nearby keyframe.
+   *
+   * The marks under the slider are the moments worth landing on, so the slider
+   * should catch on them rather than merely point at them. The tolerance is a
+   * fraction of the whole run, so it stays the same distance under the thumb
+   * whatever the circuit's length.
+   */
+  function snap(value: number): number {
+    const marks = animation?.steps ?? []
+    const reach = (animation?.duration ?? 0) * 0.02
+    const near = marks.find((step) => Math.abs(step.t - value) <= reach)
+    return near ? near.t : value
+  }
+
+  function goToStep(delta: number) {
+    const marks = animation?.steps ?? []
+    if (!marks.length) return
+    // Stepping back from between two marks returns to the one just passed
+    // rather than skipping over it, so a step from mid-play goes where it looks.
+    const adrift = at > marks[stepNow].t + 1e-6
+    const from = delta < 0 && adrift ? stepNow + 1 : stepNow
+    playTo(marks[Math.min(marks.length - 1, Math.max(0, from + delta))].t)
+  }
+
+  /** What the current step is showing, for the label beside the buttons. */
+  const stepLabel = $derived.by(() => {
+    const step = animation?.steps[stepNow]
+    if (!step) return ''
+    const gate = `gate ${step.layer + 1}`
+    const Gate = `${gate[0].toUpperCase()}${gate.slice(1)}`
+    return {
+      before: `Before ${gate}`,
+      at: `At ${gate}`,
+      acting: `${Gate} acting`,
+      landed: `Out of ${gate}`,
+      after: `After ${gate}`,
+      flatten: 'Brackets dropped',
+      merge: 'Added up',
+      reduce: 'Tidied',
+    }[step.phase]
+  })
 
   /* -- Does the diagram check out? --------------------------------------- */
 
@@ -722,6 +948,22 @@
           />
         </label>
 
+        {#if hasAnswer}
+          <button
+            type="button"
+            onclick={() => (answers = !answers)}
+            aria-pressed={answers}
+            title={answers ? 'Hide the answer' : 'Show the answer'}
+            class="flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 transition-colors
+                   {answers
+              ? 'border-slate-800 bg-slate-800 text-white'
+              : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
+          >
+            <Icon name="eye" />
+            {answers ? 'Answer' : 'Show answer'}
+          </button>
+        {/if}
+
         {#if showCheck && check}
           <!--
             Subtle by design: a verdict, not an error. A figure that does not
@@ -783,6 +1025,110 @@
         </button>
       </div>
 
+      <!--
+        Playback gets a row of its own rather than a corner of the zoom bar:
+        it is what you are doing while looking at an animation, not a setting,
+        and it appears only when there is something to play.
+      -->
+      {#if animation}
+        <div
+          class="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-slate-50
+                 px-4 py-1.5 text-xs"
+        >
+          <div class="flex items-center gap-1">
+            <button
+              type="button"
+              onclick={() => {
+                pause()
+                at = 0
+              }}
+              disabled={at === 0}
+              title="Back to the start"
+              class="rounded p-1.5 text-slate-600 hover:bg-slate-200 hover:text-slate-900
+                     disabled:text-slate-300 disabled:hover:bg-transparent"
+            >
+              <Icon name="rewind" class="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onclick={() => goToStep(-1)}
+              disabled={stepNow === 0}
+              title="Previous step"
+              class="rounded p-1.5 text-slate-600 hover:bg-slate-200 hover:text-slate-900
+                     disabled:text-slate-300 disabled:hover:bg-transparent"
+            >
+              <Icon name="stepBack" class="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onclick={() => (playing ? pause() : play())}
+              title={playing ? 'Pause' : 'Play'}
+              class="rounded p-1.5 text-slate-700 hover:bg-slate-200 hover:text-slate-900"
+            >
+              <Icon name={playing ? 'pause' : 'play'} class="h-6 w-6" />
+            </button>
+            <button
+              type="button"
+              onclick={() => goToStep(1)}
+              disabled={stepNow === animation.steps.length - 1}
+              title="Next step"
+              class="rounded p-1.5 text-slate-600 hover:bg-slate-200 hover:text-slate-900
+                     disabled:text-slate-300 disabled:hover:bg-transparent"
+            >
+              <Icon name="stepNext" class="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onclick={toggleRepeat}
+              aria-pressed={repeat}
+              title={repeat ? 'Repeating — click to play once' : 'Play once — click to repeat'}
+              class="ml-1 flex items-center gap-1 rounded border px-1.5 py-1 transition-colors
+                     {repeat
+                ? 'border-slate-800 bg-slate-800 text-white'
+                : 'border-slate-300 bg-white text-slate-500 hover:border-slate-400'}"
+            >
+              <Icon name="repeat" class="h-4 w-4" />
+              <span class="text-[11px]">{repeat ? 'Repeat' : 'Once'}</span>
+            </button>
+          </div>
+
+          <input
+            type="range"
+            list="misty-keyframes"
+            min="0"
+            max={finishAt}
+            step="0.01"
+            value={at}
+            oninput={(e) => {
+              pause()
+              at = snap(Number((e.currentTarget as HTMLInputElement).value))
+            }}
+            class="min-w-24 flex-1"
+            aria-label="Scrub the animation"
+          />
+          <!--
+            Ticks under the slider, one per step, drawn by the browser at the
+            positions the thumb travels through. The values are rounded onto the
+            slider's own grid: a tick off the grid is silently not drawn, which
+            is why only the one at nought used to appear. Snapping still uses
+            the exact time, the two differing by less than a hundredth of a
+            second.
+          -->
+          <datalist id="misty-keyframes">
+            {#each animation.steps as step, i (i)}
+              <option value={step.t.toFixed(2)}></option>
+            {/each}
+          </datalist>
+
+          <span class="w-40 shrink-0 whitespace-nowrap text-right text-slate-500">
+            {stepLabel}
+            <span class="font-mono text-slate-400">
+              {stepNow + 1}/{animation.steps.length}
+            </span>
+          </span>
+        </div>
+      {/if}
+
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <div
         role="img"
@@ -793,7 +1139,11 @@
         class="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8
                {dark ? 'checkerboard-dark' : 'checkerboard'}"
       >
-        <div data-preview style="transform: scale({zoom}); transform-origin: center;">
+        <div
+          data-preview
+          style="transform: scale({zoom}); transform-origin: center;
+                 --misty-play: paused; --misty-at: -{at}s;"
+        >
           <!-- Generated by our own renderer; all values are escaped in svg.ts. -->
           {@html svg}
         </div>
@@ -844,6 +1194,7 @@
     {factorCalculated}
     {exactOdds}
     {keepSign}
+    {animateInside}
     {checking}
     {shapeOrder}
     onclose={() => (settingsOpen = false)}
@@ -860,6 +1211,7 @@
     onfactorchange={(v) => (factorCalculated = v)}
     onexactoddschange={(v) => (exactOdds = v)}
     onkeepsignchange={(v) => (keepSign = v)}
+    oninsidechange={(v) => (animateInside = v)}
     oncheckingchange={(v) => (checking = v)}
     onshapeorderchange={(o) => (shapeOrder = o)}
   />

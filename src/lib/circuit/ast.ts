@@ -5,6 +5,7 @@
 
 import type { StateRow } from '../state/ast'
 import type { ShapePick } from '../shapes'
+import type { AnimationOptions } from './animate'
 
 /** Single-qubit gate drawn as a labelled box on one pipe. */
 export interface SingleGate {
@@ -80,6 +81,13 @@ export interface ViewGate {
   rows?: StateRow[]
   /** Written `calculate`: work the state out from the input and the gates above. */
   calculate?: boolean
+  /**
+   * Written `answer`: this is what the question asks for.
+   *
+   * The source holds the worked answer, so it can be checked; the drawing
+   * hides it behind unknowns until the answer is asked for.
+   */
+  answer?: boolean
   /** Annotations for a state not yet worked out; a written one carries its own. */
   caption?: string
   note?: string
@@ -166,11 +174,20 @@ export interface CircuitDoc {
   output?: StateRow[]
   /** Written `out calculate`: the output is worked out rather than given. */
   calculateOutput?: boolean
+  /** Written `in calculate`: the input is worked out from a state written later. */
+  calculateInput?: boolean
+  calculateInputCaption?: string
+  calculateInputNote?: string
   /** Annotations for that output, held until there is a state to hang them on. */
   calculateCaption?: string
   calculateNote?: string
   /** Written `tabulate`: drawn in place of an output state, below the circuit. */
   table?: TableSpec
+  /** Written `animate`: the state travels through the circuit rather than being drawn at each end. */
+  animate?: AnimationOptions
+  /** Written `answer` on the input or the output line. */
+  answerInput?: boolean
+  answerOutput?: boolean
   /** Per-wire shape override; defaults to position order. */
   shapePicks?: ShapePick[]
   /**

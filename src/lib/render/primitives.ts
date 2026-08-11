@@ -156,10 +156,19 @@ export interface LinkPrim {
   cy: number
 }
 
-export type Prim =
+/**
+ * Anything drawable, optionally faded.
+ *
+ * `opacity` is carried on the union rather than on each member because it means
+ * the same thing for all of them and is applied in one place — the emitter
+ * wraps a faded primitive rather than every theme handling it. Narrowing on `t`
+ * still works through the intersection.
+ */
+export type Prim = (
   | QubitPrim | CloudPrim | BarPrim | TextPrim | SignPrim | PipePrim
   | GateBoxPrim | PanePrim | MeasureBoxPrim | ControlPrim | TargetPrim | SwapPrim | LinkPrim
   | RulePrim
+) & { opacity?: number }
 
 /** Layout result: what to draw, and the bounds it occupies. */
 export interface Layout {

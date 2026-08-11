@@ -18,7 +18,7 @@
  * pictures rather than operations, and `?` has no value to propagate.
  */
 
-import type { CircuitDoc, Gate, TableLine } from './ast'
+import type { CircuitDoc, Gate, Layer, TableLine } from './ast'
 import { gateQubits } from './ast'
 import type { CloudNode, Factor, Product, QubitNode, StateRow, Term } from '../state/ast'
 
@@ -145,28 +145,39 @@ function mapStates(
   return out
 }
 
-function applyGate(amps: Amplitudes, gate: Gate): Amplitudes {
+/** What one gate does to one term, as the emissions it produces. */
+type Spread = (bits: string, amp: number, emit: (bits: string, amp: number) => void) => void
+
+/**
+ * How a gate acts on a single term.
+ *
+ * Lifted out of `applyGate` so the arithmetic has exactly one home. Applying a
+ * gate runs this through `mapStates`, which merges and cancels as it goes;
+ * tracing it runs the same function and keeps every emission apart. Two copies
+ * of this logic would be two chances to disagree about what a gate does.
+ */
+function spreadOf(gate: Gate): Spread | null {
   switch (gate.kind) {
-    // Neither of these does anything to the state; both are drawings.
+    // None of these does anything to the state; the first two are drawings and
+    // a measurement is where the branch loop turns one state into several.
     case 'identity':
     case 'view':
-      return amps
+    case 'measure':
+      return null
 
     case 'single':
       if (gate.label === 'H') {
         // Unnormalised, which is what keeps every amplitude an integer:
         // white in gives white plus black, black in gives white minus black.
-        return mapStates(amps, (bits, amp, emit) => {
+        return (bits, amp, emit) => {
           const zero = bits.slice(0, gate.qubit - 1) + '0' + bits.slice(gate.qubit)
           const one = bits.slice(0, gate.qubit - 1) + '1' + bits.slice(gate.qubit)
           emit(zero, amp)
           emit(one, bits[gate.qubit - 1] === '0' ? amp : -amp)
-        })
+        }
       }
       if (gate.label === 'Z') {
-        return mapStates(amps, (bits, amp, emit) =>
-          emit(bits, bits[gate.qubit - 1] === '1' ? -amp : amp),
-        )
+        return (bits, amp, emit) => emit(bits, bits[gate.qubit - 1] === '1' ? -amp : amp)
       }
       throw new SimulationError(
         `${gate.label} needs complex amplitudes, which this notation cannot draw`,
@@ -175,27 +186,20 @@ function applyGate(amps: Amplitudes, gate: Gate): Amplitudes {
     case 'controlled': {
       const on = (bits: string) => gate.controls.every((c) => bits[c - 1] === '1')
       if (gate.targetGlyph === 'z') {
-        return mapStates(amps, (bits, amp, emit) =>
-          emit(bits, on(bits) && bits[gate.target - 1] === '1' ? -amp : amp),
-        )
+        return (bits, amp, emit) =>
+          emit(bits, on(bits) && bits[gate.target - 1] === '1' ? -amp : amp)
       }
-      return mapStates(amps, (bits, amp, emit) =>
-        emit(on(bits) ? flip(bits, gate.target) : bits, amp),
-      )
+      return (bits, amp, emit) => emit(on(bits) ? flip(bits, gate.target) : bits, amp)
     }
 
     case 'swap': {
       const [a, b] = gate.qubits
-      return mapStates(amps, (bits, amp, emit) => {
+      return (bits, amp, emit) => {
         const chars = [...bits]
         ;[chars[a - 1], chars[b - 1]] = [chars[b - 1], chars[a - 1]]
         emit(chars.join(''), amp)
-      })
+      }
     }
-
-    case 'measure':
-      // Handled by the branch loop, which is where one state becomes several.
-      return amps
 
     case 'box':
       throw new SimulationError(
@@ -206,9 +210,47 @@ function applyGate(amps: Amplitudes, gate: Gate): Amplitudes {
   }
 }
 
+function applyGate(amps: Amplitudes, gate: Gate): Amplitudes {
+  const spread = spreadOf(gate)
+  return spread ? mapStates(amps, spread) : amps
+}
+
+/** One term's share of what a gate produces: where it came from and what it gave. */
+export interface Contribution {
+  /** The input term this came out of, for showing which one is being worked. */
+  from: string
+  to: string
+  amp: number
+}
+
+/**
+ * The same arithmetic as `applyGate`, with nothing merged and nothing dropped.
+ *
+ * Applying a gate destroys exactly what an animation of it wants to show: two
+ * terms meeting and adding, or meeting and cancelling. Summing these by `to`
+ * gives `applyGate`'s answer back, which is the property worth testing.
+ *
+ * Terms are taken in bit-string order, so the sequence is the one a person
+ * reading the state left to right would work through.
+ */
+export function traceGate(amps: Amplitudes, gate: Gate): Contribution[] {
+  const spread = spreadOf(gate)
+  const out: Contribution[] = []
+  for (const [bits, amp] of sorted(amps)) {
+    if (!spread) {
+      out.push({ from: bits, to: bits, amp })
+      continue
+    }
+    spread(bits, amp, (to, gave) => {
+      if (gave !== 0) out.push({ from: bits, to, amp: gave })
+    })
+  }
+  return out
+}
+
 /* -- Writing a state back out -------------------------------------------- */
 
-function gcd(a: number, b: number): number {
+export function gcd(a: number, b: number): number {
   a = Math.abs(a)
   b = Math.abs(b)
   while (b) [a, b] = [b, a % b]
@@ -452,13 +494,65 @@ export function simulateBranches(
   return simulateFrom(doc, layers)
 }
 
+/**
+ * Where the run is known from, and how far along the circuit that is.
+ *
+ * Normally the input: written, or all wires white, which is the only reading an
+ * unwritten input has. But a circuit whose input is asked for has to be known
+ * from somewhere else — the state written at the end, or part-way down — and
+ * every gate this notation can follow is its own inverse, so the run can be
+ * read backwards from any of them just as well as forwards.
+ */
+function anchorOf(doc: CircuitDoc): { at: number; amps: Amplitudes } {
+  if (!doc.calculateInput) {
+    return {
+      at: 0,
+      amps: doc.input
+        ? amplitudesOf(doc.input, doc.qubits)
+        : new Map([['0'.repeat(doc.qubits), 1]]),
+    }
+  }
+
+  // Asked for the input: the earliest state written anywhere else will do.
+  for (let at = 0; at < doc.layers.length; at++) {
+    for (const gate of doc.layers[at].gates) {
+      if (gate.kind !== 'view' || gate.calculate || !gate.rows?.length) continue
+      if (gate.qubits.length !== doc.qubits) continue
+      return { at, amps: amplitudesOf(gate.rows[0], doc.qubits) }
+    }
+  }
+  if (doc.output?.length && !doc.calculateOutput) {
+    return { at: doc.layers.length, amps: amplitudesOf(doc.output[0], doc.qubits) }
+  }
+  throw new SimulationError(
+    'the input can only be worked out from a state written somewhere else in the circuit',
+  )
+}
+
+/** Every gate this notation can follow is its own inverse, so undoing is doing. */
+function undoLayers(amps: Amplitudes, layers: Layer[]): Amplitudes {
+  let running = amps
+  for (const layer of [...layers].reverse()) {
+    for (const gate of layer.gates) {
+      if (gate.kind === 'measure') {
+        throw new SimulationError(
+          'a measurement cannot be undone, so nothing before it can be worked out',
+        )
+      }
+      running = applyGate(running, gate)
+    }
+    if (!running.size) {
+      throw new SimulationError('the terms all cancel, leaving no state to draw')
+    }
+  }
+  return running
+}
+
 function simulateFrom(doc: CircuitDoc, layers: number) {
-  // A circuit with no input written starts where a circuit conventionally does:
-  // every wire white. It is also the only reading available, since an unwritten
-  // input cannot mean anything else.
-  const start = doc.input
-    ? amplitudesOf(doc.input, doc.qubits)
-    : new Map([['0'.repeat(doc.qubits), 1]])
+  const anchor = anchorOf(doc)
+
+  // Behind the anchor, the circuit is run in reverse; from there, forwards.
+  const start = anchor.at > 0 ? undoLayers(anchor.amps, doc.layers.slice(0, anchor.at)) : anchor.amps
 
   let branches: Branch[] = [{ amps: start, odds: ONE }]
   let measured = false
@@ -628,7 +722,7 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
   const wanted = doc.layers.some((l) =>
     l.gates.some((g) => g.kind === 'view' && g.calculate),
   )
-  if (!wanted && !doc.calculateOutput && !doc.table) return doc
+  if (!wanted && !doc.calculateOutput && !doc.calculateInput && !doc.table) return doc
 
   const layers = doc.layers.map((layer, at) => ({
     ...layer,
@@ -643,9 +737,15 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
     ? calculated(doc, doc.layers.length, doc.calculateCaption, doc.calculateNote, opts)
     : doc.output
 
+  // The input is a single state, whatever the rest of the circuit does: a
+  // measurement further down cannot reach back past itself.
+  const input = doc.calculateInput
+    ? calculated(doc, 0, doc.calculateInputCaption, doc.calculateInputNote, opts)[0]
+    : doc.input
+
   // Refuses the same way `calculate` does when the arithmetic cannot be
   // followed — a table of nothing would be worse than being told why.
   const table = doc.table ? { ...doc.table, lines: tableLines(doc, opts) } : undefined
 
-  return { ...doc, layers, output, table }
+  return { ...doc, layers, input, output, table }
 }

@@ -290,7 +290,25 @@ export function parseState(text: string): StateDoc {
       continue
     }
 
-    rows.push(parseRow(line, i + 1))
+    // `answer` marks a row as what the question asks for; what follows reads
+    // exactly as it would without it, caption and all.
+    const ANSWER = /^answers?\s+(.*\S)\s*$/i
+    const direct = ANSWER.exec(line)
+    let asked = !!direct
+    let text = direct ? direct[1] : line
+
+    if (!direct) {
+      const colon = line.indexOf(':')
+      const inner = colon > 0 ? ANSWER.exec(line.slice(colon + 1).trim()) : null
+      if (inner) {
+        asked = true
+        text = `${line.slice(0, colon)}: ${inner[1]}`
+      }
+    }
+
+    const row = parseRow(text, i + 1)
+    if (asked) row.answer = true
+    rows.push(row)
   }
   if (!rows.length) throw new ParseError('nothing to draw', 0, 1)
   return { kind: 'state', rows, shapePicks }

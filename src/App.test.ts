@@ -903,3 +903,232 @@ describe('deep links', () => {
     expect(editor().value).toBe('(0|1)(0|1)')
   })
 })
+
+/**
+ * Playing an animation.
+ *
+ * The controls drive the drawing through two CSS variables rather than through
+ * the DOM, so what these check is that the right variables land on the right
+ * element — the SVG itself is the same file that plays unattended elsewhere.
+ */
+describe('animation controls', () => {
+  const ANIMATED = 'in 11\nCNOT 1 -> 2\nanimate'
+
+  const bar = () =>
+    [...host.querySelectorAll('button')].filter((b) =>
+      [
+        'Play', 'Pause', 'Next step', 'Previous step', 'Back to the start',
+        'Repeating — click to play once', 'Play once — click to repeat',
+      ].includes(
+        b.getAttribute('title') ?? '',
+      ),
+    )
+  const press = (title: string) => {
+    const button = bar().find((b) => b.getAttribute('title') === title)!
+    button.click()
+    flushSync()
+  }
+  const stage = () => host.querySelector('[data-preview]') as HTMLElement
+  const at = () => stage().style.getPropertyValue('--misty-at')
+  /** The clock is ours, so what is running is a button label, not a CSS value. */
+  const running = () => bar().some((b) => b.getAttribute('title') === 'Pause')
+
+  it('appears only when the drawing is an animation', () => {
+    boot()
+    setSource('00|11')
+    expect(bar()).toHaveLength(0)
+    setSource(ANIMATED)
+    expect(bar().length).toBeGreaterThan(0)
+  })
+
+  /** Let a handful of animation frames actually happen. */
+  const frames = (ms = 140) => new Promise((done) => setTimeout(done, ms))
+
+  /** Wait for the clock to get somewhere, rather than for a fixed spell. */
+  const advanced = async () => {
+    for (let i = 0; i < 25 && seconds() <= 0.03; i++) await frames(30)
+    return seconds()
+  }
+  /** The clock, read back off the element. A sign slip here emits "--0.6s". */
+  const seconds = () => {
+    const raw = at()
+    expect(raw, 'the seek must stay a single negative delay').toMatch(/^-\d/)
+    return Math.abs(parseFloat(raw))
+  }
+
+  it('actually advances the clock while playing', async () => {
+    // The clock is ours, so this is the one thing that proves it runs. It has
+    // been broken twice by effects that reset it every frame — running, but
+    // never getting anywhere.
+    boot()
+    setSource(ANIMATED)
+    expect(seconds()).toBe(0)
+    expect(await advanced()).toBeGreaterThan(0.03)
+  })
+
+  it('stops advancing once paused', async () => {
+    boot()
+    setSource(ANIMATED)
+    await advanced()
+    press('Pause')
+    const held = seconds()
+    await frames()
+    expect(seconds()).toBe(held)
+  })
+
+  it('steps from where the run had got to, not from the start', async () => {
+    // Cutting back to nought before stepping is what made the sequence look
+    // out of order.
+    boot()
+    setSource(ANIMATED)
+    const reached = await advanced()
+    press('Next step')
+    expect(seconds()).toBeGreaterThanOrEqual(reached - 1e-6)
+  })
+
+  it('starts playing from the beginning', () => {
+    boot()
+    setSource(ANIMATED)
+    expect(running()).toBe(true)
+    expect(at()).toBe('-0s')
+  })
+
+  it('pauses and resumes', () => {
+    boot()
+    setSource(ANIMATED)
+    press('Pause')
+    expect(running()).toBe(false)
+    press('Play')
+    expect(running()).toBe(true)
+  })
+
+  it('counts four stops for one gate, in the order they happen', () => {
+    boot()
+    setSource(ANIMATED)
+    expect(host.textContent).toContain('1/4')
+    expect(host.textContent).toContain('Before gate 1')
+  })
+
+  it('stepping pauses, so it does not run away from where it was put', () => {
+    boot()
+    setSource(ANIMATED)
+    press('Next step')
+    expect(running()).toBe(false)
+  })
+
+  it('rewinds at once rather than travelling back', async () => {
+    // Every other move plays its motion; this one is a jump, because getting
+    // back to the start is a thing you want done, not watched.
+    boot()
+    setSource(ANIMATED)
+    await advanced()
+    press('Back to the start')
+    expect(seconds()).toBe(0)
+    expect(running()).toBe(false)
+  })
+
+  const scrubber = () => host.querySelector('input[type=range][list]') as HTMLInputElement
+  const scrubTo = (value: number) => {
+    scrubber().value = String(value)
+    scrubber().dispatchEvent(new Event('input', { bubbles: true }))
+    flushSync()
+  }
+
+  const ON = 'Repeating — click to play once'
+  const OFF = 'Play once — click to repeat'
+  const repeats = () => bar().some((b) => b.getAttribute('title') === ON)
+
+  it('plays once by default, and can be told to repeat', () => {
+    boot()
+    setSource(ANIMATED)
+    expect(repeats()).toBe(false)
+    press(OFF)
+    expect(repeats()).toBe(true)
+    press(ON)
+    expect(repeats()).toBe(false)
+  })
+
+  it('follows what the source asked for', () => {
+    boot()
+    setSource('in 11\nCNOT 1 -> 2\nanimate loop=on')
+    expect(repeats()).toBe(true)
+    setSource(ANIMATED)
+    expect(repeats()).toBe(false)
+  })
+
+  it('starts again when told to repeat at the end of a run', async () => {
+    // Asking for it to repeat while looking at the last frame can only mean
+    // one thing; waiting to be told to play as well is the button not working.
+    boot()
+    setSource('in 1\nX 1\nanimate speed=6')
+    for (let i = 0; i < 25 && running(); i++) await frames(30)
+    expect(running()).toBe(false)
+    press(OFF)
+    expect(running()).toBe(true)
+    expect(seconds()).toBeLessThan(0.5)
+  })
+
+  it('ends the scrubber where the motion ends, not after the pause', () => {
+    // The wait before running round again is worth having and worth nothing to
+    // look at, so it is not part of the track.
+    boot()
+    setSource(ANIMATED)
+    const marks = [...host.querySelectorAll('#misty-keyframes option')].map((o) =>
+      Number((o as HTMLOptionElement).value),
+    )
+    expect(Number(scrubber().max)).toBeCloseTo(marks[marks.length - 1], 2)
+    // And that really is short of the whole run, the pause being real.
+    expect(Number(scrubber().max)).toBeLessThan(2.2)
+  })
+
+  it('stops at the end when it is not repeating', async () => {
+    boot()
+    setSource('in 1\nX 1\nanimate loop=off speed=6')
+    for (let i = 0; i < 25 && running(); i++) await frames(30)
+    expect(running()).toBe(false)
+    expect(seconds()).toBeCloseTo(Number(scrubber().max), 2)
+  })
+
+  it('marks the keyframes on the scrubber', () => {
+    boot()
+    setSource(ANIMATED)
+    const list = host.querySelector(`#${scrubber().getAttribute('list')}`)!
+    expect(list.querySelectorAll('option')).toHaveLength(4)
+  })
+
+  it('catches on a keyframe when scrubbed near one', () => {
+    boot()
+    setSource(ANIMATED)
+    const marks = [...host.querySelectorAll('#misty-keyframes option')].map((o) =>
+      Number((o as HTMLOptionElement).value),
+    )
+    // The tick is rounded onto the slider's grid; the landing is the exact
+    // keyframe, which is a hundredth of a second at most from it.
+    const target = marks[2]
+    scrubTo(target + 0.01)
+    expect(seconds()).toBeCloseTo(target, 2)
+    expect(seconds()).not.toBe(target + 0.01)
+  })
+
+  it('still scrubs freely between them', () => {
+    boot()
+    setSource(ANIMATED)
+    const marks = [...host.querySelectorAll('#misty-keyframes option')].map((o) =>
+      Number((o as HTMLOptionElement).value),
+    )
+    const between = (marks[1] + marks[2]) / 2
+    scrubTo(between)
+    expect(seconds()).toBeCloseTo(between, 6)
+  })
+
+  it('starts the next diagram from its own beginning', () => {
+    // A position part-way through one run means nothing in another.
+    boot()
+    setSource(ANIMATED)
+    press('Next step')
+    setSource('in 001\nSWAP 2 3\nanimate')
+    expect(at()).toBe('-0s')
+    expect(running()).toBe(true)
+    expect(host.textContent).toContain('1/4')
+  })
+})

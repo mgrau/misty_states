@@ -27,6 +27,50 @@ export interface CircuitLayoutOptions {
   metrics?: Metrics
   shapeOrder?: ShapeName[]
   attach?: Attach
+  /**
+   * Extra clear space on the pipes before each layer, and after the last.
+   *
+   * An animation that works a superposition through needs somewhere to stack
+   * the terms waiting to go into a gate and the results piling up under it, and
+   * the gap between two layers serves both — what comes out of one is what goes
+   * into the next. Indexed by layer, with one more entry for below the last.
+   */
+  bands?: number[]
+  /**
+   * Leave the input and output states undrawn.
+   *
+   * An animation replaces them with the qubits that travel between them, so
+   * drawing them too would leave a copy standing at each end.
+   */
+  bareEnds?: boolean
+}
+
+/**
+ * Where the circuit put things, for anything that has to move through it.
+ *
+ * The layout already works all of this out; an animation needs the same
+ * numbers, and re-deriving them elsewhere is how two drawings of one circuit
+ * drift apart.
+ */
+export interface CircuitGeometry {
+  /** Centre x of each wire, wire 1 first. */
+  columns: number[]
+  /** Top and bottom of the pipe run. */
+  pipeTop: number
+  pipeBottom: number
+  /** Where each layer's gates sit. */
+  layers: { y: number; h: number }[]
+  /** Centre y of the input and output rows, drawn or not. */
+  startY: number
+  endY: number
+  /** The shape each wire draws with, after any `shape` override. */
+  shapes: ShapeName[]
+  /** Top and height of each band of clear pipe, when any were asked for. */
+  bands: { y: number; h: number }[]
+}
+
+export interface CircuitLayout extends Layout {
+  geometry: CircuitGeometry
 }
 
 /** Horizontal padding between a gate's edge and the outermost pipe it covers. */
@@ -182,7 +226,7 @@ function gaps(from: number, to: number, blocked: Interval[]): Interval[] {
   return out.filter((s) => s.y1 - s.y0 > 0.5)
 }
 
-export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}): Layout {
+export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}): CircuitLayout {
   const m = opts.metrics ?? DEFAULT_METRICS
   const order = opts.shapeOrder ?? DEFAULT_SHAPE_ORDER
   const attach = opts.attach ?? FLAT_ATTACH
@@ -366,11 +410,18 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
 
   const placeEndState = (raws: StateRow[], top: number) => placeStack(raws, top)
 
+  const layerGeometry: { y: number; h: number }[] = []
+  let startY: number
+  let endY: number
+
   let pipeTop: number
   if (doc.input) {
+    // Measured either way: leaving the drawing out must not move the circuit,
+    // so an animation's first instant matches the still figure exactly.
     const placed = placeEndState([doc.input], 0)
-    caps.push(...placed.prims)
+    if (!opts.bareEnds) caps.push(...placed.prims)
     boxes.push(placed.box)
+    startY = placed.box.y + placed.box.h / 2
     pipeTop = placed.box.y + placed.box.h + STATE_GAP
   } else if (showHeader) {
     const shapes = Array.from({ length: doc.qubits }, (_, i) =>
@@ -383,11 +434,30 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     })
     boxes.push({ x: left, y: 0, w: right - left, h: tallest })
     pipeTop = tallest + STATE_GAP
+    startY = tallest / 2
   } else {
     pipeTop = 0
+    startY = -STATE_GAP - m.qubit / 2
   }
 
   /* -------------------------------------------------------------- gates --- */
+
+  const bandGeometry: { y: number; h: number }[] = []
+
+  /**
+   * The first and last bands stand outside the circuit.
+   *
+   * They hold the state going in and the state coming out, and neither is on
+   * the wires — no more than a written `in` is. Running pipe up through them
+   * would draw wire above the input and below the output, which is wire that
+   * carries nothing.
+   */
+  const ends = opts.bands?.length ? [opts.bands[0], opts.bands[opts.bands.length - 1]] : null
+  if (ends) {
+    bandGeometry.push({ y: pipeTop, h: ends[0] })
+    pipeTop += ends[0]
+    boxes.push({ x: left, y: bandGeometry[0].y, w: right - left, h: ends[0] })
+  }
 
   let y = pipeTop + STUB_LEAD + attach.topLeadExtra
 
@@ -516,8 +586,18 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     }
   }
 
-  for (const layer of doc.layers) {
+  const bandBefore = (at: number) => {
+    const h = opts.bands?.[at] ?? 0
+    bandGeometry.push({ y, h })
+    y += h
+  }
+
+  doc.layers.forEach((layer, at) => {
+    // The bands between two gates are inside the circuit: what comes out of one
+    // is on its way into the next, and the wires run past all the while.
+    if (at > 0) bandBefore(at)
     const layerH = layerHeight(layer)
+    layerGeometry.push({ y, h: layerH })
     const viewGates = layer.gates.filter((g): g is ViewGate => g.kind === 'view')
     if (viewGates.length) emitViews(viewGates, y, layerH)
 
@@ -575,17 +655,26 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     }
 
     y += layerH + m.gateGap
-  }
+  })
 
   const lastGateBottom = doc.layers.length ? y - m.gateGap : pipeTop
   const pipeBottom = lastGateBottom + STUB_LEAD
+
+  // Below the circuit, where the finished state comes to rest.
+  if (ends) {
+    bandGeometry.push({ y: pipeBottom, h: ends[1] })
+    boxes.push({ x: left, y: pipeBottom, w: right - left, h: ends[1] })
+  }
 
   /* ------------------------------------------------------------- output --- */
 
   if (doc.output) {
     const placed = placeEndState(doc.output, pipeBottom + STATE_GAP)
-    caps.push(...placed.prims)
+    if (!opts.bareEnds) caps.push(...placed.prims)
     boxes.push(placed.box)
+    endY = placed.box.y + placed.box.h / 2
+  } else {
+    endY = pipeBottom + STATE_GAP + m.qubit / 2
   }
 
   /* -------------------------------------------------------------- table --- */
@@ -725,7 +814,20 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
         }),
       ]
 
-  return { prims: [...stack, ...glyphs, ...caps], box: boxUnion(boxes) }
+  return {
+    prims: [...stack, ...glyphs, ...caps],
+    box: boxUnion(boxes),
+    geometry: {
+      columns: Array.from({ length: doc.qubits }, (_, i) => colX(i + 1)),
+      shapes: Array.from({ length: doc.qubits }, (_, i) => shapeFor(i)),
+      pipeTop,
+      pipeBottom,
+      layers: layerGeometry,
+      bands: bandGeometry,
+      startY,
+      endY,
+    },
+  }
 }
 
 function emitGate(

@@ -121,6 +121,130 @@ would parse as gates in its own right is therefore never taken as prose, and a
 an error rather than a caption that quietly swallowed the first gate. A colon
 inside a quoted label, as in `box "cost: 5" 1-2`, is left alone.
 
+### Animating a circuit
+
+`animate` sets the state moving: the qubits travel down the wires, the gate's
+casing goes clear as they reach it so you can watch it act on them, and they
+carry on changed.
+
+```
+in 11
+CNOT 1 -> 2
+animate
+```
+
+The result is one self-contained SVG that plays by itself — CSS keyframes in a
+`<style>` block, no script — so it works in a browser, in Quarto HTML, and as a
+file you can send someone. `speed=`, `dwell=`, `hold=` and `loop=off` tune it.
+
+A **superposition** is worked through a term at a time, which is what linearity
+looks like: the terms wait on the pipes above a gate, go through one at a time,
+and pile up below it. Once they have all been through, the pile is added up —
+identical terms merge and their amplitudes add, opposite ones take each other
+away — and what is left is what waits above the next gate. `0|1` through a
+Hadamard is four results collapsing to `2*0`, which is rules 2 and 3 happening
+in front of you.
+
+A state with a single term keeps the simpler picture, individual qubits and
+crossing swaps and all: one row of qubits on the wires is exactly what that
+animation already draws.
+
+Repeating is off by default — a figure is usually read once, and a drawing that
+keeps restarting is hard to talk over. `animate loop=on` asks for it, and the
+toolbar's **Once / Repeat** button switches the preview.
+
+**Opening the gates.** By default a gate's casing goes clear as the state
+reaches it, so you see the gate act: a term splits in two where it stands, the
+bracket forms round the pair, and the pair leaves together. `animate inside=off`
+— or the Settings toggle it defaults from — draws the gate as a closed box
+instead: qubits go in at the lid and come out underneath. That is the picture to
+draw when the gate is something to take on trust rather than look into.
+
+Refused: a **measurement**, which splits the drawing into outcomes rather than
+moving it, and more than eight terms at once — a Hadamard on each of four wires
+asks for sixteen rows, which is a list rather than a picture. Everything
+`calculate` cannot follow is refused the same way it is there.
+
+A swap is the one gate where the paths cross: the two qubits carry their own
+colours across each other, because that is what a swap does — it moves the
+qubits, it does not repaint the wires. (In the term-at-a-time picture a swap
+shows as the bits exchanging rather than as a crossing, the subject there being
+whole rows.)
+
+The written `in` and `out` states are left undrawn, since the travelling qubits
+are them.
+
+**Controls.** An animation gets a toolbar of its own below the figure's name:
+back to the start, a step either way, play/pause, repeat, and a scrubber marked
+with the keyframes. Stepping *plays* the piece between two stops rather than
+cutting to it — the qubits moving is the thing being shown, so skipping it would
+skip the point. Going back to the start is the exception, being something you
+want done rather than watched.
+
+The scrubber catches on the keyframes and ends where the motion does: `hold=`
+puts a pause on the finished state before it runs round again, which is worth
+having and worth nothing to look at. The repeat button starts from whatever
+`loop=` asked for; the exported file follows the source rather than the button.
+
+The stops are the moments a gate is worth looking at: the qubits above the
+first one, then for each gate arrived inside with the casing clear and the
+instant it acts, and finally the register at rest below the last one. There is
+no stop in the gap between two gates — leaving one is being on the way into the
+next, and pausing there says nothing the stops either side do not.
+
+A gate acts in the *middle* of its dwell rather than across the whole of it, so
+there is an instant at which the qubits have arrived and nothing has happened
+yet. That matters most for a swap, whose crossing is motion rather than an
+instant change: spread over the whole dwell it would begin the moment they
+entered. The *acting* stop then sits after the change but before the casing
+shuts, since once it has, the gate's own glyph is back on top of the qubit it
+just changed.
+
+Nothing is added to the file to make that work. The generated SVG reads two
+custom properties, `--misty-play` and `--misty-at`, defaulting to what it does
+unattended; the app sets them on an ancestor. So the same file still plays by
+itself anywhere else, with no script inside it and nothing to strip before
+sending it to someone.
+
+### Questions and answers
+
+A figure that poses a question and the figure that answers it are the same
+drawing with some states blanked out, so one document holds both. `answer` marks
+what the question is asking for:
+
+```
+in 001
+SWAP 2 3
+answer 010
+CNOT 2 -> 1; X 3
+answer out 111
+```
+
+The drawing hides every marked state behind `???`, one unknown per wire, until
+the toolbar's **Show answer** is pressed. No `out` is needed — position already
+says whether a state line is the input, a view, or the output — and the rest of
+the line reads exactly as it would without the word, captions and all.
+
+The source keeps the **answer**, not the question, and that way round is the
+useful one: the checker can settle a stored answer, and it cannot drift from its
+question, there being only one document to drift from.
+
+It composes with `calculate`, which is where it earns the most — and `answer` on
+its own means exactly that, the one answer that need not be written down. At the
+top of a circuit it asks for the input; anywhere else, for the state there:
+
+```
+in 00|01|01|10
+I 1; measure 2 Z
+answer
+```
+
+The answer is then worked out rather than written down, so it cannot be wrong —
+this is the figure whose printed key gave 2/3 for both outcomes. A calculated
+answer takes its odds with it when hidden, those being half of what a
+measurement question asks; a caption you wrote yourself is a label rather than
+an answer, so it stays.
+
 ### Checking a figure
 
 A figure often makes a claim — that two expressions are the same state, or that
@@ -329,6 +453,23 @@ just to hold it, so `11 / CZ` draws `(-11)` and not `(-1)1`.
 
 A circuit that writes no input starts from **every wire white**, so `H 1` alone
 calculates to `0|1` and no `in` line is needed for the usual case.
+
+**It runs backwards too.** Every gate this notation can follow is its own
+inverse — `H·H = 2I`, and the rest are permutations — so a circuit is settled by
+the state at *any* point, not only at the start. `in calculate` asks for the
+input, worked back from a state written further down:
+
+```
+in calculate
+H 3
+CNOT 3 -> 2
+SWAP 1 2; X 3
+out 000|101
+```
+
+which gives `010`. That is the shape of a great many exam questions, and it used
+to be a parse error. A measurement cannot be undone, so nothing before one can
+be worked out, and it says so.
 
 It refuses rather than guessing: `S`, `T` and `Y` need complex amplitudes the
 notation cannot draw, `BOX` and `BLANK` are pictures rather than operations, and

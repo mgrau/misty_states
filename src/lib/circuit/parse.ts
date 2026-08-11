@@ -43,6 +43,7 @@ import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
 import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
 import type { CircuitDoc, Gate, Layer, TableColumn, TableSpec, ViewGate } from './ast'
+import type { AnimationOptions } from './animate'
 import { gateSpan } from './ast'
 
 /** Hadamard's label chip is red in the course materials. */
@@ -209,6 +210,7 @@ export function readShapes(arg: string, lineNo: number): ShapePick[] {
 /** The keywords that open a statement, so anything else can be tried as a state. */
 const KEYWORDS = new Set([
   'qubits', 'shape', 'shapes', 'header', 'labels', 'in', 'out', 'view', 'show', 'window',
+  'animate',
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
   'cz', 'swap', 'measure', 'm', 'box', 'gate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
@@ -311,6 +313,72 @@ function liftGateAnnotations(
 
   if (caption === undefined && note === undefined) return null
   return { caption, note, body: body.trim() }
+}
+
+/**
+ * Read the options on an `animate` line: `animate speed=1.5 loop=off`.
+ *
+ * Every one has a default that works, so the bare word is the usual form and
+ * these are for tuning a figure that reads too fast or too slow.
+ */
+function readAnimation(arg: string, lineNo: number): AnimationOptions {
+  const opts: AnimationOptions = {}
+  for (const token of arg.split(/\s+/).filter(Boolean)) {
+    const hit = /^([a-z]+)=(.*)$/i.exec(token)
+    if (!hit) {
+      throw new ParseError(
+        `"${token}" is not an animate option — use inside=, speed=, dwell=, hold= or loop=`,
+        0,
+        lineNo,
+      )
+    }
+    const [, key, raw] = hit
+    const name = key.toLowerCase()
+    if (name === 'loop' || name === 'inside') {
+      const v = raw.toLowerCase()
+      if (v !== 'on' && v !== 'off') {
+        throw new ParseError(`${name} takes "on" or "off"`, 0, lineNo)
+      }
+      opts[name] = v === 'on'
+      continue
+    }
+    if (name !== 'speed' && name !== 'dwell' && name !== 'hold') {
+      throw new ParseError(
+        `"${key}" is not an animate option — use inside=, speed=, dwell=, hold= or loop=`,
+        0,
+        lineNo,
+      )
+    }
+    const v = Number(raw)
+    if (!Number.isFinite(v) || v <= 0) {
+      throw new ParseError(`${name}= needs a positive number, e.g. ${name}=1.5`, 0, lineNo)
+    }
+    opts[name] = v
+  }
+  return opts
+}
+
+const ANSWER = /^answers?\s+(.*\S)\s*$/i
+
+/**
+ * Lift `answer` off a line, before or after its caption.
+ *
+ * `answer 010` and `after the swap: answer 010` both read naturally, and the
+ * caption belongs to the state either way — so the word is taken out and what
+ * is left is the line as it would have been written without it.
+ */
+function liftAnswer(line: string): { asked: boolean; line: string } {
+  // `answer` on its own asks for the one answer that does not have to be
+  // written down: the state worked out from the circuit above it.
+  if (/^answers?\s*$/i.test(line)) return { asked: true, line: 'calculate' }
+
+  const direct = ANSWER.exec(line)
+  if (direct) return { asked: true, line: direct[1] }
+
+  const { caption, rest } = splitCaption(line)
+  const inner = ANSWER.exec(rest.trim())
+  if (caption !== undefined && inner) return { asked: true, line: `${caption}: ${inner[1]}` }
+  return { asked: false, line }
 }
 
 const TABLE_LINE = /^(?:tabulate|table)\s*(?:\(([^)]*)\))?\s*(?::\s*(.*?))?\s*$/i
@@ -693,6 +761,12 @@ export function parseCircuit(text: string): CircuitDoc {
   let shapePicks: ShapePick[] | undefined
   let input: StateRow | undefined
   let output: StateRow[] | undefined
+  let animate: AnimationOptions | undefined
+  let calculateInput = false
+  let calculateInputCaption: string | undefined
+  let calculateInputNote: string | undefined
+  let answerInput = false
+  let answerOutput = false
   let table: TableSpec | undefined
   let calculateOutput = false
   let calculateCaption: string | undefined
@@ -727,7 +801,7 @@ export function parseCircuit(text: string): CircuitDoc {
   for (let i = 0; i < lines.length; i++) {
     const lineNo = i + 1
 
-    const line = lines[i].replace(/(^|\s)#.*$/, '').trim()
+    let line = lines[i].replace(/(^|\s)#.*$/, '').trim()
     if (!line) continue
 
     // A table is worked out from the whole circuit, so there is no position
@@ -745,6 +819,14 @@ export function parseCircuit(text: string): CircuitDoc {
     }
 
     if (/^-{3,}$/.test(line)) { flushTail(); pendingBreak = true; continue }
+
+    // `answer` marks what the question asks for. It is stripped before
+    // anything else looks at the line, so what follows is read exactly as it
+    // would be without it — and position still decides whether that is the
+    // input, a view, or the output.
+    const lifted = liftAnswer(line)
+    const asked = lifted.asked
+    line = lifted.line
 
     // A gate line may be annotated either side; a state line carries its own.
     const annotated = liftGateAnnotations(line)
@@ -779,16 +861,18 @@ export function parseCircuit(text: string): CircuitDoc {
       const bareCalc = readCalculate(line)
       if (bareCalc) {
         if (!sawGate && !input) {
-          throw new ParseError(
-            'calculate is worked out from the input, so it cannot be the input',
-            0,
-            lineNo,
-          )
+          // Before any gate, a bare `calculate` is the input being asked for.
+          calculateInput = true
+          calculateInputCaption = bareCalc.caption
+          calculateInputNote = bareCalc.note
+          if (asked) answerInput = true
+          continue
         }
         flushTail()
         pendingTail = {
           kind: 'view', qubits: [], calculate: true,
           caption: bareCalc.caption, note: bareCalc.note,
+          answer: asked ? true : undefined,
         }
         continue
       }
@@ -797,9 +881,11 @@ export function parseCircuit(text: string): CircuitDoc {
       }
       if (!sawGate && !input && !pendingTail) {
         input = parseState(line).rows[0]
+        if (asked) answerInput = true
       } else {
         flushTail()
         pendingTail = viewOf(line, [], lineNo)
+        if (asked) pendingTail.answer = true
       }
       continue
     }
@@ -810,6 +896,10 @@ export function parseCircuit(text: string): CircuitDoc {
       const v = Number(arg)
       if (!Number.isInteger(v) || v < 1) throw new ParseError('qubits needs a positive integer', 0, lineNo)
       declared = v
+      continue
+    }
+    if (kw === 'animate') {
+      animate = readAnimation(arg, lineNo)
       continue
     }
     if (kw === 'header' || kw === 'labels') {
@@ -836,20 +926,28 @@ export function parseCircuit(text: string): CircuitDoc {
       const outCalc = readCalculate(arg)
       if (outCalc) {
         if (kw === 'in') {
-          throw new ParseError(
-            'calculate is worked out from the input, so it cannot be the input',
-            0,
-            lineNo,
-          )
+          // Worked out from a state written further down: every gate here is
+          // its own inverse, so a circuit reads backwards as well as forwards.
+          calculateInput = true
+          calculateInputCaption = outCalc.caption
+          calculateInputNote = outCalc.note
+          if (asked) answerInput = true
+        } else {
+          calculateOutput = true
+          calculateCaption = outCalc.caption
+          calculateNote = outCalc.note
+          if (asked) answerOutput = true
         }
-        calculateOutput = true
-        calculateCaption = outCalc.caption
-        calculateNote = outCalc.note
         continue
       }
       const doc = parseState(arg)
-      if (kw === 'in') input = doc.rows[0]
-      else output = [doc.rows[0]]
+      if (kw === 'in') {
+        input = doc.rows[0]
+        if (asked) answerInput = true
+      } else {
+        output = [doc.rows[0]]
+        if (asked) answerOutput = true
+      }
       continue
     }
 
@@ -885,8 +983,12 @@ export function parseCircuit(text: string): CircuitDoc {
       calculateOutput = true
       calculateCaption = pendingTail.caption
       calculateNote = pendingTail.note
+      if (pendingTail.answer) answerOutput = true
     }
-    else output = pendingTail.rows
+    else {
+      output = pendingTail.rows
+      if (pendingTail.answer) answerOutput = true
+    }
     pendingTail = null
   }
 
@@ -911,6 +1013,11 @@ export function parseCircuit(text: string): CircuitDoc {
   const layers = schedule(groups)
   return {
     kind: 'circuit', qubits, layers, input, output,
-    calculateOutput, calculateCaption, calculateNote, table, header, shapePicks,
+    calculateOutput, calculateCaption, calculateNote, table, animate, header, shapePicks,
+    calculateInput: calculateInput || undefined,
+    calculateInputCaption,
+    calculateInputNote,
+    answerInput: answerInput || undefined,
+    answerOutput: answerOutput || undefined,
   }
 }

@@ -6,6 +6,14 @@ import { parseState, ParseError } from './state/parse'
 import { isGateRun, parseCircuit } from './circuit/parse'
 import { resolveCalculations } from './circuit/simulate'
 import { checkCircuit, checkState, type Check } from './check'
+import { conceal, concealState, hasAnswer } from './conceal'
+import {
+  bandHeight, buildTermTimeline, buildTimeline,
+  steps as animationSteps, termRun, termSteps, type Step as AnimationStep,
+} from './circuit/animate'
+import {
+  animatedSvg, animatedTermSvg, animationBox, termAnimationBox,
+} from './circuit/animate-svg'
 import { layoutState } from './state/layout'
 import { layoutCircuit } from './circuit/layout'
 import { DEFAULT_METRICS, type Metrics } from './render/primitives'
@@ -38,6 +46,17 @@ export interface RenderOptions {
    */
   keepSign?: boolean
   /**
+   * Show what a gate does to the state while it is inside it. On by default;
+   * off draws the gate as a closed box that qubits go into and come out of.
+   * A source's own `inside=` says otherwise.
+   */
+  animateInside?: boolean
+  /**
+   * Draw what `answer` marks, rather than hiding it behind unknowns. Off by
+   * default: a figure with an answer in it is a question until it is asked.
+   */
+  answers?: boolean
+  /**
    * Settle the claims the diagram makes — that an equation holds, that a
    * circuit's written output is the one it produces. On by default; it costs a
    * simulation of a diagram already being drawn.
@@ -52,13 +71,24 @@ export interface RenderResult {
   height: number
   /** Absent when the diagram claims nothing this could settle. */
   check?: Check
+  /** True when the source marks something with `answer`, so it can be shown. */
+  hasAnswer?: boolean
+  /** Present when the SVG plays rather than standing still. */
+  animation?: {
+    /** Seconds for one pass through, including the pause at the end. */
+    duration: number
+    /** Moments worth stopping on: four per gate, plus the state going in. */
+    steps: AnimationStep[]
+    /** Whether the file repeats of its own accord. */
+    loop: boolean
+  }
 }
 
 const CIRCUIT_KEYWORDS = new Set([
   'qubits', 'in', 'out', 'view', 'show', 'header', 'labels',
   'h', 'x', 'y', 'z', 's', 't', 'i', 'id', 'identity', 'pete', 'not',
   'cnot', 'cx', 'cz', 'toffoli', 'ccnot', 'ccx', 'swap',
-  'measure', 'm', 'box', 'gate', 'blank', 'tabulate', 'table',
+  'measure', 'm', 'box', 'gate', 'blank', 'tabulate', 'table', 'animate', 'answer',
 ])
 
 /**
@@ -92,8 +122,12 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     if (kind === 'state') {
       const doc = parseState(source)
       return {
-        layout: layoutState(doc, { metrics, shapeOrder }),
+        doc: undefined,
+        answered: hasAnswer(doc),
+        // Checked before concealing: the claim is the answer the source holds,
+        // whether or not the drawing is showing it.
         check: wantCheck ? checkState(doc) : undefined,
+        layout: layoutState(opts.answers ? doc : concealState(doc), { metrics, shapeOrder }),
       }
     }
     // `calculate` is resolved between parsing and layout: it needs the whole
@@ -105,9 +139,19 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       exactOdds: opts.exactOdds,
       keepSign: opts.keepSign,
     })
+    // An animation draws its own ends: the qubits travelling *are* the input
+    // and output, so leaving the written ones in would stand a copy at each.
+    const shown = opts.answers ? doc : conceal(doc)
     return {
-      layout: layoutCircuit(doc, { metrics, shapeOrder, attach: theme.attach }),
+      doc,
+      answered: hasAnswer(doc),
       check: wantCheck ? checkCircuit(doc) : undefined,
+      layout: layoutCircuit(shown, {
+        metrics,
+        shapeOrder,
+        attach: theme.attach,
+        bareEnds: !!doc.animate,
+      }),
     }
   }
 
@@ -130,7 +174,74 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       throw err
     }
   }
-  const { layout, check } = built
+  const { doc, layout, check, answered } = built
+
+  // An animation is a different document, not a different drawing: the still
+  // path cannot produce it, and the moving one has no use for the still box.
+  if (doc?.animate && 'geometry' in layout) {
+    const working = termRun(doc)
+    const many = working.some((w) => w.going.length > 1 || w.gave.length > 1)
+
+    // A single term is one row of qubits on the wires, which is what the
+    // travelling animation already draws — so the simpler picture is kept for
+    // it, individual qubits and crossing swaps and all. Only a state with more
+    // than one term needs the queue.
+    if (!many) {
+      const timeline = buildTimeline(doc, layout.geometry, {
+        inside: opts.animateInside ?? true,
+        ...doc.animate,
+      })
+      const box = animationBox(layout, timeline, metrics)
+      return {
+        svg: animatedSvg(layout, timeline, box, theme, palette, metrics, {
+          scale: opts.scale,
+          background: opts.background,
+        }),
+        kind,
+        width: box.w + theme.bleed.left + theme.bleed.right,
+        height: box.h + theme.bleed.top + theme.bleed.bottom,
+        check: check?.checked ? check : undefined,
+        animation: {
+          duration: timeline.duration,
+          steps: animationSteps(timeline),
+          loop: timeline.loop,
+        },
+      }
+    }
+
+    // Laid out twice: the bands have to be measured before the circuit can make
+    // room for them, and the rows placed once it has. Every band is one row
+    // tall — a state's terms stand side by side, not stacked.
+    const bands = Array.from({ length: doc.layers.length + 1 }, () => bandHeight(metrics))
+    const banded = layoutCircuit(doc, {
+      metrics,
+      shapeOrder,
+      attach: theme.attach,
+      bareEnds: true,
+      bands,
+    })
+    const timeline = buildTermTimeline(working, banded.geometry, metrics, {
+      inside: opts.animateInside ?? true,
+      ...doc.animate,
+    })
+    const box = termAnimationBox(banded, timeline, metrics)
+    return {
+      svg: animatedTermSvg(banded, timeline, box, theme, palette, metrics, {
+        scale: opts.scale,
+        background: opts.background,
+      }),
+      kind,
+      width: box.w + theme.bleed.left + theme.bleed.right,
+      height: box.h + theme.bleed.top + theme.bleed.bottom,
+      check: check?.checked ? check : undefined,
+      hasAnswer: answered || undefined,
+      animation: {
+        duration: timeline.duration,
+        steps: termSteps(timeline),
+        loop: timeline.loop,
+      },
+    }
+  }
 
   const svg = renderPrims(layout.prims, layout.box, theme, palette, metrics, {
     scale: opts.scale,
@@ -144,11 +255,13 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     height: layout.box.h + theme.bleed.top + theme.bleed.bottom,
     // Nothing checkable is the common case; saying nothing beats saying "0 of 0".
     check: check?.checked ? check : undefined,
+    hasAnswer: answered || undefined,
   }
 }
 
 export { ParseError }
 export type { Check } from './check'
+export type { Step as AnimationStep } from './circuit/animate'
 export { THEMES, THEME_IDS } from './render/themes'
 export { LIGHT_PALETTE, DARK_PALETTE } from './render/theme'
 export type { Palette, ThemeId } from './render/theme'

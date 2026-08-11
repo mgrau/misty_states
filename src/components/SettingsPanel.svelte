@@ -25,6 +25,7 @@
     factorCalculated: boolean
     exactOdds: boolean
     keepSign: boolean
+    animateInside: boolean
     checking: boolean
     shapeOrder: ShapeName[]
     onclose: () => void
@@ -38,6 +39,7 @@
     onfactorchange: (factor: boolean) => void
     onexactoddschange: (exact: boolean) => void
     onkeepsignchange: (keep: boolean) => void
+    oninsidechange: (inside: boolean) => void
     oncheckingchange: (on: boolean) => void
     onshapeorderchange: (order: ShapeName[]) => void
   }
@@ -53,6 +55,7 @@
     factorCalculated,
     exactOdds,
     keepSign,
+    animateInside,
     checking,
     shapeOrder,
     onclose,
@@ -66,6 +69,7 @@
     onfactorchange,
     onexactoddschange,
     onkeepsignchange,
+    oninsidechange,
     oncheckingchange,
     onshapeorderchange,
   }: Props = $props()
@@ -329,6 +333,34 @@
           Keep it when the figure exists to show a phase flip:
           <span class="font-mono">1 / H / X / H</span> then reads
           <span class="font-mono">-1</span> rather than <span class="font-mono">1</span>.
+        </p>
+      </section>
+
+      <!-- Animation ---------------------------------------------------------- -->
+      <section class="flex flex-col gap-2">
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-xs font-medium text-slate-500">Animation</h3>
+          <span class="text-[11px] text-slate-400">What “animate” shows</span>
+        </div>
+        <div class="flex rounded-md border border-slate-200 p-0.5">
+          {#each [{ id: true, label: 'Open the gates' }, { id: false, label: 'Closed boxes' }] as const as opt (opt.label)}
+            <button
+              type="button"
+              onclick={() => oninsidechange(opt.id)}
+              aria-pressed={animateInside === opt.id}
+              class="flex-1 rounded px-2 py-1 text-xs transition-colors
+                     {animateInside === opt.id
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-600 hover:text-slate-900'}"
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="text-[11px] text-slate-400">
+          Open, a gate goes clear and its working is visible: a term splits in two
+          and the pair leaves together. Closed, qubits go in and qubits come out.
+          A source's own <span class="font-mono">inside=off</span> overrides this.
         </p>
       </section>
 

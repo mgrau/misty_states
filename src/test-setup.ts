@@ -98,3 +98,30 @@ if (typeof SVGElement !== 'undefined') {
     proto.getBBox = () => ({ x: 0, y: 0, width: 0, height: 0 }) as DOMRect
   }
 }
+
+/**
+ * jsdom only provides `requestAnimationFrame` when asked to pretend to be
+ * visual, which this environment does not. Playback drives its clock from it,
+ * so without a stand-in the animation silently never advances — and a test that
+ * cannot tell "not running" from "not implemented" is worth less than none.
+ *
+ * The stamp is taken from the same clock the callback would see in a browser,
+ * which is the point: mixing two clocks is what broke this once already.
+ */
+if (typeof globalThis.requestAnimationFrame !== 'function') {
+  let next = 1
+  const pending = new Map<number, ReturnType<typeof setTimeout>>()
+  globalThis.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+    const id = next++
+    pending.set(id, setTimeout(() => {
+      pending.delete(id)
+      cb(performance.now())
+    }, 16))
+    return id
+  }
+  globalThis.cancelAnimationFrame = (id: number): void => {
+    const timer = pending.get(id)
+    if (timer !== undefined) clearTimeout(timer)
+    pending.delete(id)
+  }
+}

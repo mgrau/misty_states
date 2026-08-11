@@ -163,6 +163,18 @@ export const EXAMPLES: Example[] = [
     ].join('\n'),
   },
   {
+    id: 'animate',
+    title: 'Circuit — watch it happen',
+    note: 'The qubits travel down the wires and the gate goes clear as it acts on them. Only for classical states: a superposition has no single qubit on a wire to move.',
+    source: ['in 11', 'CNOT 1 -> 2', 'animate'].join('\n'),
+  },
+  {
+    id: 'animate-terms',
+    title: 'Circuit — linearity, one term at a time',
+    note: 'A superposition goes through a gate one term at a time and the results are added up: two land on white and make 2, two land on black and cancel.',
+    source: ['in 0|1', 'H 1', 'animate'].join('\n'),
+  },
+  {
     id: 'window',
     title: 'Circuit — a framed window',
     note: '"window" frames the state in a box plumbed into the circuit, rather than breaking it.',
