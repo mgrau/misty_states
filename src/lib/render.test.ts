@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { render, detectMode } from './index'
+import { render, detectMode , renderFrames } from './index'
 import { EXAMPLES } from './examples'
 import { THEMES, THEME_IDS } from './render/themes'
 import { parseState } from './state/parse'
@@ -1077,5 +1077,50 @@ describe('naming what a drawing defines', () => {
   it('covers an animation\'s definitions too', () => {
     const svg = render('in 11\nCNOT 1 2\nanimate', { idPrefix: 'pal' }).svg
     expect(svg).not.toContain('ms-pipe')
+  })
+})
+
+/**
+ * A still of something that moves.
+ *
+ * An animation is CSS inside a self-contained SVG, and a rasteriser goes
+ * through an `<img>` — which catches whatever frame the browser happens to be
+ * on. A PNG has to be a decided moment, and the first instant is the one that
+ * means something: the figure before anything has happened to it.
+ */
+describe('drawing an animation still', () => {
+  const MOVING = 'in 11\nCNOT 1 2\nanimate'
+
+  it('leaves out the moving parts', () => {
+    const still = render(MOVING, { still: true }).svg
+    expect(render(MOVING).svg).toContain('@keyframes')
+    expect(still).not.toContain('@keyframes')
+    expect(still).not.toContain('--misty-at')
+  })
+
+  it('offers nothing to play, since there is nothing moving to play', () => {
+    expect(render(MOVING).animation).toBeTruthy()
+    expect(render(MOVING, { still: true }).animation).toBeUndefined()
+  })
+
+  it('takes the same room as the animation it stands for', () => {
+    const moving = render(MOVING)
+    const still = render(MOVING, { still: true })
+    expect(still.width).toBeCloseTo(moving.width, 6)
+    expect(still.height).toBeCloseTo(moving.height, 6)
+  })
+
+  it('is the first frame, not some other one', () => {
+    const { frames } = renderFrames(MOVING, { fps: 10 })
+    expect(frames[0].t).toBe(0)
+    // Same drawing, arrived at two different ways.
+    expect(render(MOVING, { still: true }).svg).toContain(
+      frames[0].svg.slice(frames[0].svg.indexOf('<g>'), frames[0].svg.indexOf('<g>') + 400),
+    )
+  })
+
+  it('does nothing to a diagram that was never moving', () => {
+    const src = 'in 00\nH 1\nCNOT 1 2'
+    expect(render(src, { still: true }).svg).toBe(render(src).svg)
   })
 })

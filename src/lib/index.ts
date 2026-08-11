@@ -65,6 +65,16 @@ export interface RenderOptions {
    */
   step?: number | null
   /**
+   * Draw an animation's first instant instead of the animation.
+   *
+   * A moving drawing is CSS inside a self-contained SVG, and a rasteriser goes
+   * through an `<img>` — which catches whatever frame the browser happens to be
+   * on, so a PNG of an animation was whatever moment it was asked at. A still
+   * has to be a decided moment, and the beginning is the one that means
+   * something: it is the figure before anything has happened to it.
+   */
+  still?: boolean
+  /**
    * Rename the ids this drawing defines.
    *
    * A drawing is a standalone SVG document and names its gradients and filters
@@ -368,6 +378,29 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
   // path cannot produce it, and the moving one has no use for the still box.
   if (doc?.animate && 'geometry' in layout) {
     const run = prepareAnimation(doc, layout, theme, metrics, shapeOrder, opts)
+
+    // Asked for a still: the first instant, drawn as an ordinary figure. It
+    // reports no `animation`, so nothing downstream offers to play it.
+    if (opts.still) {
+      const prims = run.terms
+        ? termFrameAt(run.layout, run.timeline, 0, metrics)
+        : frameAt(run.layout, run.timeline, 0, metrics)
+      return {
+        svg: renamed(
+          renderPrims(prims, run.box, theme, palette, metrics, {
+            scale: opts.scale,
+            background: opts.background,
+          }),
+          opts.idPrefix ?? 'ms',
+        ),
+        kind,
+        width: run.box.w + theme.bleed.left + theme.bleed.right,
+        height: run.box.h + theme.bleed.top + theme.bleed.bottom,
+        check: check?.checked ? check : undefined,
+        hasAnswer: answered || undefined,
+        dirac,
+      }
+    }
     const svg = run.terms
       ? animatedTermSvg(run.layout, run.timeline, run.box, theme, palette, metrics, {
           scale: opts.scale,

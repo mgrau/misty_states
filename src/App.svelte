@@ -219,28 +219,33 @@
   let stepAt = $state(0)
   let diracOn = $state(false)
 
+  /** Everything that decides how a source is drawn, in one place. */
+  const renderOptions = $derived({
+    theme,
+    dark,
+    shapeOrder,
+    factorCalculated,
+    exactOdds,
+    keepSign,
+    animateInside,
+    answers,
+    metrics: {
+      qubit: qubitSize,
+      separator,
+      cloudFluff,
+      cloudPadX: cloudPad,
+      // Kept in the default proportion, so one slider moves both sensibly.
+      cloudPadY: cloudPad * (11 / 14),
+    },
+  })
+
   const result = $derived.by(() => {
     try {
       const r = render(dragPreview?.source ?? source, {
-        theme,
-        dark,
-        shapeOrder,
-        factorCalculated,
-        exactOdds,
-        keepSign,
-        animateInside,
-        answers,
+        ...renderOptions,
         step: stepOn ? stepAt : undefined,
         highlight: dragPreview?.line,
         check: checking,
-        metrics: {
-          qubit: qubitSize,
-          separator,
-          cloudFluff,
-          cloudPadX: cloudPad,
-          // Kept in the default proportion, so one slider moves both sensibly.
-          cloudPadY: cloudPad * (11 / 14),
-        },
       })
       return { ok: true as const, ...r }
     } catch (err) {
@@ -280,6 +285,26 @@
     const meta = result.ok ? { source, name } : lastGood
     return embedSvgMeta(drawing, { source: meta.source, name: meta.name.trim() || undefined })
   })
+  /**
+   * The drawing a rasteriser should be handed.
+   *
+   * An animation is CSS inside the SVG, and a rasteriser goes through an
+   * `<img>` — which catches whatever frame the browser happens to be on, so a
+   * PNG of one used to be whatever moment it was asked at. A still has to be a
+   * decided moment, and its first instant is the one that means something.
+   * Saving the SVG itself still saves the animation, which is the point of that
+   * format.
+   */
+  const stillSvg = $derived.by(() => {
+    if (!animation) return svg
+    try {
+      const drawn = render(source, { ...renderOptions, still: true })
+      return embedSvgMeta(drawn.svg, { source, name: name.trim() || undefined })
+    } catch {
+      return svg
+    }
+  })
+
   const filename = $derived(result.ok && result.kind === 'circuit' ? 'circuit' : 'misty-state')
 
   /** 300 dpi at 96 CSS pixels to the inch — the usual print requirement. */
@@ -994,7 +1019,7 @@
             key: 'png-image',
             label: 'PNG image',
             hint: `Onto the clipboard at ${pngDpi} dpi — paste into slides`,
-            run: () => guard(() => copyPNG(svg, pngScale), 'PNG copied'),
+            run: () => guard(() => copyPNG(stillSvg, pngScale), 'PNG copied'),
           },
           {
             key: 'svg-image',
@@ -1081,7 +1106,7 @@
       key: 'pdf',
       label: 'PDF',
       hint: 'Vector, page cropped to the figure — for LaTeX',
-      run: () => guard(() => downloadPDF(svg, filename), 'PDF saved'),
+      run: () => guard(() => downloadPDF(stillSvg, filename), 'PDF saved'),
     },
     {
       key: 'svg',
@@ -1093,7 +1118,7 @@
       key: 'png',
       label: 'PNG',
       hint: `Raster at ${pngDpi} dpi`,
-      run: () => guard(() => downloadPNG(svg, filename, pngScale), 'PNG saved'),
+      run: () => guard(() => downloadPNG(stillSvg, filename, pngScale), 'PNG saved'),
     },
     // Only where there is something moving to save. The SVG above plays on its
     // own; these are for everywhere that will not take one.
