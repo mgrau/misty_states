@@ -142,7 +142,15 @@ export interface TargetPrim {
   cx: number
   cy: number
   r: number
-  glyph: 'not' | 'z'
+  /**
+   * `not` is the ⊕, `z` the filled dot, and anything else is drawn as itself.
+   *
+   * A free string rather than a closed set, because the course marks a port
+   * with whatever letter says what it does — `Ⓒ` for copy, `×` for control on
+   * the cloning box. The cost is that the theme switch is no longer exhaustive,
+   * which is why the fallback draws the text rather than nothing.
+   */
+  glyph: 'not' | 'z' | (string & {})
 }
 
 export interface SwapPrim {

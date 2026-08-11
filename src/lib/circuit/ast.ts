@@ -41,7 +41,11 @@ export interface ControlledGate {
   controls: number[]
   target: number
   /** 'not' draws ⊕, otherwise the label sits in a chip on the target. */
-  targetGlyph: 'not' | 'z' | 'label'
+  /**
+   * `not` is the ⊕, `z` the filled dot, `label` puts the gate's name there —
+   * and anything else is a mark of its own, drawn in a ring.
+   */
+  targetGlyph: 'not' | 'z' | 'label' | (string & {})
   /**
    * A name for what the gate does.
    *

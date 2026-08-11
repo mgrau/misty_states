@@ -330,9 +330,24 @@ function makeTheme(
           return el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: pal.accent })
 
         case 'target':
-          return p.glyph === 'not'
-            ? notGlyph(p.cx, p.cy, p.r, pal, m)
-            : el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: pal.accent })
+          if (p.glyph === 'not') return notGlyph(p.cx, p.cy, p.r, pal, m)
+          if (p.glyph === 'z') {
+            return el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: pal.accent })
+          }
+          // A marked port: the ring a control has, with its mark inside it.
+          return (
+            el('circle', {
+              cx: p.cx, cy: p.cy, r: p.r,
+              fill: pal.paper, stroke: pal.accent, 'stroke-width': m.stroke * 1.2,
+            }) +
+            drawText(
+              {
+                t: 'text', x: p.cx, cy: p.cy, text: p.glyph,
+                size: p.r * 1.3, anchor: 'middle', weight: 700, color: pal.accent,
+              },
+              pal,
+            )
+          )
 
         case 'swap':
           return swapGlyph(p.cx, p.cy, p.r, pal, m)

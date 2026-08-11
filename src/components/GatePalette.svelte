@@ -65,12 +65,22 @@
             e.preventDefault()
             onpick?.(item.drop, e)
           }}
-          class="flex h-16 cursor-grab touch-none items-center justify-center rounded border
-                 border-slate-200 bg-white px-2 select-none hover:border-slate-400
-                 active:cursor-grabbing"
+          class="flex h-16 cursor-grab touch-none items-center justify-center overflow-hidden
+                 rounded border border-slate-200 bg-white px-2 select-none
+                 hover:border-slate-400 active:cursor-grabbing"
         >
-          <!-- Not a target itself: the tile takes the pointer. -->
-          <span class="pointer-events-none">{@html drawn(item)}</span>
+          <!--
+            Not a target itself: the tile takes the pointer. The drawing is held
+            inside the tile, because a theme with depth to it — the isometric
+            one — draws past the box the flat ones need, and a gate leaning out
+            of its tile reads as a mistake rather than as perspective.
+          -->
+          <span
+            class="pointer-events-none flex h-full w-full items-center justify-center
+                   [&>svg]:max-h-full [&>svg]:w-auto"
+          >
+            {@html drawn(item)}
+          </span>
         </li>
       {/each}
     </ul>

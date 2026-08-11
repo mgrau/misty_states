@@ -55,3 +55,17 @@ body.dragging {
 [data-preview] [data-highlight] {
   filter: drop-shadow(0 0 2px #2563eb) drop-shadow(0 0 7px rgb(37 99 235 / 0.55));
 }
+
+/*
+ * The drawing is something you drag, not something you read a word out of.
+ *
+ * A gate's letters are `<text>`, so a pointer pressed on one and moved starts a
+ * text selection — which fights the drag, leaves a blue smear over the figure,
+ * and on some browsers swallows the pointer events entirely. The letters are
+ * part of the picture; nobody wants to copy the H out of a Hadamard.
+ */
+[data-preview] svg,
+[data-palette-gate] svg {
+  user-select: none;
+  -webkit-user-select: none;
+}

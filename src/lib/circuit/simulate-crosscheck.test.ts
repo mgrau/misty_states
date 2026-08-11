@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
 import { amplitudesOf, simulate, type Amplitudes } from './simulate'
 import { referenceAmplitudes } from './reference'
-import { cx, show, times as cxTimes } from './complex'
+import { abs2, cx, mul, show, times as cxTimes, type Cx } from './complex'
 import { seededRandom } from '../svg'
 
 /** Amplitudes as a sorted list, so two runs can be compared directly. */
@@ -24,6 +24,15 @@ const listed = (amps: Amplitudes) =>
  * where the long way round picks up a factor the short way does not. */
 const scaled = (list: ReturnType<typeof listed>, by: number) =>
   list.map(([bits, amp]) => [bits, show(cxTimes(cx(Number(amp)), by))] as const)
+
+/** The first amplitude in bit order, for working out the scale between two runs. */
+const amp0 = (amps: Amplitudes) => [...amps].sort(([a], [b]) => (a < b ? -1 : 1))[0][1]
+
+/** Complex division, only ever used to find that scale. */
+const div = (a: Cx, b: Cx): Cx => {
+  const d = abs2(b)
+  return cx((a.re * b.re + a.im * b.im) / d, (a.im * b.re - a.re * b.im) / d)
+}
 
 const run = (src: string) => {
   const doc = parseCircuit(src)
@@ -117,7 +126,7 @@ function randomCircuit(rand: () => number): { src: string; qubits: number } {
 
   const depth = 1 + Math.floor(rand() * 8)
   for (let i = 0; i < depth; i++) {
-    const choice = Math.floor(rand() * 6)
+    const choice = Math.floor(rand() * 10)
     const a = pick(qubits)
     let b = pick(qubits)
     while (qubits > 1 && b === a) b = pick(qubits)
@@ -128,6 +137,11 @@ function randomCircuit(rand: () => number): { src: string; qubits: number } {
     if (choice === 0) lines.push(`H ${a}`)
     else if (choice === 1) lines.push(`X ${a}`)
     else if (choice === 2) lines.push(`Z ${a}`)
+    else if (choice === 6) lines.push(`S ${a}`)
+    else if (choice === 7) lines.push(`Y ${a}`)
+    // Rotations are the reason this file now speaks complex: they are the
+    // first arithmetic here nobody can work out by hand.
+    else if (choice === 8) lines.push(`${['RX', 'RY', 'RZ', 'P'][Math.floor(rand() * 4)]}(${Math.floor(rand() * 24) * 15}) ${a}`)
     else if (qubits < 2) lines.push(`H ${a}`)
     else if (choice === 3) lines.push(`CNOT ${a} -> ${b}`)
     else if (choice === 4) lines.push(`CZ ${a} ${b}`)
@@ -167,10 +181,15 @@ describe('agreement with a dense floating-point implementation', () => {
 
       const where = `#${i}\n${input}\n${src}`
       expect([...mine.keys()].sort(), where).toEqual([...theirs.keys()].sort())
+      // Compared as *states*: the simulator drops a `1/√2` per Hadamard and
+      // per quarter-turn rotation and normalises the overall phase away, and
+      // the reference does neither. What has to agree is the state, not the
+      // numbers standing for it.
+      const ratio = div(amp0(mine), amp0(theirs))
       for (const [bits, amp] of mine) {
-        // Real parts: the reference implements only the gates that keep a
-        // state on the real axis, which is every gate it is given here.
-        expect(theirs.get(bits)!.re, `${where}\nat ${bits}`).toBeCloseTo(amp.re, 6)
+        const want = mul(theirs.get(bits)!, ratio)
+        expect(amp.re, `${where}\nat ${bits} (re)`).toBeCloseTo(want.re, 6)
+        expect(amp.im, `${where}\nat ${bits} (im)`).toBeCloseTo(want.im, 6)
       }
       checked++
     }

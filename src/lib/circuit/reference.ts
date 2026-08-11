@@ -13,31 +13,59 @@
  */
 
 import type { CircuitDoc, Gate } from './ast'
-import { cx } from './complex'
 import type { Amplitudes } from './simulate'
+import { ZERO, abs2, add, cx, mul, type Cx } from './complex'
 
 /** Row-major dense matrix. */
-type Matrix = number[][]
+/**
+ * Complex, because the gates it now has to cover are.
+ *
+ * `S`, `Y` and every rotation move amplitudes off the real axis, and those are
+ * precisely the ones nobody can check by hand — so a second opinion on them is
+ * worth more than on anything else here.
+ */
+type Matrix = Cx[][]
 
-const I2: Matrix = [[1, 0], [0, 1]]
-const X2: Matrix = [[0, 1], [1, 0]]
-const Z2: Matrix = [[1, 0], [0, -1]]
+const r = (re: number, im = 0): Cx => cx(re, im)
+
+const I2: Matrix = [[r(1), r(0)], [r(0), r(1)]]
+const X2: Matrix = [[r(0), r(1)], [r(1), r(0)]]
+const Y2: Matrix = [[r(0), r(0, -1)], [r(0, 1), r(0)]]
+const Z2: Matrix = [[r(1), r(0)], [r(0), r(-1)]]
+const S2: Matrix = [[r(1), r(0)], [r(0), r(0, 1)]]
 /** Unnormalised, matching the course's PETE box. */
-const H2: Matrix = [[1, 1], [1, -1]]
+const H2: Matrix = [[r(1), r(1)], [r(1), r(-1)]]
 /** |0⟩⟨0| and |1⟩⟨1|, the projectors a control selects with. */
-const P0: Matrix = [[1, 0], [0, 0]]
-const P1: Matrix = [[0, 0], [0, 1]]
+const P0: Matrix = [[r(1), r(0)], [r(0), r(0)]]
+const P1: Matrix = [[r(0), r(0)], [r(0), r(1)]]
 /** |0⟩⟨1| and |1⟩⟨0|, the off-diagonal blocks a swap is built from. */
-const S01: Matrix = [[0, 1], [0, 0]]
-const S10: Matrix = [[0, 0], [1, 0]]
+const S01: Matrix = [[r(0), r(1)], [r(0), r(0)]]
+const S10: Matrix = [[r(0), r(0)], [r(1), r(0)]]
+
+/**
+ * A rotation, from its definition rather than from the simulator's.
+ *
+ * Written straight out of the textbook matrices, with no `1/√2` dropped and no
+ * tidying of near-whole numbers — the simulator does both, and a check that
+ * copied them would be checking nothing. The two are compared as states, which
+ * is what makes the difference in convention harmless.
+ */
+function turn2(label: string, angle: number): Matrix {
+  const t = (angle * Math.PI) / 180
+  const c = Math.cos(t / 2)
+  const s = Math.sin(t / 2)
+  if (label === 'RZ' || label === 'P') return [[r(1), r(0)], [r(0), r(Math.cos(t), Math.sin(t))]]
+  if (label === 'RY') return [[r(c), r(-s)], [r(s), r(c)]]
+  return [[r(c), r(0, -s)], [r(0, -s), r(c)]]
+}
 
 function kron(a: Matrix, b: Matrix): Matrix {
   const out: Matrix = []
   for (let i = 0; i < a.length; i++) {
     for (let k = 0; k < b.length; k++) {
-      const row: number[] = []
+      const row: Cx[] = []
       for (let j = 0; j < a[i].length; j++) {
-        for (let l = 0; l < b[k].length; l++) row.push(a[i][j] * b[k][l])
+        for (let l = 0; l < b[k].length; l++) row.push(mul(a[i][j], b[k][l]))
       }
       out.push(row)
     }
@@ -46,12 +74,12 @@ function kron(a: Matrix, b: Matrix): Matrix {
 }
 
 function sum(a: Matrix, b: Matrix): Matrix {
-  return a.map((row, i) => row.map((v, j) => v + b[i][j]))
+  return a.map((row, i) => row.map((v, j) => add(v, b[i][j])))
 }
 
 /** Spread one-qubit operators across `n` wires, the identity where unnamed. */
 function embed(n: number, ops: Record<number, Matrix>): Matrix {
-  let out: Matrix = [[1]]
+  let out: Matrix = [[r(1)]]
   for (let q = 1; q <= n; q++) out = kron(out, ops[q] ?? I2)
   return out
 }
@@ -63,9 +91,14 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
       return null
 
     case 'single':
+      if (gate.angle !== undefined) {
+        return embed(n, { [gate.qubit]: turn2(gate.label, gate.angle) })
+      }
       if (gate.label === 'H') return embed(n, { [gate.qubit]: H2 })
       if (gate.label === 'Z') return embed(n, { [gate.qubit]: Z2 })
-      throw new Error(`reference: ${gate.label} is not real-valued`)
+      if (gate.label === 'Y') return embed(n, { [gate.qubit]: Y2 })
+      if (gate.label === 'S') return embed(n, { [gate.qubit]: S2 })
+      throw new Error(`reference: ${gate.label} has no matrix here`)
 
     case 'controlled': {
       const act = gate.targetGlyph === 'z' ? Z2 : X2
@@ -104,21 +137,19 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
 const bitsOf = (index: number, n: number) => index.toString(2).padStart(n, '0')
 
 /** Run the circuit from `input`, returning amplitudes keyed the same way. */
-export function referenceSimulate(doc: CircuitDoc, input: Amplitudes): number[] {
+export function referenceSimulate(doc: CircuitDoc, input: Amplitudes): Cx[] {
   const n = doc.qubits
-  let vector = new Array<number>(1 << n).fill(0)
-  // Real parts only: this stands beside the exact simulator to disagree with
-  // it, and it implements only the gates that keep a state on the real axis.
-  for (const [bits, amp] of input) vector[parseInt(bits, 2)] = amp.re
+  let vector = new Array<Cx>(1 << n).fill(ZERO)
+  for (const [bits, amp] of input) vector[parseInt(bits, 2)] = amp
 
   for (const layer of doc.layers) {
     for (const gate of layer.gates) {
       const m = matrixOf(gate, n)
       if (!m) continue
-      const next = new Array<number>(1 << n).fill(0)
+      const next = new Array<Cx>(1 << n).fill(ZERO)
       for (let i = 0; i < next.length; i++) {
-        let acc = 0
-        for (let j = 0; j < vector.length; j++) acc += m[i][j] * vector[j]
+        let acc = ZERO
+        for (let j = 0; j < vector.length; j++) acc = add(acc, mul(m[i][j], vector[j]))
         next[i] = acc
       }
       vector = next
@@ -132,7 +163,7 @@ export function referenceAmplitudes(doc: CircuitDoc, input: Amplitudes): Amplitu
   const vector = referenceSimulate(doc, input)
   const out: Amplitudes = new Map()
   vector.forEach((amp, i) => {
-    if (Math.abs(amp) > 1e-9) out.set(bitsOf(i, doc.qubits), cx(amp))
+    if (abs2(amp) > 1e-18) out.set(bitsOf(i, doc.qubits), amp)
   })
   return out
 }
