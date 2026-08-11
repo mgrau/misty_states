@@ -346,9 +346,20 @@ export const THEMES: Record<ThemeId, Theme> = {
 
 export const THEME_IDS = Object.keys(THEMES) as ThemeId[]
 
-/** Wrap a drawn primitive when it is not fully opaque. */
-const faded = (drawn: string, p: Prim): string =>
-  p.opacity === undefined || p.opacity >= 1 ? drawn : g({ opacity: n(p.opacity) }, drawn)
+/**
+ * Wrap a drawn primitive when it carries something the markup has to say.
+ *
+ * Opacity, and a `key` for anything that wants to follow this piece across a
+ * redraw. Both are one wrapper, so a keyed translucent primitive gets one
+ * group rather than two.
+ */
+const wrapped = (drawn: string, p: Prim): string => {
+  const attrs: Record<string, string | number> = {}
+  if (p.opacity !== undefined && p.opacity < 1) attrs.opacity = n(p.opacity)
+  if (p.key) attrs['data-key'] = p.key
+  if (p.highlight) attrs['data-highlight'] = 'true'
+  return Object.keys(attrs).length ? g(attrs, drawn) : drawn
+}
 
 /** Wrap primitives into a complete, standalone SVG document. */
 export function renderPrims(
@@ -380,6 +391,6 @@ export function renderPrims(
       height: n(h * scale),
       'shape-rendering': 'geometricPrecision',
     },
-    (defs ? el('defs', {}, defs) : '') + bg + g({}, prims.map((p) => faded(theme.draw(p, pal, m), p))),
+    (defs ? el('defs', {}, defs) : '') + bg + g({}, prims.map((p) => wrapped(theme.draw(p, pal, m), p))),
   )
 }

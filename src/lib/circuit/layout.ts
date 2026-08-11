@@ -38,6 +38,13 @@ export interface CircuitLayoutOptions {
    */
   bands?: number[]
   /**
+   * Mark whatever was written on this source line as being placed.
+   *
+   * The one gate a drag is carrying, so it can be told apart from the ones it
+   * is being dropped among.
+   */
+  highlight?: number
+  /**
    * Leave the input and output states undrawn.
    *
    * An animation replaces them with the qubits that travel between them, so
@@ -132,6 +139,37 @@ const LINK_LABEL_PAD = 5
  */
 const linkLabelReach = (m: Metrics): number =>
   m.pipeWidth * TARGET_R + m.fontSize * 0.55 + m.fontSize / 2
+
+/**
+ * Name a group of primitives so a viewer can follow them across a redraw.
+ *
+ * The states at either end move bodily when a layer is added between them, so
+ * they want a handle for the same reason the gates do — half a drawing gliding
+ * while the other half jumps is worse than either on its own.
+ */
+const keyed = (prims: Prim[], key: string): Prim[] => prims.map((p) => ({ ...p, key }))
+
+/**
+ * A name for this gate that survives an edit elsewhere in the document.
+ *
+ * By what it is and where it sits, not by its position in the document: adding
+ * a gate renumbers everything after it, so an ordinal would rename every gate
+ * below the insertion and nothing would appear to have merely moved. What a
+ * gate is and which wires it covers do not change when something is dropped in
+ * above it, so those make a handle that holds. Identical gates on identical
+ * wires are told apart by how many came before.
+ */
+function gateKey(gate: Gate, seen: Map<string, number>): string {
+  const [q0, q1] = gateSpan(gate)
+  const what =
+    gate.kind === 'single' ? `${gate.kind}:${gate.label}`
+    : gate.kind === 'box' ? `${gate.kind}:${gate.label}`
+    : gate.kind
+  const base = `${what}@${q0}-${q1}`
+  const nth = seen.get(base) ?? 0
+  seen.set(base, nth + 1)
+  return `${base}#${nth}`
+}
 
 /** How tall this gate's body is drawn. */
 const bodyHeight = (gate: Gate, m: Metrics): number =>
@@ -453,7 +491,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     // Measured either way: leaving the drawing out must not move the circuit,
     // so an animation's first instant matches the still figure exactly.
     const placed = placeEndState([doc.input], 0)
-    if (!opts.bareEnds) caps.push(...placed.prims)
+    if (!opts.bareEnds) caps.push(...keyed(placed.prims, 'state:in'))
     boxes.push(placed.box)
     startY = placed.box.y + placed.box.h / 2
     pipeTop = placed.box.y + placed.box.h + STATE_GAP
@@ -492,6 +530,9 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     pipeTop += ends[0]
     boxes.push({ x: left, y: bandGeometry[0].y, w: right - left, h: ends[0] })
   }
+
+  /** How many gates of each kind and span have been named so far. */
+  const keys = new Map<string, number>()
 
   let y = pipeTop + STUB_LEAD + attach.topLeadExtra
 
@@ -691,7 +732,16 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
         blocked.set(q, list)
       }
 
+      // Tagged after the fact rather than threaded through every emitter: what
+      // a gate draws is its own business, and only the outside needs the name.
+      const wasBodies = bodies.length
+      const wasGlyphs = glyphs.length
       emitGate(gate, box, cy, gateX, m, bodies, glyphs)
+      const key = gateKey(gate, keys)
+      const highlight = gate.line !== undefined && gate.line === opts.highlight
+      const tag = { key, ...(highlight ? { highlight } : {}) }
+      for (let i = wasBodies; i < bodies.length; i++) bodies[i] = { ...bodies[i], ...tag }
+      for (let i = wasGlyphs; i < glyphs.length; i++) glyphs[i] = { ...glyphs[i], ...tag }
       boxes.push(box)
       drawn = drawn
         ? {
@@ -728,7 +778,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
 
   if (doc.output) {
     const placed = placeEndState(doc.output, pipeBottom + STATE_GAP)
-    if (!opts.bareEnds) caps.push(...placed.prims)
+    if (!opts.bareEnds) caps.push(...keyed(placed.prims, 'state:out'))
     boxes.push(placed.box)
     endY = placed.box.y + placed.box.h / 2
   } else {

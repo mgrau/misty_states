@@ -48,6 +48,8 @@ describe('writing it', () => {
       targetGlyph: 'not',
       label: undefined,
       labelOnLink: undefined,
+      // Every gate carries the line it was written on, named or not.
+      line: 2,
     })
   })
 })

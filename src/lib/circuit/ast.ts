@@ -111,8 +111,19 @@ export interface ViewGate {
   fill?: string
 }
 
-export type Gate =
+export type Gate = (
   | SingleGate | IdentityGate | ControlledGate | SwapGate | MeasureGate | BoxGate | ViewGate
+) & {
+  /**
+   * The source line this was written on.
+   *
+   * Carried on the union rather than on each member because it means the same
+   * thing for all of them. Nothing about drawing a circuit needs it; pointing
+   * at one does — it is how a gate on the page is traced back to the text that
+   * put it there.
+   */
+  line?: number
+}
 
 /** Every qubit a gate touches, used for layer packing and span width. */
 export function gateQubits(gate: Gate): number[] {
@@ -138,6 +149,14 @@ export interface Layer {
   /** Annotations for the layer as a whole, drawn either side of it. */
   caption?: string
   note?: string
+  /**
+   * The source lines whose gates ended up here, in the order they arrived.
+   *
+   * A list, not a number, because a layer is not a line: `;` puts several gates
+   * on one line and the packer puts several lines in one layer. Editing the
+   * source from a position on the drawing needs the way back, and this is it.
+   */
+  lines: number[]
 }
 
 /**

@@ -22,6 +22,13 @@
   import MenuButton from './components/MenuButton.svelte'
   import MenuItems from './components/MenuItems.svelte'
   import type { MenuItem } from './components/menu'
+  import {
+    asDroppable, dropTarget, gateAt, insertGate, moveGate,
+    type Droppable, type Edit,
+  } from './lib/circuit/edit'
+  import { parseCircuit } from './lib/circuit/parse'
+  import type { CircuitDoc, Gate } from './lib/circuit/ast'
+  import type { CircuitGeometry } from './lib/circuit/layout'
 
   const STORE = 'misty.v1'
 
@@ -134,13 +141,78 @@
    * saved with it and neither is on to begin with: the drawing is the point,
    * and a row of controls over it that nobody asked for is in the way.
    */
+  /**
+   * A gate being dragged in from the palette.
+   *
+   * The drag never touches `source`. It works out what the source *would* be,
+   * draws that, and writes it only on release — so the preview is produced by
+   * the very function that will commit, and the two cannot disagree.
+   *
+   * Everything the hit-test reads is frozen at pick-up: the document, its
+   * geometry and the mapping from screen to diagram. The drawing shifts as the
+   * preview grows, and measuring it while it moves would feed the animation
+   * back into the aim that drives it — the same reason the shape list freezes
+   * its row bands.
+   */
+  /**
+   * What is in the air: a new gate off the palette, or one already in the
+   * drawing that is being moved. The difference is only which patch is used —
+   * both preview the same way and commit the same way.
+   */
+  type Carried = { from: 'palette'; gate: Droppable } | { from: 'diagram'; gate: Gate }
+  /**
+   * `$state.raw`, and it matters. Plain `$state` hands back a deep proxy of
+   * whatever is assigned to it, and a gate taken out of the frozen document
+   * would then no longer *be* one of that document's gates — the patch would
+   * look for it, fail to find it, and quietly do nothing. Nothing here is
+   * mutated in place, so there is nothing to gain by proxying it.
+   */
+  let dragging = $state.raw<Carried | null>(null)
+  let dragPreview = $state.raw<Edit | null>(null)
+  /** Where the pointer is, so the gate being carried can follow it. */
+  let carriedAt = $state<{ x: number; y: number } | null>(null)
+  let held: {
+    source: string
+    doc: CircuitDoc
+    geometry: CircuitGeometry
+    /** Screen to diagram, for reading the pointer. */
+    screen: DOMMatrix
+    /** Where the diagram's origin sat on screen, for keeping it there. */
+    anchor: { x: number; y: number }
+  } | null = null
+  /** The element the anchor compensation is applied to. */
+  let anchorEl = $state<HTMLElement | undefined>()
+  let previewEl = $state<HTMLElement | undefined>()
+
+  /**
+   * Whether the name-and-view block is showing on a narrow screen.
+   *
+   * Folded away by default there and always open once the columns sit side by
+   * side. On a phone the drawing is the scarce thing, and none of what is in
+   * there — what the figure is called, how big it is drawn — is needed while
+   * writing one.
+   */
+  let controlsOpen = $state(false)
+  let controlsEl = $state<HTMLElement | undefined>()
+
+  /**
+   * Bring it into view when it is opened.
+   *
+   * The column is capped on a phone and scrolls, so unfolding something at the
+   * bottom of it otherwise reveals a sliver and leaves the reader to work out
+   * that there is more below.
+   */
+  $effect(() => {
+    if (controlsOpen) controlsEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  })
+
   let stepOn = $state(false)
   let stepAt = $state(0)
   let diracOn = $state(false)
 
   const result = $derived.by(() => {
     try {
-      const r = render(source, {
+      const r = render(dragPreview?.source ?? source, {
         theme,
         dark,
         shapeOrder,
@@ -150,6 +222,7 @@
         animateInside,
         answers,
         step: stepOn ? stepAt : undefined,
+        highlight: dragPreview?.line,
         check: checking,
         metrics: {
           qubit: qubitSize,
@@ -463,7 +536,269 @@
   let dismissed = $state<string | null>(null)
 
   const check = $derived(result.ok ? result.check : undefined)
-  const showCheck = $derived(!!check && dismissed !== source)
+  // Nothing is being claimed while a gate is in mid-air, so there is nothing
+  // to give a verdict on.
+  const showCheck = $derived(!!check && dismissed !== source && !dragPreview)
+
+  /**
+   * Take hold of what the drag will be measured against.
+   *
+   * Called on the first move over the drawing, while what is on screen is still
+   * the committed diagram: its geometry and its screen mapping are what every
+   * subsequent move is read against, and neither is looked at again.
+   */
+  function hold(): boolean {
+    if (held) return true
+    const svg = previewEl?.querySelector('svg')
+    const geometry = result.ok ? result.geometry : undefined
+    const screen = (svg as SVGSVGElement | null)?.getScreenCTM()
+    if (!geometry || !screen) return false
+    try {
+      held = {
+        source,
+        doc: parseCircuit(source),
+        geometry,
+        screen: screen.inverse(),
+        anchor: { x: screen.e, y: screen.f },
+      }
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Slide the gates that moved, rather than letting them jump.
+   *
+   * The drawing arrives as one string of markup, so every element is replaced
+   * on every render and Svelte's own `animate:flip` has nothing to hold on to.
+   * The `data-key` each gate carries is that handle: measure where the keys were
+   * before the swap, work out where they landed after, and put each one back
+   * where it started for an instant before letting it travel.
+   *
+   * Only while a gate is being carried. Everything else that redraws — a
+   * keystroke, a theme, a zoom — is a different drawing rather than the same one
+   * rearranged, and sliding between two of those would be nonsense.
+   */
+  const FLIP_MS = 150
+  let flipFrom: Map<string, DOMRect> | null = null
+
+  /**
+   * Every keyed element's box, indexed by key *and* by its place among its
+   * namesakes.
+   *
+   * One name covers several pieces — a drawn state is a dozen primitives, all
+   * moving together — and the emitter wraps each on its own. Counting within a
+   * name pairs each piece with the one it was, which a bare key could not: the
+   * map would keep only the last and every piece would be told it used to be
+   * somewhere it never was.
+   */
+  function boxesByKey(root: HTMLElement): Map<string, DOMRect> {
+    const seen = new Map<string, number>()
+    const out = new Map<string, DOMRect>()
+    for (const el of root.querySelectorAll<SVGGraphicsElement>('[data-key]')) {
+      const key = el.dataset.key!
+      const nth = seen.get(key) ?? 0
+      seen.set(key, nth + 1)
+      out.set(`${key}|${nth}`, el.getBoundingClientRect())
+    }
+    return out
+  }
+
+  $effect.pre(() => {
+    svg
+    flipFrom = dragging && previewEl ? boxesByKey(previewEl) : null
+  })
+
+  /**
+   * Hold the drawing still while a gate is being placed.
+   *
+   * The preview is centred in its pane, so a circuit that grows by a layer
+   * shifts bodily — measured at 32px for one inserted gate. Every part of the
+   * figure moves, including the parts the edit did not touch, which reads as
+   * the whole diagram flinching rather than as one gate arriving. Undoing that
+   * translation leaves only the motion the edit actually caused.
+   *
+   * Set on the element rather than through the template, because Svelte
+   * rewrites the wrapper's `style` on every render and would wipe it.
+   */
+  function keepStill() {
+    if (!anchorEl) return
+    if (!dragging || !held) {
+      if (anchorEl.style.transform) {
+        anchorEl.style.transition = `transform ${FLIP_MS}ms ease-out`
+        anchorEl.style.transform = ''
+      }
+      return
+    }
+    const now = (previewEl?.querySelector('svg') as SVGSVGElement | null)?.getScreenCTM()
+    if (!now) return
+    // Inside the preview's own `scale`, so the correction is in pre-scale units.
+    const per = now.a || 1
+    const current = new DOMMatrix(getComputedStyle(anchorEl).transform)
+    anchorEl.style.transition = 'none'
+    anchorEl.style.transform =
+      `translate(${current.e + (held.anchor.x - now.e) / per}px, ` +
+      `${current.f + (held.anchor.y - now.f) / per}px)`
+  }
+
+  $effect(() => {
+    svg
+    const from = flipFrom
+    flipFrom = null
+    // Before anything is measured: this moves things, and the slide should be
+    // of where they ended up, not of where they briefly were.
+    keepStill()
+    if (!from || !previewEl) return
+    if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+      return
+
+    // A CSS transform on an SVG element is in user units, and the drawing is
+    // scaled twice over — by its own `scale` and by the preview's zoom — so the
+    // screen-space delta has to be divided back down.
+    const per = (previewEl.querySelector('svg') as SVGSVGElement | null)?.getScreenCTM()?.a || 1
+    const moved: SVGGraphicsElement[] = []
+    const seen = new Map<string, number>()
+
+    for (const el of previewEl.querySelectorAll<SVGGraphicsElement>('[data-key]')) {
+      const key = el.dataset.key!
+      const nth = seen.get(key) ?? 0
+      seen.set(key, nth + 1)
+      const was = from.get(`${key}|${nth}`)
+      if (!was) continue
+      const now = el.getBoundingClientRect()
+      const dx = (was.left - now.left) / per
+      const dy = (was.top - now.top) / per
+      if (Math.abs(dx) < 0.4 && Math.abs(dy) < 0.4) continue
+      el.style.transition = 'none'
+      el.style.transform = `translate(${dx}px, ${dy}px)`
+      moved.push(el)
+    }
+    if (!moved.length) return
+
+    // One reflow for the lot, so every gate starts travelling together.
+    void previewEl.getBoundingClientRect()
+    for (const el of moved) {
+      el.style.transition = `transform ${FLIP_MS}ms ease-out`
+      el.style.transform = ''
+    }
+  })
+
+  /** Where a pointer is in the diagram's own coordinates, through the frozen map. */
+  const toDiagram = (event: PointerEvent) =>
+    new DOMPoint(event.clientX, event.clientY).matrixTransform(held!.screen)
+
+  function carry(what: Carried, event: PointerEvent) {
+    dragging = what
+    carriedAt = { x: event.clientX, y: event.clientY }
+    window.addEventListener('pointermove', onCarryMove)
+    window.addEventListener('pointerup', onCarryUp)
+    window.addEventListener('keydown', onCarryKey)
+  }
+
+  /** Pick a gate up off the palette. */
+  const carryNew = (gate: Droppable, event: PointerEvent) =>
+    carry({ from: 'palette', gate }, event)
+
+  /**
+   * Press on a gate in the drawing to move it.
+   *
+   * Not until the pointer has actually travelled: a press that goes nowhere is
+   * a click, and clicking a diagram should not rearrange it.
+   */
+  const PICK_UP_AFTER = 4
+  let pending: { gate: Gate; x: number; y: number } | null = null
+
+  function onPreviewDown(event: PointerEvent) {
+    if (event.button !== 0 || dragging || !hold() || !held) return
+    const gate = gateAt(held.doc, held.geometry, toDiagram(event))
+    if (!gate) {
+      held = null
+      return
+    }
+    pending = { gate, x: event.clientX, y: event.clientY }
+    window.addEventListener('pointermove', onPendingMove)
+    window.addEventListener('pointerup', dropPending, { once: true })
+  }
+
+  function onPendingMove(event: PointerEvent) {
+    if (!pending) return
+    const far =
+      Math.abs(event.clientX - pending.x) > PICK_UP_AFTER ||
+      Math.abs(event.clientY - pending.y) > PICK_UP_AFTER
+    if (!far) return
+    const gate = pending.gate
+    // The carry starts before the pending state is cleared, because clearing it
+    // lets go of the frozen document — and `gate` is a value *from* that
+    // document. Handed a gate from a different parse, the patch would find
+    // nothing to remove.
+    carry({ from: 'diagram', gate }, event)
+    forgetPending()
+    onCarryMove(event)
+  }
+
+  /** Stop watching for a press to become a drag. */
+  function forgetPending() {
+    pending = null
+    window.removeEventListener('pointermove', onPendingMove)
+  }
+
+  /** A press that went nowhere: a click, so nothing was picked up. */
+  function dropPending() {
+    forgetPending()
+    if (!dragging) held = null
+  }
+
+  /** Work out what dropping here would produce, and draw that. */
+  function onCarryMove(event: PointerEvent) {
+    if (!dragging) return
+    carriedAt = { x: event.clientX, y: event.clientY }
+
+    const over = previewEl?.getBoundingClientRect()
+    const inside =
+      over &&
+      event.clientX >= over.left && event.clientX <= over.right &&
+      event.clientY >= over.top && event.clientY <= over.bottom
+
+    if (!inside || !hold() || !held) {
+      dragPreview = null
+      return
+    }
+
+    // Through the mapping taken at pick-up, so the aim does not chase the
+    // drawing as the drawing moves under it.
+    const target = dropTarget(held.geometry, toDiagram(event))
+    dragPreview =
+      dragging.from === 'palette'
+        ? insertGate(held.source, held.doc, target, dragging.gate)
+        : moveGate(held.source, held.doc, dragging.gate, target)
+  }
+
+  /** Commit, as a single edit rather than the hundred the drag drew. */
+  function onCarryUp() {
+    if (dragPreview) source = dragPreview.source
+    endDrag()
+  }
+
+  function onCarryKey(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      dragPreview = null
+      endDrag()
+    }
+  }
+
+  function endDrag() {
+    dropPending()
+    // Released, so the drawing settles back to the middle of its pane.
+    queueMicrotask(keepStill)
+    dragging = null
+    dragPreview = null
+    carriedAt = null
+    held = null
+    window.removeEventListener('pointermove', onCarryMove)
+    window.removeEventListener('pointerup', onCarryUp)
+    window.removeEventListener('keydown', onCarryKey)
+  }
 
   function flash(message: string) {
     toast = message
@@ -799,11 +1134,56 @@
    * default is passed through only when a modifier is held — otherwise a
    * trackpad swipe meant for the page would zoom instead.
    */
+  const clampZoom = (v: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, v))
+
   function onWheel(event: WheelEvent) {
-    if (event.ctrlKey || event.metaKey || event.altKey) return
+    // A trackpad pinch arrives as a wheel with ctrl held, and the browser would
+    // otherwise zoom the whole page rather than the drawing.
+    if (event.metaKey || event.altKey) return
     event.preventDefault()
-    const factor = Math.exp(-event.deltaY * 0.0015)
-    zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * factor))
+    const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0015))
+    zoom = clampZoom(zoom * factor)
+  }
+
+  /**
+   * Pinching the drawing.
+   *
+   * Two fingers on the pane are a zoom, and one is not — so the pointers are
+   * counted rather than the gesture being guessed at. `touch-action` on the
+   * pane keeps one-finger scrolling with the browser and leaves the two-finger
+   * case to us, which is the only part the browser would get wrong: its own
+   * pinch zooms the page, and what is wanted is a bigger diagram.
+   */
+  const touching = new Map<number, { x: number; y: number }>()
+  let pinch: { apart: number; zoom: number } | null = null
+
+  const apart = () => {
+    const [a, b] = [...touching.values()]
+    return Math.hypot(a.x - b.x, a.y - b.y)
+  }
+
+  function trackTouch(event: PointerEvent) {
+    if (event.pointerType === 'mouse') return
+    touching.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (touching.size === 2) {
+      // A second finger turns a drag into a zoom: nobody places a gate with two.
+      if (dragging) endDrag()
+      dropPending()
+      pinch = { apart: apart(), zoom }
+    }
+  }
+
+  function onPinchMove(event: PointerEvent) {
+    if (!touching.has(event.pointerId)) return
+    touching.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (!pinch || touching.size !== 2) return
+    event.preventDefault()
+    zoom = clampZoom((pinch.zoom * apart()) / pinch.apart)
+  }
+
+  function endTouch(event: PointerEvent) {
+    touching.delete(event.pointerId)
+    if (touching.size < 2) pinch = null
   }
 
   let menu = $state<{ x: number; y: number } | null>(null)
@@ -970,7 +1350,7 @@
           bind:value={source}
           spellcheck="false"
           rows="5"
-          class="field-sizing-content max-h-64 min-h-24 w-full resize-y rounded border
+          class="field-sizing-content min-h-24 w-full resize-y rounded border
                  border-slate-300 bg-white p-2.5 font-mono text-sm leading-relaxed
                  focus:border-slate-500 focus:outline-none lg:min-h-40"
         ></textarea>
@@ -984,6 +1364,18 @@
         </p>
       {/if}
 
+      <!-- Mobile only: side by side there is room for the lot. -->
+      <button
+        type="button"
+        onclick={() => (controlsOpen = !controlsOpen)}
+        aria-expanded={controlsOpen}
+        class="flex items-center gap-1.5 border-t border-slate-200 pt-3 text-xs font-medium
+               text-slate-500 hover:text-slate-800 lg:hidden"
+      >
+        <Icon name="chevron" class="h-3.5 w-3.5 transition-transform {controlsOpen ? '' : '-rotate-90'}" />
+        Name and view
+      </button>
+
       <!--
         Below the source, because they belong to the document rather than to
         the view of it: what this diagram is called, whether it is in the
@@ -991,8 +1383,9 @@
         then only the things you do *to* the drawing.
       -->
       <div
-        class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2
-               border-t border-slate-200 pt-3 text-xs"
+        bind:this={controlsEl}
+        class="{controlsOpen ? 'grid' : 'hidden'} lg:grid grid-cols-[auto_minmax(0,1fr)_auto]
+               items-center gap-x-2 gap-y-2 border-slate-200 pt-3 text-xs lg:border-t"
       >
         <label for="misty-name" class="text-slate-500">Name</label>
         <input
@@ -1017,6 +1410,49 @@
         >
           {savedEntry ? 'Update in Library' : 'Save to Library'}
         </button>
+
+<!--
+          Ways of reading the diagram rather than parts of it, so they sit with
+          the zoom rather than in the bar over the drawing, which is for what
+          you do *to* a figure.
+        -->
+        {#if canStep || dirac?.length}
+          <div class="col-start-2 flex flex-wrap items-center gap-1.5">
+            {#if canStep}
+              <button
+                type="button"
+                onclick={() => (stepOn = !stepOn)}
+                aria-pressed={stepOn}
+                title={stepOn
+                  ? 'Show the whole circuit'
+                  : 'Work through the circuit a layer at a time'}
+                class="flex items-center gap-1.5 rounded border px-2 py-1 transition-colors
+                       {stepOn
+                  ? 'border-slate-800 bg-slate-800 text-white'
+                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
+              >
+                <Icon name="layers" />
+                Step
+              </button>
+            {/if}
+
+            {#if dirac?.length}
+              <button
+                type="button"
+                onclick={() => (diracOn = !diracOn)}
+                aria-pressed={diracOn}
+                title={diracOn ? 'Hide the state as text' : 'Write the state in Dirac notation'}
+                class="flex items-center gap-1 rounded border px-2 py-1 font-mono
+                       transition-colors
+                       {diracOn
+                  ? 'border-slate-800 bg-slate-800 text-white'
+                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
+              >
+                |ψ⟩
+              </button>
+            {/if}
+          </div>
+        {/if}
 
         <!-- The label is the reset: a separate button for one value is a
              button too many, and "Zoom" is already pointing at the thing. -->
@@ -1071,38 +1507,6 @@
                 {answers ? 'Answer' : 'Show answer'}
               </span>
             </span>
-          </button>
-        {/if}
-
-        {#if canStep}
-          <button
-            type="button"
-            onclick={() => (stepOn = !stepOn)}
-            aria-pressed={stepOn}
-            title={stepOn ? 'Show the whole circuit' : 'Work through the circuit a layer at a time'}
-            class="flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 transition-colors
-                   {stepOn
-              ? 'border-slate-800 bg-slate-800 text-white'
-              : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
-          >
-            <Icon name="layers" />
-            Step
-          </button>
-        {/if}
-
-        {#if dirac?.length}
-          <button
-            type="button"
-            onclick={() => (diracOn = !diracOn)}
-            aria-pressed={diracOn}
-            title={diracOn ? 'Hide the state as text' : 'Write the state in Dirac notation'}
-            class="flex shrink-0 items-center gap-1 rounded border px-2 py-1 font-mono
-                   transition-colors
-                   {diracOn
-              ? 'border-slate-800 bg-slate-800 text-white'
-              : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
-          >
-            |ψ⟩
           </button>
         {/if}
 
@@ -1367,17 +1771,31 @@
         aria-label="Rendered diagram. Right-click for copy and save options."
         oncontextmenu={openContextMenu}
         onwheel={onWheel}
-        title="Scroll to zoom"
+        bind:this={previewEl}
+        onpointerdown={(e) => {
+          trackTouch(e)
+          if (!pinch) onPreviewDown(e)
+        }}
+        onpointermove={onPinchMove}
+        onpointerup={endTouch}
+        onpointercancel={endTouch}
+        title="Scroll to zoom, or pinch"
+        style="touch-action: pan-x pan-y;"
         class="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8
-               {dark ? 'checkerboard-dark' : 'checkerboard'}"
+               {dark ? 'checkerboard-dark' : 'checkerboard'}
+               {dragging ? 'ring-2 ring-slate-400 ring-inset' : ''}"
       >
         <div
           data-preview
           style="transform: scale({zoom}); transform-origin: center;
                  --misty-play: paused; --misty-at: -{at}s;"
         >
-          <!-- Generated by our own renderer; all values are escaped in svg.ts. -->
-          {@html svg}
+          <!-- A wrapper of its own, so the drag can hold the drawing still
+               without the template overwriting the transform each render. -->
+          <div bind:this={anchorEl} style="transform-origin: center;">
+            <!-- Generated by our own renderer; all values are escaped in svg.ts. -->
+            {@html svg}
+          </div>
         </div>
       </div>
     </section>
@@ -1422,7 +1840,7 @@
 
   {#if panel === 'syntax'}
     <SidePanel title="Syntax" onclose={() => (panel = null)}>
-      <SyntaxHelp {theme} {dark} />
+      <SyntaxHelp {theme} {dark} onpick={carryNew} />
     </SidePanel>
   {/if}
   </div>
@@ -1461,6 +1879,20 @@
 
   {#if libraryOpen}
     <LibraryEditor onclose={() => (libraryOpen = false)} />
+  {/if}
+
+  {#if dragging && carriedAt}
+    <!--
+      What you are holding, drawn under the pointer. Transparent to the pointer
+      itself, or it would be the thing every move landed on.
+    -->
+    <div
+      class="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded border
+             border-slate-400 bg-white/90 px-2 py-1 font-mono text-xs text-slate-700 shadow-lg"
+      style="left: {carriedAt.x}px; top: {carriedAt.y}px;"
+    >
+      {dragging.from === 'palette' ? dragging.gate.head : asDroppable(dragging.gate).head}
+    </div>
   {/if}
 
   {#if toast}

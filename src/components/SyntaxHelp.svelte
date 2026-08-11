@@ -18,13 +18,23 @@
    */
   import { render } from '../lib/index'
   import type { ThemeId } from '../lib/render/theme'
+  import type { Droppable } from '../lib/circuit/edit'
 
   const {
     theme = 'solid',
     dark = false,
+    onpick,
   }: {
     theme?: ThemeId
     dark?: boolean
+    /**
+     * A gate has been picked up off the palette.
+     *
+     * Pointer events rather than HTML5 drag-and-drop: this has to work under a
+     * finger as well as a mouse, and the drawing wants to follow the pointer
+     * continuously rather than at whatever rate `dragover` chooses to fire.
+     */
+    onpick?: (gate: Droppable, event: PointerEvent) => void
   } = $props()
 
   interface Row {
@@ -190,28 +200,35 @@
     text?: string
     /** What to render, when the entry alone would not stand up as a circuit. */
     source?: string
+    /**
+     * How to write this gate onto an arbitrary wire.
+     *
+     * The `code` above is an example on particular wires, which is right for
+     * reading and no use for dropping. This says what to write instead.
+     */
+    drop?: Droppable
   }
 
   const gallery: { heading: string; items: Swatch[] }[] = [
     {
       heading: 'One wire',
       items: [
-        { code: 'H 1', name: 'Hadamard', text: 'Splits a qubit into a superposition' },
-        { code: 'X 1', name: 'NOT', text: 'Drawn as a bare ⊕, as the course draws it' },
-        { code: 'Z 1', name: 'Z', text: 'Flips the sign of the black term' },
-        { code: 'Y 1', name: 'Y' },
-        { code: 'S 1', name: 'S' },
-        { code: 'T 1', name: 'T' },
-        { code: 'I 1', name: 'Identity', text: 'Plain pipe — holds a slot and does nothing' },
+        { code: 'H 1', name: 'Hadamard', text: 'Splits a qubit into a superposition', drop: { head: 'H', wires: 1 } },
+        { code: 'X 1', name: 'NOT', text: 'Drawn as a bare ⊕, as the course draws it', drop: { head: 'X', wires: 1 } },
+        { code: 'Z 1', name: 'Z', text: 'Flips the sign of the black term', drop: { head: 'Z', wires: 1 } },
+        { code: 'Y 1', name: 'Y', drop: { head: 'Y', wires: 1 } },
+        { code: 'S 1', name: 'S', drop: { head: 'S', wires: 1 } },
+        { code: 'T 1', name: 'T', drop: { head: 'T', wires: 1 } },
+        { code: 'I 1', name: 'Identity', text: 'Plain pipe — holds a slot and does nothing', drop: { head: 'I', wires: 1 } },
       ],
     },
     {
       heading: 'Two or more wires',
       items: [
-        { code: 'CNOT 1 2', name: 'Controlled NOT', source: 'qubits 2\nCNOT 1 2' },
-        { code: 'CZ 1 2', name: 'Controlled Z', source: 'qubits 2\nCZ 1 2' },
-        { code: 'SWAP 1 2', name: 'Swap', source: 'qubits 2\nSWAP 1 2' },
-        { code: 'TOFFOLI 1 2 3', name: 'Toffoli', source: 'qubits 3\nTOFFOLI 1 2 3' },
+        { code: 'CNOT 1 2', name: 'Controlled NOT', source: 'qubits 2\nCNOT 1 2', drop: { head: 'CNOT', wires: 2 } },
+        { code: 'CZ 1 2', name: 'Controlled Z', source: 'qubits 2\nCZ 1 2', drop: { head: 'CZ', wires: 2 } },
+        { code: 'SWAP 1 2', name: 'Swap', source: 'qubits 2\nSWAP 1 2', drop: { head: 'SWAP', wires: 2 } },
+        { code: 'TOFFOLI 1 2 3', name: 'Toffoli', source: 'qubits 3\nTOFFOLI 1 2 3', drop: { head: 'TOFFOLI', wires: 3 } },
         {
           code: 'CNOT 1 2 "Tiger?"',
           name: 'Named link',
@@ -229,9 +246,9 @@
     {
       heading: 'Boxes',
       items: [
-        { code: 'box "U" 1-2', name: 'Custom box', source: 'qubits 2\nbox "U" 1-2' },
-        { code: 'blank 1-2', name: 'Blank', text: 'For students to fill in', source: 'qubits 2\nblank 1-2' },
-        { code: 'measure 1 Z', name: 'Measurement', source: 'qubits 1\nmeasure 1 Z' },
+        { code: 'box "U" 1-2', name: 'Custom box', source: 'qubits 2\nbox "U" 1-2', drop: { head: 'box', wires: 2, label: '"U"', range: true } },
+        { code: 'blank 1-2', name: 'Blank', text: 'For students to fill in', source: 'qubits 2\nblank 1-2', drop: { head: 'blank', wires: 2, range: true } },
+        { code: 'measure 1 Z', name: 'Measurement', source: 'qubits 1\nmeasure 1 Z', drop: { head: 'measure', wires: 1, tail: 'Z' } },
       ],
     },
   ]
@@ -315,12 +332,21 @@
       <ul class="grid grid-cols-2 gap-2">
         {#each group.items as item (item.code)}
           <li
-            class="flex flex-col items-center gap-1 rounded border border-slate-200 bg-slate-50/60
-                   px-2 py-2 text-center"
+            data-gate={item.drop ? item.code : undefined}
+            onpointerdown={(e) => {
+              if (!item.drop || e.button !== 0) return
+              // Or the browser starts a text selection under the drag.
+              e.preventDefault()
+              onpick?.(item.drop, e)
+            }}
+            class="flex touch-none flex-col items-center gap-1 rounded border border-slate-200
+                   bg-slate-50/60 px-2 py-2 text-center select-none
+                   {item.drop ? 'cursor-grab active:cursor-grabbing hover:border-slate-400' : ''}"
           >
             <span class="flex h-14 items-center justify-center">
               <!-- Rendered by our own renderer; values are escaped in svg.ts. -->
-              {@html drawn(item)}
+              <!-- Not a drag target itself: the card takes the pointer. -->
+              <span class="pointer-events-none">{@html drawn(item)}</span>
             </span>
             <span class="text-[11px] font-medium text-slate-700">{item.name}</span>
             <code class="text-[10px] break-all text-slate-500">{item.code}</code>

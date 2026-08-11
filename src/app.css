@@ -44,3 +44,14 @@ body.dragging {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/*
+ * The gate a drag is carrying, marked out from the ones it is landing among.
+ *
+ * Styled here rather than in the renderer: it says something about what you are
+ * doing, not about the figure, and a drawing exported mid-drag should not carry
+ * a glow into the file. The emitter only writes the attribute.
+ */
+[data-preview] [data-highlight] {
+  filter: drop-shadow(0 0 2px #2563eb) drop-shadow(0 0 7px rgb(37 99 235 / 0.55));
+}

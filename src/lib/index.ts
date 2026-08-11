@@ -16,7 +16,7 @@ import {
   animatedSvg, animatedTermSvg, animationBox, termAnimationBox,
 } from './circuit/animate-svg'
 import { layoutState } from './state/layout'
-import { layoutCircuit, type CircuitLayout } from './circuit/layout'
+import { layoutCircuit, type CircuitGeometry, type CircuitLayout } from './circuit/layout'
 import { DEFAULT_METRICS, type Metrics } from './render/primitives'
 import { THEMES, renderPrims } from './render/themes'
 import { LIGHT_PALETTE, DARK_PALETTE, type Palette, type Theme, type ThemeId } from './render/theme'
@@ -65,6 +65,13 @@ export interface RenderOptions {
    */
   step?: number | null
   /**
+   * Mark the gate written on this source line as being placed.
+   *
+   * For a drag: the drawing shows what dropping here would give, and this says
+   * which part of it is the thing in hand.
+   */
+  highlight?: number
+  /**
    * Draw what `answer` marks, rather than hiding it behind unknowns. Off by
    * default: a figure with an answer in it is a question until it is asked.
    */
@@ -88,6 +95,13 @@ export interface RenderResult {
   hasAnswer?: boolean
   /** How many layers a circuit has, so it can be stepped through. */
   layers?: number
+  /**
+   * Where the wires and layers ended up, for pointing at the drawing.
+   *
+   * The grid a drop is hit-tested against. Circuits only — a state has no
+   * layers to aim at.
+   */
+  geometry?: CircuitGeometry
   /**
    * The state the drawing ends on, written in Dirac notation.
    *
@@ -162,7 +176,8 @@ function stepped(doc: CircuitDoc, step: number | null | undefined): CircuitDoc {
   }
   return {
     ...doc,
-    layers: [...doc.layers.slice(0, at), { gates: [view] }, ...doc.layers.slice(at)],
+    // No source line: the injected view is the viewer's, not the author's.
+    layers: [...doc.layers.slice(0, at), { gates: [view], lines: [] }, ...doc.layers.slice(at)],
   }
 }
 
@@ -294,6 +309,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
         shapeOrder,
         attach: theme.attach,
         bareEnds: !!doc.animate,
+        highlight: opts.highlight,
       }),
     }
   }
@@ -318,6 +334,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     }
   }
   const { doc, layout, check, answered, layers, dirac } = built
+  const geometry = 'geometry' in layout ? layout.geometry : undefined
 
   // An animation is a different document, not a different drawing: the still
   // path cannot produce it, and the moving one has no use for the still box.
@@ -363,6 +380,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     hasAnswer: answered || undefined,
     layers,
     dirac,
+    geometry,
   }
 }
 

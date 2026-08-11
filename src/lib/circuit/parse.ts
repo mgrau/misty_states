@@ -285,7 +285,7 @@ const isProse = (text: string): boolean =>
  * disqualifies it as prose. Returns null when the line carries none, which
  * includes every state line: a state carries its own through the state parser.
  */
-function liftGateAnnotations(
+export function liftGateAnnotations(
   line: string,
 ): { caption?: string; note?: string; body: string } | null {
   if (!bareColons(line).length) return null
@@ -746,10 +746,14 @@ function looksLikeGateName(src: string): boolean {
  */
 function parseStatements(src: string, line: number): Gate[] {
   const token = src.trim()
+  // Tagged in one place rather than at every `return` inside `parseGate`: what
+  // a gate is stays that function's business, and where it was written is not.
+  const from = (gates: Gate[]): Gate[] => gates.map((gate) => ({ ...gate, line }))
+
   if (/^[A-Za-z]+$/.test(token) && isGateRun(token)) {
-    return [...token.toUpperCase()].map((letter, i) => parseGate(`${letter} ${i + 1}`, line))
+    return from([...token.toUpperCase()].map((letter, i) => parseGate(`${letter} ${i + 1}`, line)))
   }
-  return [parseStatement(src, line)]
+  return from([parseStatement(src, line)])
 }
 
 /** One statement: a gate, a view, or a bare state that is therefore a view. */
@@ -777,6 +781,8 @@ interface Group {
   breakBefore: boolean
   caption?: string
   note?: string
+  /** The source line it was written on, so a layer can say where it came from. */
+  line: number
 }
 
 /**
@@ -802,8 +808,9 @@ function schedule(groups: Group[]): Layer[] {
       }
     }
 
-    while (layers.length <= target) layers.push({ gates: [] })
+    while (layers.length <= target) layers.push({ gates: [], lines: [] })
     layers[target].gates.push(...group.gates)
+    layers[target].lines.push(group.line)
     // Two groups can land in the same layer — `;` merges them and the packer
     // can too. The first to claim a side keeps it.
     if (group.caption && !layers[target].caption) layers[target].caption = group.caption
@@ -850,16 +857,18 @@ export function parseCircuit(text: string): CircuitDoc {
    * the output).
    */
   let pendingTail: ViewGate | null = null
+  /** The line that pending view was written on, held with it. */
+  let pendingTailLine = 0
 
   /** A view takes a layer to itself: a snapshot sits between gates, not among them. */
-  const pushView = (view: ViewGate) => {
-    groups.push({ gates: [view], breakBefore: true })
+  const pushView = (view: ViewGate, line: number) => {
+    groups.push({ gates: [view], breakBefore: true, line })
     pendingBreak = true
   }
 
   const flushTail = () => {
     if (!pendingTail) return
-    pushView(pendingTail)
+    pushView(pendingTail, pendingTailLine)
     pendingTail = null
   }
 
@@ -950,6 +959,7 @@ export function parseCircuit(text: string): CircuitDoc {
           continue
         }
         flushTail()
+        pendingTailLine = lineNo
         pendingTail = {
           kind: 'view', qubits: [], calculate: true,
           caption: bareCalc.caption, note: bareCalc.note,
@@ -965,6 +975,7 @@ export function parseCircuit(text: string): CircuitDoc {
         if (asked) answerInput = true
       } else {
         flushTail()
+        pendingTailLine = lineNo
         pendingTail = viewOf(line, [], lineNo)
         if (asked) pendingTail.answer = true
       }
@@ -1064,6 +1075,7 @@ export function parseCircuit(text: string): CircuitDoc {
       breakBefore: pendingBreak || snapshot,
       caption: annotated?.caption,
       note: annotated?.note,
+      line: lineNo,
     })
     pendingBreak = snapshot
     if (gates.some((g) => g.kind !== 'view')) sawGate = true

@@ -176,7 +176,27 @@ export type Prim = (
   | QubitPrim | CloudPrim | BarPrim | TextPrim | SignPrim | PipePrim
   | GateBoxPrim | PanePrim | MeasureBoxPrim | ControlPrim | TargetPrim | SwapPrim | LinkPrim
   | RulePrim
-) & { opacity?: number }
+) & {
+  opacity?: number
+  /**
+   * A name that survives redrawing, for anything that wants to animate.
+   *
+   * Every render produces a fresh SVG string, so nothing in the document has an
+   * identity of its own — a gate that shifted is indistinguishable from one that
+   * was deleted and another added. This gives the pieces that stand for
+   * something a stable handle, emitted as `data-key`, so a viewer can match a
+   * gate to where it used to be. Nothing in the drawing depends on it.
+   */
+  key?: string
+  /**
+   * This piece is being placed rather than merely drawn.
+   *
+   * Emitted as `data-highlight` and left unstyled: how a viewer marks it is the
+   * viewer's business, and a figure exported mid-drag should not carry a
+   * highlight into the file.
+   */
+  highlight?: boolean
+}
 
 /** Layout result: what to draw, and the bounds it occupies. */
 export interface Layout {
