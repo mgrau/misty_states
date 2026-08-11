@@ -328,6 +328,7 @@ out 000|111
 | `CNOT "Oracle" 1 -> 2` | A quoted name **before** the wires stands on the target, in place of the ⊕ |
 | `CNOT 1 -> 2 "Tiger?"` | A quoted name **after** them labels the link between the wires |
 | `SWAP 1 2` | Swap two qubits |
+| `RZ(90) 1` | A rotation, in degrees. Also `RX`, `RY`, and `P` for a bare phase |
 | `measure 2 Z` | Measurement in a basis. `M` is an alias; the basis defaults to `Z` |
 | `box "Oracle" 1-3` | Custom labelled box spanning a range; add `fill=#e3efe3` |
 | `blank 1-2` | An empty frame for students to fill in |
@@ -581,6 +582,25 @@ subtly wrong draws plausible diagrams rather than obvious errors:
 - a second implementation in `reference.ts` that builds dense matrices from
   Kronecker products and multiplies floating-point vectors through them — a
   different algorithm, run against the first on hundreds of random circuits
+
+### Rotations
+
+`RZ(90) 1`, `RX(45) 2`, `RY(-30) 1`, and `P(180)` for a bare phase. Degrees,
+because a text field makes `pi/4` easy to fumble.
+
+A rotation is taken **up to global phase**, which is unobservable and normalised
+away everywhere else — and that is what puts every right angle exactly within
+reach of whole numbers. `RZ(90)` *is* `S`; `RZ(180)` is `Z`; `RX(90)`
+unnormalised is `[[1, -i], [-i, 1]]`, the same dropped `1/√2` that `H` already
+carries. Those all still draw as misty states.
+
+Past a right angle there are cosines in the amplitudes, and no misty state has a
+mark for `cos 30°`. Such a figure is refused a drawn state and pointed at the
+views that can show any state at all — `probability`, `tabulate`, and the Dirac
+line beside the diagram. That is what those views are for.
+
+`T` is still refused: it turns by an eighth, which wants a square root of two
+the amplitudes do not have.
 
 ### Charts
 

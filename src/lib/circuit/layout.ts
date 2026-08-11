@@ -990,12 +990,16 @@ function emitGate(
       // Handled before this point; a bare pipe passes through.
       return
 
-    case 'single':
+    case 'single': {
+      // `90°` under `RZ`, so the letters keep their size and the angle reads as
+      // a setting on the gate rather than part of its name.
+      const sub = gate.angle === undefined ? undefined : `${gate.angle}°`
       bodies.push({
-        t: 'gatebox', box, label: gate.label, accent: gate.accent,
-        labelSize: fitLabel(gate.label, box.w, m),
+        t: 'gatebox', box, label: gate.label, accent: gate.accent, sub,
+        labelSize: fitLabel(gate.label, box.w, m) * (sub ? 0.82 : 1),
       })
       return
+    }
 
     case 'measure':
       bodies.push({ t: 'measurebox', box, basis: gate.basis })

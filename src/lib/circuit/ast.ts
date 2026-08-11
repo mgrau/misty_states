@@ -14,6 +14,13 @@ export interface SingleGate {
   qubit: number
   /** Optional CSS colour for the label chip, e.g. Hadamard's red. */
   accent?: string
+  /**
+   * Degrees, for a rotation. `RZ(45)` is `label: 'RZ'`, `angle: 45`.
+   *
+   * Kept on the gate rather than folded into the label so the arithmetic can
+   * read it and the drawing can set it apart from the letters.
+   */
+  angle?: number
 }
 
 /**
@@ -246,6 +253,16 @@ export interface CircuitDoc {
   calculateNote?: string
   /** Written `tabulate`: drawn in place of an output state, below the circuit. */
   table?: TableSpec
+  /**
+   * True where an angle was written that the arithmetic cannot do exactly.
+   *
+   * Amplitudes are whole numbers, which is what keeps the odds exact ratios and
+   * lets a state be written with an integer coefficient. A rotation by anything
+   * other than a right angle leaves cosines in them, and everything downstream
+   * that assumes wholeness — reducing by a common factor, exact odds, drawing a
+   * coefficient — has to stand down.
+   */
+  inexact?: boolean
   /** Written `chart`: a bar chart of the state, drawn below the circuit. */
   chart?: ChartSpec
   /** Written `animate`: the state travels through the circuit rather than being drawn at each end. */

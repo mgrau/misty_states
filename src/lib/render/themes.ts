@@ -270,7 +270,24 @@ function makeTheme(
           // An explicit `fill=` wins; otherwise the palette decides by letter,
           // and a gate it says nothing about gets no chip at all.
           const accent = p.accent ?? pal.gateChip[p.label]
-          return body + labelChip(cx, cy, p.label, p.labelSize, accent, pal)
+          // Lifted to make room where there is a second line, so the pair sits
+          // centred in the box rather than the letters alone.
+          const lift = p.sub ? p.labelSize * 0.34 : 0
+          const chip = labelChip(cx, cy - lift, p.label, p.labelSize, accent, pal)
+          if (!p.sub) return body + chip
+          return body + chip + drawText(
+            {
+              t: 'text',
+              x: cx,
+              cy: cy + p.labelSize * 0.72,
+              text: p.sub,
+              size: p.labelSize * 0.62,
+              anchor: 'middle',
+              weight: 600,
+              color: pal.muted,
+            },
+            pal,
+          )
         }
 
         case 'pane': {

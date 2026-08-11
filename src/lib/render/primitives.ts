@@ -93,6 +93,14 @@ export interface GateBoxPrim {
   blank?: boolean
   /** Font size chosen by layout so long labels still fit. */
   labelSize: number
+  /**
+   * A second, smaller line under the label: a rotation's angle.
+   *
+   * Kept apart from the label rather than folded into it — `RZ(90)` on one line
+   * either overflows the box or shrinks the letters to nothing, and the letters
+   * are what the gate is called.
+   */
+  sub?: string
 }
 
 /**

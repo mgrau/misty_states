@@ -214,6 +214,15 @@ const KEYWORDS = new Set([
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
 ])
 
+/**
+ * A rotation, keyword and angle in one token: `RZ(45)`, `P(-90)`.
+ *
+ * Recognised here as well as parsed later, because a line takes its meaning
+ * from its first word and nothing splits that word on a bracket.
+ */
+const TURN = /^(rx|ry|rz|p)\(\s*-?[\d.]+\s*\)$/i
+const isTurn = (word: string) => TURN.test(word)
+
 /** `2-3`, or a single `2` — the span prefix `view` accepts. */
 const RANGE = /^\d+(-\d+)?$/
 
@@ -246,7 +255,7 @@ function bareColons(line: string): number[] {
 
 const opensWithGate = (text: string): boolean => {
   const word = text.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
-  return GATE_KEYWORDS.has(word) || isGateRun(word)
+  return GATE_KEYWORDS.has(word) || isTurn(word) || isGateRun(word)
 }
 
 /** Would this stand on its own as gates? Then it is not prose. */
@@ -661,6 +670,17 @@ function parseGate(src: string, line: number): Gate {
     return { kind: 'controlled', controls: [], target: oneQubit(), targetGlyph: 'not' }
   }
 
+  // `RZ(45)` arrives as one token — nothing splits on a bracket — so the angle
+  // comes off before the plain-letter gates are looked up.
+  const turn = /^(RX|RY|RZ|P)\(\s*(-?[\d.]+)\s*\)$/i.exec(head)
+  if (turn) {
+    const angle = Number(turn[2])
+    if (!Number.isFinite(angle)) {
+      throw new ParseError(`${turn[1]} needs an angle in degrees, e.g. ${turn[1]}(90)`, 0, line)
+    }
+    return { kind: 'single', label: turn[1].toUpperCase(), qubit: oneQubit(), angle }
+  }
+
   if (head in SINGLE_GATES) {
     const spec = SINGLE_GATES[head]
     return { kind: 'single', label: spec.label, qubit: oneQubit(), accent: fill ?? spec.accent }
@@ -775,7 +795,7 @@ function parseStatement(src: string, line: number): Gate {
   if (kw === 'view' || kw === 'show' || kw === 'window') {
     return parseView(src.slice(kw.length).trim(), line, kw === 'window')
   }
-  if (KEYWORDS.has(kw)) return parseGate(src, line)
+  if (KEYWORDS.has(kw) || isTurn(kw)) return parseGate(src, line)
   if (looksLikeGateName(src)) {
     throw new ParseError(`unknown gate "${src.split(/\s+/)[0]}"`, 0, line)
   }
@@ -928,7 +948,7 @@ export function parseCircuit(text: string): CircuitDoc {
     // A whole line that is nothing but a state takes its meaning from position.
     // Anything joined by ';' is a statement among others, so it skips this and
     // becomes a view like any other.
-    if (parts.length === 1 && !KEYWORDS.has(kw) && !isGateRun(kw)) {
+    if (parts.length === 1 && !KEYWORDS.has(kw) && !isTurn(kw) && !isGateRun(kw)) {
       // A table is the finished thing rather than a state among states, so it
       // is read here but does not become a view.
       const bareTable = readTable(line, lineNo)

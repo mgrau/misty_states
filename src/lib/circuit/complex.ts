@@ -48,7 +48,19 @@ export const neg = (a: Cx): Cx => cx(-a.re, -a.im)
 /** Multiply by a whole number, which is most of what the gates do. */
 export const times = (a: Cx, k: number): Cx => cx(a.re * k, a.im * k)
 
-export const isZero = (a: Cx): boolean => a.re === 0 && a.im === 0
+/**
+ * Anything smaller than this is nothing.
+ *
+ * With whole numbers a term either cancels or it does not, and the tolerance
+ * never fires. With cosines in the arithmetic it is the difference between a
+ * term cancelling and the state keeping a phantom worth `1e-17`.
+ */
+const TINY = 1e-12
+
+export const isZero = (a: Cx): boolean => Math.abs(a.re) < TINY && Math.abs(a.im) < TINY
+
+/** True where both parts are whole — which is what lets a state be drawn. */
+export const isWhole = (a: Cx): boolean => Number.isInteger(a.re) && Number.isInteger(a.im)
 
 export const eq = (a: Cx, b: Cx): boolean => a.re === b.re && a.im === b.im
 
@@ -72,9 +84,15 @@ export function gcd(a: number, b: number): number {
   return x
 }
 
-/** The largest whole number dividing every part of every one of these. */
+/**
+ * The largest whole number dividing every part of every one of these.
+ *
+ * One, where any part is not whole: a common factor of a set of cosines is not
+ * a thing, and dividing by whatever `gcd` made of them would be worse than
+ * leaving the numbers alone.
+ */
 export const commonFactor = (all: Cx[]): number =>
-  all.reduce((g, a) => gcd(gcd(g, a.re), a.im), 0) || 1
+  all.every(isWhole) ? all.reduce((g, a) => gcd(gcd(g, a.re), a.im), 0) || 1 : 1
 
 /** Divide through by a whole number, which is only ever done by a factor of it. */
 export const over = (a: Cx, k: number): Cx => cx(a.re / k, a.im / k)
@@ -86,10 +104,13 @@ export const over = (a: Cx, k: number): Cx => cx(a.re / k, a.im / k)
  * written; `i` and `-i` likewise, since `1i` reads as a mistake.
  */
 export function show(a: Cx): string {
-  const im = a.im === 1 ? 'i' : a.im === -1 ? '-i' : `${a.im}i`
-  if (a.im === 0) return String(a.re)
+  // Rounded where it is not whole: `0.9659258262890683` is not something to
+  // read off a figure, and three places is more than a drawing can show.
+  const n = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(3).replace(/0+$/, ''))
+  const im = a.im === 1 ? 'i' : a.im === -1 ? '-i' : `${n(a.im)}i`
+  if (a.im === 0) return n(a.re)
   if (a.re === 0) return im
-  return `${a.re}${a.im > 0 ? '+' : ''}${im}`
+  return `${n(a.re)}${a.im > 0 ? '+' : ''}${im}`
 }
 
 /**

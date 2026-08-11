@@ -23,7 +23,7 @@ import { gateQubits } from './ast'
 import type { CloudNode, Factor, Product, QubitNode, StateRow, Term } from '../state/ast'
 import {
   I, ONE, ZERO, abs2, add as cxAdd, commonFactor, cx, eq, isReal, isZero, mul, neg, over,
-  show, times as cxTimes, unitToClear, type Cx,
+  isWhole, show, times as cxTimes, unitToClear, type Cx,
 } from './complex'
 
 /**
@@ -156,6 +156,72 @@ function mapStates(
   return out
 }
 
+/**
+ * Anything smaller than this is nothing.
+ *
+ * With whole numbers a term either cancels or it does not, and this never
+ * fires. With cosines in the arithmetic it is the difference between a term
+ * cancelling and the state growing a phantom worth `1e-17`.
+ */
+const TINY = 1e-12
+
+/** A number that is a whole one, once floating point has been forgiven. */
+const tidy = (n: number): number =>
+  Math.abs(n - Math.round(n)) < TINY ? Math.round(n) + 0 : n
+
+/**
+ * A one-wire gate as its matrix, applied to one term.
+ *
+ * `new[0] = m00·old[0] + m01·old[1]`, and likewise for `new[1]` — so a term
+ * whose bit is white contributes `m00` to white and `m10` to black.
+ */
+const oneWire = (q: number, m: [Cx, Cx, Cx, Cx]): Spread => {
+  const [m00, m01, m10, m11] = m
+  return (bits, amp, emit) => {
+    const zero = bits.slice(0, q - 1) + '0' + bits.slice(q)
+    const one = bits.slice(0, q - 1) + '1' + bits.slice(q)
+    const from1 = bits[q - 1] === '1'
+    emit(zero, mul(amp, from1 ? m01 : m00))
+    emit(one, mul(amp, from1 ? m11 : m10))
+  }
+}
+
+/**
+ * A rotation, by however many degrees.
+ *
+ * Defined up to global phase, which is unobservable and normalised away
+ * everywhere else in here — that is what makes `RZ` and `P` the same gate, and
+ * what puts every right angle exactly within reach of whole numbers.
+ *
+ * The common `1/√2` that appears when the two halves are the same size divides
+ * straight out, exactly as it does for `H`: unnormalised, `RX(90)` is
+ * `[[1, -i], [-i, 1]]` and every entry is whole.
+ */
+function turnOf(label: string, qubit: number, angle: number): Spread {
+  const half = (angle * Math.PI) / 360
+  let c = Math.cos(half)
+  let s = Math.sin(half)
+  if (Math.abs(Math.abs(c) - Math.abs(s)) < TINY && Math.abs(c) > TINY) {
+    const k = 1 / Math.abs(c)
+    c *= k
+    s *= k
+  }
+  c = tidy(c)
+  s = tidy(s)
+
+  if (label === 'RZ' || label === 'P') {
+    // Up to global phase both are `diag(1, e^{iθ})`, so a whole turn of the
+    // black half and nothing at all to the white one.
+    const t = (angle * Math.PI) / 180
+    const on = cx(tidy(Math.cos(t)), tidy(Math.sin(t)))
+    return (bits, amp, emit) => emit(bits, bits[qubit - 1] === '1' ? mul(amp, on) : amp)
+  }
+  if (label === 'RY') {
+    return oneWire(qubit, [cx(c), cx(-s), cx(s), cx(c)])
+  }
+  return oneWire(qubit, [cx(c), cx(0, -s), cx(0, -s), cx(c)])
+}
+
 /** What one gate does to one term, as the emissions it produces. */
 type Spread = (bits: string, amp: Cx, emit: (bits: string, amp: Cx) => void) => void
 
@@ -194,6 +260,7 @@ function spreadOf(gate: Gate): Spread | null {
       if (gate.label === 'S') {
         return (bits, amp, emit) => emit(bits, bits[gate.qubit - 1] === '1' ? mul(amp, I) : amp)
       }
+      if (gate.angle !== undefined) return turnOf(gate.label, gate.qubit, gate.angle)
       // A flip and a quarter turn each way: white goes to black turned one way,
       // black to white turned the other.
       if (gate.label === 'Y') {
@@ -330,6 +397,16 @@ function blockFactor(amps: Amplitudes, keepSign = false): Factor[] {
   // A part each way where an amplitude has both: `2+3i` on one basis state is
   // two terms that add, which is what the notation already does for every
   // other sum, and keeps every term to one sign and one size.
+  // A coefficient is a whole number written in front of a term, and there is
+  // no mark for anything else — a rotation by an odd angle leaves cosines,
+  // which is a state to chart or write out rather than to draw.
+  const odd = terms.find(([, amp]) => !isWhole(amp))
+  if (odd) {
+    throw new SimulationError(
+      `an amplitude of ${show(odd[1])} is not a whole number, so there is no coefficient to draw` +
+        ' — chart the probabilities, or write the state out',
+    )
+  }
   const written = (bits: string, size: number, imaginary: boolean): Term => ({
     sign: size < 0 ? -1 : 1,
     coeff: Math.abs(size) === 1 ? undefined : Math.abs(size),
@@ -423,6 +500,9 @@ interface Frac {
 const CERTAIN: Frac = { n: 1, d: 1 }
 
 function frac(n: number, d: number): Frac {
+  // Only reduced where there is something to reduce: a ratio of cosines has no
+  // common factor, and `gcd` on floats would return noise.
+  if (!Number.isInteger(n) || !Number.isInteger(d)) return { n, d }
   const g = gcd(n, d) || 1
   return { n: n / g, d: d / g }
 }

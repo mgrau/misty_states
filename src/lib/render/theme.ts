@@ -60,6 +60,10 @@ export const LIGHT_PALETTE: Palette = {
   gateChip: {
     H: '#ef5f5b',
     Z: '#5b32b0',
+    RZ: '#5b32b0',
+    P: '#7d57d4',
+    RX: '#1b3fae',
+    RY: '#0f9488',
     S: '#7d57d4',
     T: '#9b7ae6',
     Y: '#0f9488',
@@ -85,6 +89,10 @@ export const DARK_PALETTE: Palette = {
   gateChip: {
     H: '#ef5f5b',
     Z: '#7042d6',
+    RZ: '#7042d6',
+    P: '#8a63e4',
+    RX: '#5b82ff',
+    RY: '#12998c',
     S: '#8a63e4',
     T: '#a184ee',
     Y: '#12998c',

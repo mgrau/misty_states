@@ -163,6 +163,8 @@ export function detectMode(source: string): 'state' | 'circuit' {
     if (/^-{3,}$/.test(line)) return 'circuit'
     const first = line.split(/[\s;]+/)[0].toLowerCase()
     if (CIRCUIT_KEYWORDS.has(first)) return 'circuit'
+    // `RZ(45)` is one word, and a bracket is the last thing a state can start with.
+    if (/^(rx|ry|rz|p)\(\s*-?[\d.]+\s*\)$/.test(first)) return 'circuit'
     // `HH` is a row of gates, not a keyword and not anything a state could be.
     if (/^[a-z]+$/.test(first) && isGateRun(first)) return 'circuit'
   }

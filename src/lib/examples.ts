@@ -163,6 +163,16 @@ export const EXAMPLES: Example[] = [
     ].join('\n'),
   },
   {
+    id: 'rotate',
+    title: 'Circuit — turning by a chosen angle',
+    note: 'Angles are in degrees. A right angle keeps every amplitude whole — RZ(90) is S — so the state still draws. An odd one leaves cosines, which no misty state has a mark for, so chart it or write it out instead.',
+    source: [
+      'in 0',
+      'RY(30) 1',
+      'probability',
+    ].join('\n'),
+  },
+  {
     id: 'chart',
     title: 'Circuit — the state as a plot',
     note: 'Every basis state gets a bar, including the empty ones — a term that has cancelled is a bar that is not there, which is what makes interference visible. "chart(probability)" plots the chances instead, with no signs.',
