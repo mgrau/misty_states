@@ -43,6 +43,15 @@ export interface Term {
   sign: 1 | -1
   /** Integer amplitude weight; undefined means 1 and draws no prefix. */
   coeff?: number
+  /**
+   * The weight is a quarter turn rather than a plain number: `2i`, not `2`.
+   *
+   * A term carries one or the other, never a mixture — `2+3i` on one basis
+   * state is written as two terms that add, which is what the notation already
+   * does for every other sum. So the flag is enough, and an amplitude keeps
+   * the shape a reader expects: a sign, a size, and possibly an `i`.
+   */
+  imaginary?: boolean
   factors: Factor[]
 }
 

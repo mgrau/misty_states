@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import type { Cx } from './complex'
 import { LIBRARY_YAML } from 'virtual:misty-library'
 import { fromYaml } from '../library-yaml'
 import { parseCircuit } from './parse'
@@ -23,8 +24,8 @@ const present = LIBRARY_YAML !== null
 describe.skipIf(!present)('calculating the library’s worked answers', () => {
   interface Case {
     id: string
-    got: [string, number][]
-    want: [string, number][]
+    got: [string, Cx][]
+    want: [string, Cx][]
   }
 
   let checked: Case[] = []

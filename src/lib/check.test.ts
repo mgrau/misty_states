@@ -117,7 +117,7 @@ describe('what it stays quiet about', () => {
   it('says nothing about a drawing it cannot follow', () => {
     quiet('in 00\nblank 1-2\nout 00|11')
     quiet('in 00\nbox "Oracle" 1-2\nout 00|11')
-    quiet('in 0\nS 1\nout 0')
+    quiet('in 0\nT 1\nout 0')
     quiet('("???") = 0')
   })
 

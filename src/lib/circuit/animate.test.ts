@@ -53,7 +53,7 @@ describe('which circuits can move', () => {
   it('passes it on when the arithmetic itself cannot follow the circuit', () => {
     expect(() => laid('in ?\nX 1')).toThrow(/has no value/)
     expect(() => laid('in 00\nbox "Oracle" 1-2')).toThrow(/is a drawing/)
-    expect(() => laid('in 0\nS 1')).toThrow(/complex amplitudes/)
+    expect(() => laid('in 0\nT 1')).toThrow(/turns by an eighth/)
   })
 
   it('allows every gate that keeps the state a single one', () => {

@@ -121,9 +121,10 @@ function layoutTerm(term: Term, x: number, cy: number, shapeStart: number, depth
     cursor += w + ctx.m.signGap
   }
 
-  if (term.coeff !== undefined) {
+  if (term.coeff !== undefined || term.imaginary) {
     const size = ctx.m.fontSize
-    const text = String(term.coeff)
+    // `i` on its own where the size is one: `1i` reads as a slip.
+    const text = `${term.coeff ?? ''}${term.imaginary ? 'i' : ''}`
     const w = textWidth(text, size, true)
     prims.push({ t: 'text', x: cursor, cy, text, size, anchor: 'start', weight: 700 })
     boxes.push({ x: cursor, y: cy - size / 2, w, h: size })

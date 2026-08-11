@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
 import { resolveCalculations, tabulate } from './simulate'
+import { show } from './complex'
 import { layoutCircuit } from './layout'
 import { render } from '../index'
 import type { Prim, TextPrim } from '../render/primitives'
@@ -143,7 +144,8 @@ describe('what a row is', () => {
   it('refuses what it cannot follow, saying which and why', () => {
     expect(() => resolved('in ??\nH 1\ntabulate')).toThrow(/nothing to calculate from/)
     expect(() => resolved('in 00\nbox "Oracle" 1-2\ntabulate')).toThrow(/is a drawing/)
-    expect(() => resolved('in 0\nS 1\ntabulate')).toThrow(/complex amplitudes/)
+    // S is fine now — it is T that still wants a root of two.
+    expect(() => resolved('in 0\nT 1\ntabulate')).toThrow(/turns by an eighth/)
   })
 })
 
@@ -223,7 +225,7 @@ describe('it changes nothing else', () => {
     const d = doc('in 0|0|1|1|1\nmeasure 1 Z')
     const { entries, measured } = tabulate(d, d.layers.length, {})
     expect(measured).toBe(true)
-    expect(entries.map((e) => e.amplitude)).toEqual([2, 3])
+    expect(entries.map((e) => show(e.amplitude))).toEqual(['2', '3'])
     expect(entries.map((e) => e.odds)).toEqual([{ n: 4, d: 13 }, { n: 9, d: 13 }])
   })
 })

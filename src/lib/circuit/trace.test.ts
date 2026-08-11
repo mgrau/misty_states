@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
+import { ZERO, add, cx, isZero, show, type Cx } from './complex'
 import { parseState } from '../state/parse'
 import { amplitudesOf, simulate, traceGate, type Amplitudes } from './simulate'
 import {
@@ -24,11 +25,11 @@ const state = (src: string, qubits: number) => amplitudesOf(parseState(src).rows
 const gateOf = (src: string) => parseCircuit(`in 00\n${src}`).layers[0].gates[0]
 
 /** Contributions summed by where they landed — which must be what a gate does. */
-const collect = (list: { to: string; amp: number }[]): Amplitudes => {
+const collect = (list: { to: string; amp: Cx }[]): Amplitudes => {
   const out: Amplitudes = new Map()
   for (const { to, amp } of list) {
-    const sum = (out.get(to) ?? 0) + amp
-    if (sum === 0) out.delete(to)
+    const sum = add(out.get(to) ?? ZERO, amp)
+    if (isZero(sum)) out.delete(to)
     else out.set(to, sum)
   }
   return out
@@ -44,12 +45,12 @@ const shown = (t: { bits: string; amp: number }) =>
 describe('tracing one gate', () => {
   it('splits a term the way a Hadamard does', () => {
     expect(traceGate(state('0', 1), gateOf('H 1'))).toEqual([
-      { from: '0', to: '0', amp: 1 },
-      { from: '0', to: '1', amp: 1 },
+      { from: '0', to: '0', amp: cx(1) },
+      { from: '0', to: '1', amp: cx(1) },
     ])
     expect(traceGate(state('1', 1), gateOf('H 1'))).toEqual([
-      { from: '1', to: '0', amp: 1 },
-      { from: '1', to: '1', amp: -1 },
+      { from: '1', to: '0', amp: cx(1) },
+      { from: '1', to: '1', amp: cx(-1) },
     ])
   })
 
@@ -58,8 +59,8 @@ describe('tracing one gate', () => {
     // on black and cancelling. Applying the gate shows neither.
     const traced = traceGate(state('0|1', 1), gateOf('H 1'))
     expect(traced).toHaveLength(4)
-    expect(traced.filter((c) => c.to === '1').map((c) => c.amp)).toEqual([1, -1])
-    expect([...collect(traced)]).toEqual([['0', 2]])
+    expect(traced.filter((c) => c.to === '1').map((c) => show(c.amp))).toEqual(['1', '-1'])
+    expect([...collect(traced)].map(([b, a]) => [b, show(a)])).toEqual([['0', '2']])
   })
 
   it('adds back up to what applying the gate gives, for every gate', () => {
@@ -97,7 +98,7 @@ describe('working a circuit through', () => {
   it('shows a layer as: terms in, what each gave, what is left', () => {
     const [layer] = run('in 0|1\nH 1')
     expect(layer.going.map(shown)).toEqual(['0', '1'])
-    expect(layer.gave.map((c) => `${c.from}→${c.amp > 0 ? '+' : '-'}${c.to}`)).toEqual([
+    expect(layer.gave.map((c) => `${c.from}→${c.amp.re > 0 ? '+' : '-'}${c.to}`)).toEqual([
       '0→+0', '0→+1', '1→+0', '1→-1',
     ])
     expect(layer.summed.map(shown)).toEqual(['2*0'])
@@ -133,8 +134,8 @@ describe('working a circuit through', () => {
       const theirs = simulate(doc, doc.layers.length)
       // Compared as states: the simulator reduces by the common factor and this
       // does not, so the two agree up to that scale.
-      const scale = ours[0].amp / (theirs.get(ours[0].bits) ?? 1)
-      expect(new Map(ours.map((t) => [t.bits, t.amp / scale])), src).toEqual(theirs)
+      const scale = ours[0].amp / (theirs.get(ours[0].bits)?.re ?? 1)
+      expect(new Map(ours.map((t) => [t.bits, cx(t.amp / scale)])), src).toEqual(theirs)
     }
   })
 
@@ -163,7 +164,7 @@ describe('working a circuit through', () => {
   it('passes on what the arithmetic cannot follow', () => {
     expect(() => run('in ?\nX 1')).toThrow(/has no value/)
     expect(() => run('in 00\nbox "Oracle" 1-2')).toThrow(/is a drawing/)
-    expect(() => run('in 0\nS 1')).toThrow(/complex amplitudes/)
+    expect(() => run('in 0\nT 1')).toThrow(/turns by an eighth/)
   })
 
   it('says so when everything cancels', () => {

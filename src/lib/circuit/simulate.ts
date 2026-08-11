@@ -21,9 +21,19 @@
 import type { ChartBar, CircuitDoc, Gate, Layer, TableLine } from './ast'
 import { gateQubits } from './ast'
 import type { CloudNode, Factor, Product, QubitNode, StateRow, Term } from '../state/ast'
+import {
+  I, ONE, ZERO, abs2, add as cxAdd, commonFactor, cx, eq, isReal, isZero, mul, neg, over,
+  show, times as cxTimes, unitToClear, type Cx,
+} from './complex'
 
-/** Bit string → amplitude. Zero amplitudes are absent, not stored. */
-export type Amplitudes = Map<string, number>
+/**
+ * Bit string → amplitude. Zero amplitudes are absent, not stored.
+ *
+ * Gaussian integers, so `S` and `Y` are expressible without giving up the
+ * exactness the rest of this file depends on — see `complex.ts` for why whole
+ * numbers survive the addition of a phase.
+ */
+export type Amplitudes = Map<string, Cx>
 
 /** Something the notation can express but the arithmetic cannot follow. */
 export class SimulationError extends Error {
@@ -35,17 +45,17 @@ export class SimulationError extends Error {
 
 /* -- Reading a state in -------------------------------------------------- */
 
-function scale(amps: Amplitudes, by: number): Amplitudes {
+function scale(amps: Amplitudes, by: Cx): Amplitudes {
   const out: Amplitudes = new Map()
-  if (by === 0) return out
-  for (const [bits, amp] of amps) out.set(bits, amp * by)
+  if (isZero(by)) return out
+  for (const [bits, amp] of amps) out.set(bits, mul(amp, by))
   return out
 }
 
 function add(into: Amplitudes, from: Amplitudes) {
   for (const [bits, amp] of from) {
-    const sum = (into.get(bits) ?? 0) + amp
-    if (sum === 0) into.delete(bits)
+    const sum = cxAdd(into.get(bits) ?? ZERO, amp)
+    if (isZero(sum)) into.delete(bits)
     else into.set(bits, sum)
   }
 }
@@ -56,8 +66,8 @@ function tensor(a: Amplitudes, b: Amplitudes): Amplitudes {
   for (const [aBits, aAmp] of a) {
     for (const [bBits, bAmp] of b) {
       const bits = aBits + bBits
-      const sum = (out.get(bits) ?? 0) + aAmp * bAmp
-      if (sum === 0) out.delete(bits)
+      const sum = cxAdd(out.get(bits) ?? ZERO, mul(aAmp, bAmp))
+      if (isZero(sum)) out.delete(bits)
       else out.set(bits, sum)
     }
   }
@@ -70,7 +80,7 @@ function factorAmplitudes(factor: Factor): Amplitudes {
       if (factor.value === 'unknown') {
         throw new SimulationError('“?” has no value, so there is nothing to calculate from')
       }
-      return new Map([[String(factor.value), 1]])
+      return new Map([[String(factor.value), ONE]])
     case 'cloud': {
       const out: Amplitudes = new Map()
       for (const term of factor.terms) add(out, termAmplitudes(term))
@@ -95,13 +105,14 @@ export function sideAmplitudes(side: Product): Amplitudes {
 }
 
 function productAmplitudes(factors: Factor[]): Amplitudes {
-  let out: Amplitudes = new Map([['', 1]])
+  let out: Amplitudes = new Map([['', ONE]])
   for (const factor of factors) out = tensor(out, factorAmplitudes(factor))
   return out
 }
 
 function termAmplitudes(term: Term): Amplitudes {
-  return scale(productAmplitudes(term.factors), term.sign * (term.coeff ?? 1))
+  const size = term.sign * (term.coeff ?? 1)
+  return scale(productAmplitudes(term.factors), term.imaginary ? cx(0, size) : cx(size))
 }
 
 /**
@@ -132,13 +143,13 @@ const flip = (bits: string, q: number) =>
 /** Rebuild the map one bit string at a time, dropping anything that cancels. */
 function mapStates(
   amps: Amplitudes,
-  each: (bits: string, amp: number, emit: (bits: string, amp: number) => void) => void,
+  each: (bits: string, amp: Cx, emit: (bits: string, amp: Cx) => void) => void,
 ): Amplitudes {
   const out: Amplitudes = new Map()
-  const emit = (bits: string, amp: number) => {
-    if (amp === 0) return
-    const sum = (out.get(bits) ?? 0) + amp
-    if (sum === 0) out.delete(bits)
+  const emit = (bits: string, amp: Cx) => {
+    if (isZero(amp)) return
+    const sum = cxAdd(out.get(bits) ?? ZERO, amp)
+    if (isZero(sum)) out.delete(bits)
     else out.set(bits, sum)
   }
   for (const [bits, amp] of amps) each(bits, amp, emit)
@@ -146,7 +157,7 @@ function mapStates(
 }
 
 /** What one gate does to one term, as the emissions it produces. */
-type Spread = (bits: string, amp: number, emit: (bits: string, amp: number) => void) => void
+type Spread = (bits: string, amp: Cx, emit: (bits: string, amp: Cx) => void) => void
 
 /**
  * How a gate acts on a single term.
@@ -173,21 +184,31 @@ function spreadOf(gate: Gate): Spread | null {
           const zero = bits.slice(0, gate.qubit - 1) + '0' + bits.slice(gate.qubit)
           const one = bits.slice(0, gate.qubit - 1) + '1' + bits.slice(gate.qubit)
           emit(zero, amp)
-          emit(one, bits[gate.qubit - 1] === '0' ? amp : -amp)
+          emit(one, bits[gate.qubit - 1] === '0' ? amp : neg(amp))
         }
       }
       if (gate.label === 'Z') {
-        return (bits, amp, emit) => emit(bits, bits[gate.qubit - 1] === '1' ? -amp : amp)
+        return (bits, amp, emit) => emit(bits, bits[gate.qubit - 1] === '1' ? neg(amp) : amp)
+      }
+      // A quarter turn on the black half, where Z is a half turn.
+      if (gate.label === 'S') {
+        return (bits, amp, emit) => emit(bits, bits[gate.qubit - 1] === '1' ? mul(amp, I) : amp)
+      }
+      // A flip and a quarter turn each way: white goes to black turned one way,
+      // black to white turned the other.
+      if (gate.label === 'Y') {
+        return (bits, amp, emit) =>
+          emit(flip(bits, gate.qubit), mul(amp, bits[gate.qubit - 1] === '0' ? I : neg(I)))
       }
       throw new SimulationError(
-        `${gate.label} needs complex amplitudes, which this notation cannot draw`,
+        `${gate.label} turns by an eighth, which these amplitudes cannot hold`,
       )
 
     case 'controlled': {
       const on = (bits: string) => gate.controls.every((c) => bits[c - 1] === '1')
       if (gate.targetGlyph === 'z') {
         return (bits, amp, emit) =>
-          emit(bits, on(bits) && bits[gate.target - 1] === '1' ? -amp : amp)
+          emit(bits, on(bits) && bits[gate.target - 1] === '1' ? neg(amp) : amp)
       }
       return (bits, amp, emit) => emit(on(bits) ? flip(bits, gate.target) : bits, amp)
     }
@@ -220,7 +241,7 @@ export interface Contribution {
   /** The input term this came out of, for showing which one is being worked. */
   from: string
   to: string
-  amp: number
+  amp: Cx
 }
 
 /**
@@ -242,7 +263,7 @@ export function traceGate(amps: Amplitudes, gate: Gate): Contribution[] {
       continue
     }
     spread(bits, amp, (to, gave) => {
-      if (gave !== 0) out.push({ from: bits, to, amp: gave })
+      if (!isZero(gave)) out.push({ from: bits, to, amp: gave })
     })
   }
   return out
@@ -271,18 +292,21 @@ export function gcd(a: number, b: number): number {
  * so this is a presentation choice, never a comparison one.
  */
 /** Terms in bit-string order, so nothing downstream depends on insertion order. */
-const sorted = (amps: Amplitudes): [string, number][] =>
+const sorted = (amps: Amplitudes): [string, Cx][] =>
   [...amps].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 
 export function canonical(
   amps: Amplitudes,
   opts: { keepSign?: boolean } = {},
-): [string, number][] {
+): [string, Cx][] {
   const terms = sorted(amps)
   if (!terms.length) return terms
-  const divisor = terms.reduce((g, [, amp]) => gcd(g, amp), 0) || 1
-  const sign = !opts.keepSign && terms[0][1] < 0 ? -1 : 1
-  return terms.map(([bits, amp]) => [bits, (amp / divisor) * sign])
+  const divisor = commonFactor(terms.map(([, amp]) => amp))
+  // The overall phase is not observable, so one is chosen and stuck to: the
+  // first term is turned onto the positive real axis where a quarter turn will
+  // get it there. For real amplitudes that is the old rule exactly.
+  const turn = opts.keepSign ? ONE : unitToClear(terms[0][1])
+  return terms.map(([bits, amp]) => [bits, mul(over(amp, divisor), turn)])
 }
 
 /**
@@ -298,14 +322,26 @@ const qubitsOf = (bits: string): QubitNode[] =>
 /** One block of wires as a drawable factor: a bare run, or a cloud of terms. */
 function blockFactor(amps: Amplitudes, keepSign = false): Factor[] {
   const terms = canonical(amps, { keepSign })
-  if (terms.length === 1 && terms[0][1] === 1) return qubitsOf(terms[0][0])
+  // A phase is not something the notation has a mark for, so a state carrying
+  // one cannot be drawn — said plainly rather than drawn wrongly.
+  if (terms.length === 1 && terms[0][1].re === 1 && terms[0][1].im === 0) {
+    return qubitsOf(terms[0][0])
+  }
+  // A part each way where an amplitude has both: `2+3i` on one basis state is
+  // two terms that add, which is what the notation already does for every
+  // other sum, and keeps every term to one sign and one size.
+  const written = (bits: string, size: number, imaginary: boolean): Term => ({
+    sign: size < 0 ? -1 : 1,
+    coeff: Math.abs(size) === 1 ? undefined : Math.abs(size),
+    imaginary: imaginary || undefined,
+    factors: qubitsOf(bits),
+  })
   const cloud: CloudNode = {
     kind: 'cloud',
-    terms: terms.map(([bits, amp]): Term => ({
-      sign: amp < 0 ? -1 : 1,
-      coeff: Math.abs(amp) === 1 ? undefined : Math.abs(amp),
-      factors: qubitsOf(bits),
-    })),
+    terms: terms.flatMap(([bits, amp]): Term[] => [
+      ...(amp.re !== 0 || isZero(amp) ? [written(bits, amp.re, false)] : []),
+      ...(amp.im !== 0 ? [written(bits, amp.im, true)] : []),
+    ]),
   }
   return [cloud]
 }
@@ -318,7 +354,7 @@ function split(amps: Amplitudes, width: number): [Amplitudes, Amplitudes] | null
     head.add(bits.slice(0, width))
     tail.add(bits.slice(width))
   }
-  const at = (h: string, t: string) => amps.get(h + t) ?? 0
+  const at = (h: string, t: string) => amps.get(h + t) ?? ZERO
 
   // The state splits exactly when this matrix has rank one, which is every
   // 2×2 minor vanishing — checked against one non-zero entry rather than all
@@ -330,14 +366,14 @@ function split(amps: Amplitudes, width: number): [Amplitudes, Amplitudes] | null
   const scaleBy = at(ph, pt)
   for (const h of head) {
     for (const t of tail) {
-      if (at(h, t) * scaleBy !== at(h, pt) * at(ph, t)) return null
+      if (!eq(mul(at(h, t), scaleBy), mul(at(h, pt), at(ph, t)))) return null
     }
   }
 
   const first: Amplitudes = new Map()
-  for (const h of head) if (at(h, pt)) first.set(h, at(h, pt))
+  for (const h of head) if (!isZero(at(h, pt))) first.set(h, at(h, pt))
   const rest: Amplitudes = new Map()
-  for (const t of tail) if (at(ph, t)) rest.set(t, at(ph, t))
+  for (const t of tail) if (!isZero(at(ph, t))) rest.set(t, at(ph, t))
   return [first, rest]
 }
 
@@ -384,7 +420,7 @@ interface Frac {
   d: number
 }
 
-const ONE: Frac = { n: 1, d: 1 }
+const CERTAIN: Frac = { n: 1, d: 1 }
 
 function frac(n: number, d: number): Frac {
   const g = gcd(n, d) || 1
@@ -396,7 +432,9 @@ const times = (a: Frac, b: Frac): Frac => frac(a.n * b.n, a.d * b.d)
 /** Sum of squared amplitudes — the weight the Born rule divides through. */
 function weight(amps: Amplitudes): number {
   let total = 0
-  for (const amp of amps.values()) total += amp * amp
+  // `|a + bi|²`, which stays a whole number — so the odds stay exact ratios
+  // however much phase the state has picked up.
+  for (const amp of amps.values()) total += abs2(amp)
   return total
 }
 
@@ -447,7 +485,7 @@ export function stateFrom(amps: Amplitudes, qubits: number, opts: PresentOptions
   // and each block is canonicalised separately, so left alone it would be
   // normalised away inside one of them and vanish. It is carried on the first
   // block by convention: any single one would do, and doubling it would cancel.
-  const negative = !!opts.keepSign && canonical(amps, { keepSign: true })[0][1] < 0
+  const negative = !!opts.keepSign && canonical(amps, { keepSign: true })[0][1].re < 0
 
   let blocks = opts.factor ? factorise(amps, qubits) : [amps]
 
@@ -458,7 +496,7 @@ export function stateFrom(amps: Amplitudes, qubits: number, opts: PresentOptions
 
   if (negative) {
     blocks = blocks.map((block, i) =>
-      i === 0 ? new Map(canonical(block).map(([bits, amp]) => [bits, -amp])) : block,
+      i === 0 ? new Map(canonical(block).map(([bits, amp]) => [bits, neg(amp)])) : block,
     )
   }
 
@@ -509,7 +547,7 @@ function anchorOf(doc: CircuitDoc): { at: number; amps: Amplitudes } {
       at: 0,
       amps: doc.input
         ? amplitudesOf(doc.input, doc.qubits)
-        : new Map([['0'.repeat(doc.qubits), 1]]),
+        : new Map([['0'.repeat(doc.qubits), ONE]]),
     }
   }
 
@@ -554,7 +592,7 @@ function simulateFrom(doc: CircuitDoc, layers: number) {
   // Behind the anchor, the circuit is run in reverse; from there, forwards.
   const start = anchor.at > 0 ? undoLayers(anchor.amps, doc.layers.slice(0, anchor.at)) : anchor.amps
 
-  let branches: Branch[] = [{ amps: start, odds: ONE }]
+  let branches: Branch[] = [{ amps: start, odds: CERTAIN }]
   let measured = false
 
   for (const layer of doc.layers.slice(0, layers)) {
@@ -628,7 +666,7 @@ export interface TableEntry {
   /** How likely this line is, once there is a measurement to make it a chance. */
   odds?: Frac
   /** The amplitude this line carries, in front of the state as drawn. */
-  amplitude: number
+  amplitude: Cx
 }
 
 /**
@@ -648,9 +686,11 @@ export interface TableEntry {
  * have different lengths, so squaring this does not by itself give the
  * probability beside it.
  */
-function coefficient(amps: Amplitudes): number {
-  const size = [...amps.values()].reduce((g, amp) => gcd(g, amp), 0) || 1
-  return sorted(amps)[0][1] < 0 ? -size : size
+function coefficient(amps: Amplitudes): Cx {
+  const size = commonFactor([...amps.values()])
+  // Whatever turn the drawn state was canonicalised by, undone: the factor in
+  // front has to be the one that puts the state back.
+  return cxTimes(unitToClear(sorted(amps)[0][1]), size)
 }
 
 /**
@@ -676,9 +716,9 @@ export function tabulate(
   // set is reduced together. Per-line reduction would flatten exactly the
   // difference the column exists to show, turning 2 and 3 into 1 and 1.
   const all = branches.flatMap((b) => [...b.amps.values()])
-  const divisor = all.reduce((g, amp) => gcd(g, amp), 0) || 1
-  const flip = !opts.keepSign && all.length && sorted(branches[0].amps)[0][1] < 0 ? -1 : 1
-  const scale = (amp: number) => (amp / divisor) * flip
+  const divisor = commonFactor(all)
+  const turn = !opts.keepSign && all.length ? unitToClear(sorted(branches[0].amps)[0][1]) : ONE
+  const scale = (amp: Cx) => mul(over(amp, divisor), turn)
 
   if (measured) {
     return {
@@ -698,8 +738,8 @@ export function tabulate(
   return {
     measured,
     entries: sorted(amps).map(([bits, amp]) => ({
-      state: stateFrom(new Map([[bits, 1]]), doc.qubits, opts),
-      odds: frac(amp * amp, total),
+      state: stateFrom(new Map([[bits, ONE]]), doc.qubits, opts),
+      odds: frac(abs2(amp), total),
       amplitude: scale(amp),
     })),
   }
@@ -726,21 +766,27 @@ export function diracOf(amps: Amplitudes, opts: PresentOptions = {}): string {
     throw new SimulationError('the terms all cancel, leaving no state to write')
   }
 
-  const size = entries.reduce((g, [, amp]) => gcd(g, Math.abs(amp)), 0) || 1
-  // The overall sign is not observable, so it is dropped the same way a drawn
-  // state's is — unless the figure asked to keep it.
-  const flip = !opts.keepSign && entries[0][1] < 0 ? -1 : 1
-  const terms = entries.map(([bits, amp]) => [bits, (amp / size) * flip] as const)
+  const size = commonFactor(entries.map(([, amp]) => amp))
+  // The overall phase is not observable, so it is turned away the same way a
+  // drawn state's is — unless the figure asked to keep it.
+  const turn = opts.keepSign ? ONE : unitToClear(entries[0][1])
+  const terms = entries.map(([bits, amp]) => [bits, mul(over(amp, size), turn)] as const)
 
-  const square = terms.reduce((sum, [, amp]) => sum + amp * amp, 0)
+  const square = terms.reduce((sum, [, amp]) => sum + abs2(amp), 0)
   const root = Math.sqrt(square)
 
+  // Written the way it is said: a bare ket where the amplitude is one, `i` and
+  // not `1i`, and a sign joining the terms rather than sitting inside them.
   const body = terms
     .map(([bits, amp], i) => {
-      const mag = Math.abs(amp)
-      const ket = `${mag === 1 ? '' : mag}|${bits}⟩`
-      if (i === 0) return amp < 0 ? `−${ket}` : ket
-      return `${amp < 0 ? ' − ' : ' + '}${ket}`
+      const down = isReal(amp) ? amp.re < 0 : amp.im < 0
+      const size = show(down ? neg(amp) : amp)
+      // Bracketed where it has two parts, or `2+3i|00⟩` reads as a sum of two
+      // different things rather than one amplitude.
+      const front = size === '1' ? '' : /[+-]/.test(size.slice(1)) ? `(${size})` : size
+      const ket = `${front}|${bits}⟩`
+      if (i === 0) return down ? `−${ket}` : ket
+      return `${down ? ' − ' : ' + '}${ket}`
     })
     .join('')
 
@@ -818,7 +864,7 @@ export function chartBars(
   // The overall sign is not observable, so it is normalised away the same way
   // a drawn state's is — otherwise the identical state plots upside down
   // depending on which term happened to come out first.
-  const flip = !opts.keepSign && sorted(amps)[0][1] < 0 ? -1 : 1
+  const turn = opts.keepSign ? ONE : unitToClear(sorted(amps)[0][1])
 
   const complete = 2 ** doc.qubits <= MAX_BARS
   const bits = complete ? basisStates(doc.qubits) : sorted(amps).map(([b]) => b)
@@ -827,12 +873,15 @@ export function chartBars(
     measured,
     complete,
     bars: bits.map((b) => {
-      const amp = (amps.get(b) ?? 0) * flip
+      const amp = mul(amps.get(b) ?? ZERO, turn)
       return {
-        state: stateFrom(new Map([[b, 1]]), doc.qubits, opts),
-        amplitude: amp / length,
-        probability: (amp * amp) / total,
-        label: oddsLabel(frac(amp * amp, total), opts.exactOdds),
+        state: stateFrom(new Map([[b, ONE]]), doc.qubits, opts),
+        // A bar has one height, so only an amplitude that lies on the axis has
+        // one to give. A phase off it is left out rather than flattened, and
+        // the plot says so.
+        amplitude: isReal(amp) ? amp.re / length : undefined,
+        probability: abs2(amp) / total,
+        label: oddsLabel(frac(abs2(amp), total), opts.exactOdds),
       }
     }),
   }
@@ -847,7 +896,7 @@ function tableLines(doc: CircuitDoc, opts: PresentOptions): TableLine[] {
     // measurement happened: before one, it is what the terms of a superposition
     // mean, which is the other half of what a table is for.
     probability: entry.odds ? oddsLabel(entry.odds, opts.exactOdds) : undefined,
-    amplitude: String(entry.amplitude),
+    amplitude: show(entry.amplitude),
   }))
 }
 
@@ -884,6 +933,15 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
   const chart = doc.chart
     ? { ...doc.chart, ...chartBars(doc, doc.layers.length, opts) }
     : undefined
+  // A bar has one height, so an amplitude off the real axis has none to give.
+  // Said rather than drawn as nothing — an empty bar reads as a term that
+  // cancelled, which is the opposite of a term with a phase on it.
+  if (chart?.mode === 'amplitude' && !chart.measured &&
+      chart.bars?.some((b) => b.amplitude === undefined)) {
+    throw new SimulationError(
+      'these amplitudes have a phase, which a bar cannot show — chart the probabilities instead',
+    )
+  }
 
   return { ...doc, layers, input, output, table, chart }
 }

@@ -18,9 +18,11 @@
 
 import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
+import { cx, show } from './complex'
 import { layoutCircuit } from './layout'
 import {
   amplitudesOf, canonical, resolveCalculations, simulate, stateFrom, SimulationError,
+  type Amplitudes,
 } from './simulate'
 import { parseState } from '../state/parse'
 import type { Factor, StateRow } from '../state/ast'
@@ -54,42 +56,46 @@ function write(row: { sides: { factors: unknown[] }[] }): string {
 }
 
 describe('reading a written state', () => {
+  // Amplitudes are Gaussian integers; compared as they are written, so a
+  // stray phase would show up here rather than being quietly dropped.
   const amps = (src: string, n: number) =>
-    [...amplitudesOf(parseState(src).rows[0], n)].sort(([a], [b]) => (a < b ? -1 : 1))
+    [...amplitudesOf(parseState(src).rows[0], n)]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([bits, amp]) => [bits, show(amp)])
 
   it('reads a classical string', () => {
-    expect(amps('010', 3)).toEqual([['010', 1]])
+    expect(amps('010', 3)).toEqual([['010', '1']])
   })
 
   it('reads a superposition', () => {
     expect(amps('00|11', 2)).toEqual([
-      ['00', 1],
-      ['11', 1],
+      ['00', '1'],
+      ['11', '1'],
     ])
   })
 
   it('reads signs and coefficients', () => {
     expect(amps('3*0|-2*1', 1)).toEqual([
-      ['0', 3],
-      ['1', -2],
+      ['0', '3'],
+      ['1', '-2'],
     ])
   })
 
   it('distributes a product of clouds, which is rule 6', () => {
     expect(amps('(0|1)(0|-1)', 2)).toEqual([
-      ['00', 1],
-      ['01', -1],
-      ['10', 1],
-      ['11', -1],
+      ['00', '1'],
+      ['01', '-1'],
+      ['10', '1'],
+      ['11', '-1'],
     ])
   })
 
   it('cancels opposite amplitudes, which is rule 2', () => {
-    expect(amps('0|1|-1', 1)).toEqual([['0', 1]])
+    expect(amps('0|1|-1', 1)).toEqual([['0', '1']])
   })
 
   it('leaves unnamed wires in |0>', () => {
-    expect(amps('1', 3)).toEqual([['100', 1]])
+    expect(amps('1', 3)).toEqual([['100', '1']])
   })
 
   it('refuses what it cannot read', () => {
@@ -212,11 +218,30 @@ describe('writing the answer out', () => {
 describe('what it will not do, it says', () => {
   const fails = (src: string) => () => outputOf(src)
 
-  it('refuses gates whose amplitudes are complex', () => {
-    for (const gate of ['S 1', 'T 1', 'Y 1']) {
-      expect(fails(`in 0\n${gate}`), gate).toThrow(/complex amplitudes/)
-    }
+  it('turns a quarter exactly, and refuses an eighth', () => {
+    // S and Y are quarter turns, which Gaussian integers hold exactly; T is an
+    // eighth, which wants a root of two they do not have.
+    expect(fails('in 0\nT 1')).toThrow(/turns by an eighth/)
+    expect(shown('in 1\nS 1\nS 1')).toBe('1')
+    expect(shown('in 0\nY 1\nY 1')).toBe('0')
   })
+
+  it('carries a phase through, and draws it as a turned coefficient', () => {
+    const doc = parseCircuit('in 0\nH 1\nS 1')
+    expect([...simulate(doc, doc.layers.length).values()].map(show)).toEqual(['1', 'i'])
+    // `0|i*1` — the same state the notation would have been written with.
+    const drawn = resolveCalculations(parseCircuit('in 0\nH 1\nS 1\nout calculate')).output![0]
+    const cloud = drawn.sides[0].factors[0]
+    expect(cloud.kind).toBe('cloud')
+    expect(cloud.kind === 'cloud' && cloud.terms.map((t) => [t.coeff, t.imaginary]))
+      .toEqual([[undefined, undefined], [undefined, true]])
+  })
+
+  /** The state written out, for the cases where it stays drawable. */
+  const shown = (src: string) => {
+    const doc = parseCircuit(src)
+    return [...simulate(doc, doc.layers.length).keys()].join('|')
+  }
 
   it('refuses an X- or Y-basis measurement, which has no outcome to draw', () => {
     expect(fails('in 0\nH 1\nmeasure 1 X')).toThrow(/no white-or-black outcome/)
@@ -513,15 +538,18 @@ describe('keeping a meaningful minus sign', () => {
 
   it('does not disturb comparison, which wants both states equal', () => {
     // Every check in the codebase compares through the default canonical form.
-    expect(canonical(new Map([['0', -1]]))).toEqual([['0', 1]])
-    expect(canonical(new Map([['0', -1]]), { keepSign: true })).toEqual([['0', -1]])
+    const shown = (amps: Amplitudes, keepSign?: boolean) =>
+      canonical(amps, { keepSign }).map(([bits, amp]) => [bits, show(amp)])
+    expect(shown(new Map([['0', cx(-1)]]))).toEqual([['0', '1']])
+    expect(shown(new Map([['0', cx(-1)]]), true)).toEqual([['0', '-1']])
     expect(render('in 1\nH 1\nX 1\nH 1\nout 1', { keepSign: true }).check!.ok).toBe(true)
   })
 
   it('still divides out the common factor', () => {
-    expect(canonical(new Map([['0', -2], ['1', -4]]), { keepSign: true })).toEqual([
-      ['0', -1],
-      ['1', -2],
+    const amps: Amplitudes = new Map([['0', cx(-2)], ['1', cx(-4)]])
+    expect(canonical(amps, { keepSign: true }).map(([b, a]) => [b, show(a)])).toEqual([
+      ['0', '-1'],
+      ['1', '-2'],
     ])
   })
 

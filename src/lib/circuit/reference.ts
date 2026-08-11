@@ -13,6 +13,7 @@
  */
 
 import type { CircuitDoc, Gate } from './ast'
+import { cx } from './complex'
 import type { Amplitudes } from './simulate'
 
 /** Row-major dense matrix. */
@@ -106,7 +107,9 @@ const bitsOf = (index: number, n: number) => index.toString(2).padStart(n, '0')
 export function referenceSimulate(doc: CircuitDoc, input: Amplitudes): number[] {
   const n = doc.qubits
   let vector = new Array<number>(1 << n).fill(0)
-  for (const [bits, amp] of input) vector[parseInt(bits, 2)] = amp
+  // Real parts only: this stands beside the exact simulator to disagree with
+  // it, and it implements only the gates that keep a state on the real axis.
+  for (const [bits, amp] of input) vector[parseInt(bits, 2)] = amp.re
 
   for (const layer of doc.layers) {
     for (const gate of layer.gates) {
@@ -129,7 +132,7 @@ export function referenceAmplitudes(doc: CircuitDoc, input: Amplitudes): Amplitu
   const vector = referenceSimulate(doc, input)
   const out: Amplitudes = new Map()
   vector.forEach((amp, i) => {
-    if (Math.abs(amp) > 1e-9) out.set(bitsOf(i, doc.qubits), amp)
+    if (Math.abs(amp) > 1e-9) out.set(bitsOf(i, doc.qubits), cx(amp))
   })
   return out
 }

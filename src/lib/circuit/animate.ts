@@ -20,6 +20,7 @@
 
 import type { CircuitDoc, Gate } from './ast'
 import { gateQubits } from './ast'
+import { ONE, ZERO, add as cxAdd, cx, isReal, isZero, show, type Cx } from './complex'
 import type { CircuitGeometry, CircuitLayout } from './layout'
 import type { Metrics, Prim } from '../render/primitives'
 import { textWidth } from '../render/primitives'
@@ -185,7 +186,23 @@ export const MAX_TERMS = 8
 const termsOf = (amps: Amplitudes): Term[] =>
   [...amps]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([bits, amp]) => ({ bits, amp }))
+    .map(([bits, amp]) => ({ bits, amp: plainAmp(amp) }))
+
+/**
+ * An amplitude as a single number, or a refusal.
+ *
+ * A travelling term is drawn, and the notation has no mark for a phase — so a
+ * state carrying one has nothing to animate, and saying that is better than
+ * showing a state that is not the one in hand.
+ */
+function plainAmp(amp: Cx): number {
+  if (!isReal(amp)) {
+    throw new NotClassicalError(
+      `an amplitude of ${show(amp)} has a phase, which there is no way to draw moving`,
+    )
+  }
+  return amp.re
+}
 
 /**
  * Work the whole circuit, keeping every intermediate step.
@@ -199,7 +216,7 @@ const termsOf = (amps: Amplitudes): Term[] =>
 export function termRun(doc: CircuitDoc): Working[] {
   const start = doc.input
     ? amplitudesOf(doc.input, doc.qubits)
-    : new Map([['0'.repeat(doc.qubits), 1]])
+    : new Map([['0'.repeat(doc.qubits), ONE]])
 
   let terms = termsOf(start)
   if (!terms.length) {
@@ -215,11 +232,11 @@ export function termRun(doc: CircuitDoc): Working[] {
       )
     }
 
-    const amps: Amplitudes = new Map(terms.map((t) => [t.bits, t.amp]))
+    const amps: Amplitudes = new Map(terms.map((t) => [t.bits, cx(t.amp)]))
     // Gates in a layer act on disjoint wires, so they commute and can be
     // applied one after another. Only the layer as a whole is shown, so the
     // contributions are of the layer, not of each gate within it.
-    let gave: Contribution[] = terms.map((t) => ({ from: t.bits, to: t.bits, amp: t.amp }))
+    let gave: Contribution[] = terms.map((t) => ({ from: t.bits, to: t.bits, amp: cx(t.amp) }))
     let running = amps
     for (const gate of acting) {
       const step = traceGate(running, gate)
@@ -230,8 +247,8 @@ export function termRun(doc: CircuitDoc): Working[] {
       gave = step.map((c) => ({ from: origin.get(c.from) ?? c.from, to: c.to, amp: c.amp }))
       running = new Map()
       for (const c of gave) {
-        const sum = (running.get(c.to) ?? 0) + c.amp
-        if (sum === 0) running.delete(c.to)
+        const sum = cxAdd(running.get(c.to) ?? ZERO, c.amp)
+        if (isZero(sum)) running.delete(c.to)
         else running.set(c.to, sum)
       }
     }
@@ -256,7 +273,7 @@ export function termRun(doc: CircuitDoc): Working[] {
     for (const c of gave) if (!seen.includes(c.to)) seen.push(c.to)
     const summed = seen
       .filter((bits) => running.has(bits))
-      .map((bits) => ({ bits, amp: running.get(bits)! }))
+      .map((bits) => ({ bits, amp: plainAmp(running.get(bits)!) }))
     // Dividing out the common factor is a step of its own: `2*0` and `0` are
     // the same state, and watching the 2 go is watching that being said.
     const divisor = summed.reduce((g, t) => gcd(g, t.amp), 0) || 1
@@ -279,7 +296,7 @@ export function termRun(doc: CircuitDoc): Working[] {
   return out
 }
 
-const bitsOf = (amps: Map<string, number>): string | null => {
+const bitsOf = (amps: Amplitudes): string | null => {
   if (amps.size !== 1) return null
   return [...amps.keys()][0]
 }
@@ -297,7 +314,7 @@ export function classicalRun(doc: CircuitDoc): { bits: string[]; negative: boole
 
   const start = doc.input
     ? amplitudesOf(doc.input, doc.qubits)
-    : new Map([['0'.repeat(doc.qubits), 1]])
+    : new Map([['0'.repeat(doc.qubits), ONE]])
   const first = bitsOf(start)
   if (first === null) {
     throw new NotClassicalError(
@@ -305,10 +322,10 @@ export function classicalRun(doc: CircuitDoc): { bits: string[]; negative: boole
     )
   }
   bits.push(first)
-  negative.push((start.get(first) ?? 1) < 0)
+  negative.push(plainAmp(start.get(first) ?? ONE) < 0)
 
   for (let at = 1; at <= doc.layers.length; at++) {
-    let amps: Map<string, number>
+    let amps: Amplitudes
     try {
       const { branches } = simulateBranches(doc, at)
       if (branches.length !== 1) {
@@ -328,7 +345,7 @@ export function classicalRun(doc: CircuitDoc): { bits: string[]; negative: boole
       )
     }
     bits.push(now)
-    negative.push((amps.get(now) ?? 1) < 0)
+    negative.push(plainAmp(amps.get(now) ?? ONE) < 0)
   }
 
   return { bits, negative }
@@ -765,7 +782,7 @@ export function buildTermTimeline(
   const widest = working.reduce(
     (w, layer) =>
       [...layer.going, ...layer.summed, ...layer.left, ...layer.gave].reduce(
-        (n, t) => Math.max(n, labelWidth(t.amp, m)),
+        (n, t) => Math.max(n, labelWidth(typeof t.amp === 'number' ? t.amp : t.amp.re, m)),
         w,
       ),
     0,
@@ -952,7 +969,7 @@ export function buildTermTimeline(
       const shift = outOffsets[first] - within[0]
 
       const made = gave.map((c, j) => {
-        const track = open(c.to, c.amp, enter, within[j], leaveY, 0)
+        const track = open(c.to, plainAmp(c.amp), enter, within[j], leaveY, 0)
         move(track, acts - span, within[j], leaveY, 0)
         move(track, acts + span, within[j], leaveY, 1)
         move(track, now, within[j], leaveY, 1)
@@ -966,7 +983,7 @@ export function buildTermTimeline(
       for (const m of made) {
         move(m.track, now + away, within[m.slot - first], bandY(k + 1))
         move(m.track, now + away + sideways, outOffsets[m.slot], bandY(k + 1))
-        landed.push({ track: m.track, to: m.c.to, amp: m.c.amp })
+        landed.push({ track: m.track, to: m.c.to, amp: plainAmp(m.c.amp) })
         landedAt.push(now + away + sideways)
       }
 

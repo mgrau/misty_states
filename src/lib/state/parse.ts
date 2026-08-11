@@ -9,7 +9,7 @@
  *   side     := termlist                     -- >1 term is implicitly one cloud
  *   termlist := term ( ('|' | ',') term )*
  *   term     := ['-' | '+'] [coeff] factor ( ['x'] factor )*
- *   coeff    := digits ( '*' | &'(' )        -- '3*0' or '3(0|1)'
+ *   coeff    := [digits] ['i'] ( '*' | &'(' ) -- '3*0', '3(0|1)', 'i*0', '2i*0'
  *   factor   := qubit | cloud | label
  *   qubit    := ('0' | '1' | '?') ['@' digits]
  *   cloud    := '(' termlist ')'
@@ -152,13 +152,27 @@ function parseTerm(c: Cursor): Term {
   else c.eat('+')
 
   let coeff: number | undefined
+  let imaginary = false
   c.ws()
-  if (/[0-9]/.test(c.raw())) {
+
+  // A bare `i` is a quarter turn on its own: `i*01`, and `-i*01` with the sign
+  // already taken above.
+  if ((c.raw() === 'i' || c.raw() === 'I') && (c.raw(1) === '*' || c.raw(1) === '(')) {
+    imaginary = true
+    if (c.raw(1) === '*') c.i += 2
+    else c.i += 1
+  } else if (/[0-9]/.test(c.raw())) {
     // A digit run is a coefficient only when followed by `*` or `(`; otherwise
     // it is a sequence of qubits, so `00` stays two qubits and `3*0` is 3·|0⟩.
     const save = c.i
     const digits = parseDigits(c)
-    if (c.raw() === '*') {
+    // `2i*01` — the turn comes after the size, as it is said.
+    const turned = c.raw() === 'i' || c.raw() === 'I'
+    if (turned && (c.raw(1) === '*' || c.raw(1) === '(')) {
+      imaginary = true
+      coeff = parseInt(digits, 10)
+      c.i += c.raw(1) === '*' ? 2 : 1
+    } else if (c.raw() === '*') {
       c.i++
       coeff = parseInt(digits, 10)
     } else if (c.peek() === '(' && /[2-9]/.test(digits)) {
@@ -203,7 +217,7 @@ function parseTerm(c: Cursor): Term {
     c.fail('"×" needs something on both sides — e.g. (0|1) x (0|1)')
   }
 
-  return { sign, coeff, factors }
+  return { sign, coeff, imaginary: imaginary || undefined, factors }
 }
 
 /** `|` and `,` both separate terms; which one is *drawn* is a render setting. */
@@ -216,7 +230,12 @@ function parseTermList(c: Cursor): Term[] {
 /** A side is a term list; more than one term means the line is itself a cloud. */
 function parseSide(c: Cursor): Product {
   const terms = parseTermList(c)
-  if (terms.length === 1 && terms[0].sign === 1 && terms[0].coeff === undefined) {
+  // A lone plain term needs no cloud round it — but a turn is not plain, and
+  // unwrapping one would drop the `i` on the floor.
+  if (
+    terms.length === 1 && terms[0].sign === 1 &&
+    terms[0].coeff === undefined && !terms[0].imaginary
+  ) {
     return { factors: terms[0].factors }
   }
   const cloud: CloudNode = { kind: 'cloud', terms }
