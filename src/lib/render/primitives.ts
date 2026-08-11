@@ -45,6 +45,8 @@ export interface TextPrim {
   weight?: number
   color?: string
   mono?: boolean
+  /** Degrees clockwise about the run's own anchor. -90 reads bottom-to-top. */
+  rotate?: number
   /**
    * How to centre the run on `cy`. 'cap' centres the cap height and suits
    * letters and digits; 'math' centres on the font's math axis and suits
@@ -104,13 +106,14 @@ export interface PanePrim {
   box: Box
   fill?: string
   /**
-   * Fill with the drawing's gate tone rather than paper.
+   * How much of the chart's colour this pane carries, from -1 to 1.
    *
-   * A chart's bars are the only panes that are read for their size, and an
-   * unfilled one reads as an empty frame. Named rather than given a colour
-   * because layout runs before the palette is chosen.
+   * Signed, so a bar below the axis is a different colour rather than the same
+   * one upside down; scaled, so a small contribution is pale and a large one is
+   * strong. Given as a number rather than a colour because layout runs before
+   * the palette is chosen, and dark mode wants different ends to the ramp.
    */
-  tinted?: boolean
+  tone?: number
 }
 
 export interface MeasureBoxPrim {

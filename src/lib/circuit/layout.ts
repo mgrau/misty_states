@@ -766,7 +766,10 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   })
 
   const lastGateBottom = doc.layers.length ? y - m.gateGap : pipeTop
-  const pipeBottom = lastGateBottom + STUB_LEAD
+  // A circuit with no gates has no plumbing: `0|0|-1` with a chart under it is
+  // a state something was worked out from, not a one-wire circuit, and a stub
+  // of pipe between the two reads as a stray identity nobody wrote.
+  const pipeBottom = doc.layers.length ? lastGateBottom + STUB_LEAD : pipeTop
 
   // Below the circuit, where the finished state comes to rest.
   if (ends) {

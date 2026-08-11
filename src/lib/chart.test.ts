@@ -11,6 +11,8 @@ import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './circuit/parse'
 import { chartBars, resolveCalculations } from './circuit/simulate'
 import { render } from './index'
+import { layoutChart } from './chart/layout'
+import { DEFAULT_METRICS, textWidth } from './render/primitives'
 
 const spec = (src: string) => resolveCalculations(parseCircuit(src)).chart!
 const bars = (src: string) => spec(src).bars!
@@ -125,5 +127,71 @@ describe('drawing it', () => {
 
   it('leaves the amplitude plot unlabelled, where the axis already says it', () => {
     expect(render('in 00\nH 1\nchart').svg).not.toContain('>50%<')
+  })
+})
+
+describe('reading it at a glance', () => {
+  const svg = (src: string) => render(src).svg
+
+  it('writes the basis states down the page, not across', () => {
+    // Stacked, so a bar is one qubit wide however many wires there are.
+    const two = render('in 00\nH 1\nchart').width
+    const three = render('in 000\nH 1\nchart').width
+    // Four bars of two wires against eight of three: wider, but not by the
+    // factor a register laid sideways under every bar would cost.
+    expect(three).toBeLessThan(two * 2)
+  })
+
+  it('colours an amplitude by its sign, and leaves a probability plain', () => {
+    const tones = (mode: string) => {
+      const doc = resolveCalculations(parseCircuit(`in 00\nH 1\nH 2\nCZ 1 2\n${mode}`))
+      return layoutChart(doc.chart!.bars!, doc.chart!, { metrics: DEFAULT_METRICS })
+        .prims.filter((p) => p.t === 'pane')
+        .map((p) => p.tone)
+    }
+    // Signed, and scaled: one bar leans each way, so both ends of the ramp are
+    // asked for.
+    expect(tones('chart')).toEqual([0.5, 0.5, 0.5, -0.5])
+    // A chance has no sign, so colouring it would say nothing the height does
+    // not — and would leave the two kinds of plot looking alike.
+    expect(tones('chart(probability)').every((t) => t === undefined)).toBe(true)
+  })
+
+  it('names the scale, written up the axis', () => {
+    expect(svg('in 00\nH 1\nchart')).toMatch(/rotate\(-90[^)]*\)[^>]*>Amplitude</)
+    expect(svg('in 00\nH 1\nchart(probability)')).toMatch(/rotate\(-90[^)]*\)[^>]*>Probability</)
+  })
+
+  it('shrinks the chances so they fit over their bars', () => {
+    // Stacking the labels makes every bar one qubit wide, so a chance written
+    // over one has very little room — and running two into each other says
+    // less than the axis beside them already does.
+    const written = (src: string) =>
+      [...svg(src).matchAll(/font-size="([\d.]+)"[^>]*>([\d./]+%?)</g)]
+        .filter((m) => m[2].includes('%'))
+        .map((m) => ({ size: Number(m[1]), text: m[2] }))
+
+    for (const src of [
+      'in 0\nH 1\nchart(probability)',
+      'in 00\nH 1\nCNOT 1 2\nchart(probability)',
+      'qubits 4\nin 0000\nH 1\nH 2\nH 3\nH 4\nchart(probability)',
+    ]) {
+      const all = written(src)
+      expect(all.length).toBeGreaterThan(0)
+      for (const { size, text } of all) {
+        // Inside its bar and the gap beside it...
+        expect(textWidth(text, size)).toBeLessThanOrEqual(DEFAULT_METRICS.qubit + 8)
+        // ...and never shrunk past the point of being worth reading.
+        expect(size).toBeGreaterThanOrEqual(DEFAULT_METRICS.fontSize * 0.6)
+        expect(size).toBeLessThanOrEqual(DEFAULT_METRICS.fontSize)
+      }
+    }
+  })
+
+  it('leaves out the plumbing when there are no gates to plumb', () => {
+    // A state with a plot under it is not a one-wire circuit, and a stub of
+    // pipe between the two reads as an identity nobody wrote.
+    expect(svg('0|0|-1\nchart')).not.toContain('url(#ms-pipe)')
+    expect(svg('in 0\nH 1\nchart')).toContain('url(#ms-pipe)')
   })
 })

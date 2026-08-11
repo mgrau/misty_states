@@ -47,11 +47,9 @@ import type { AnimationOptions } from './animate'
 import { gateSpan } from './ast'
 
 /** Hadamard's label chip is red in the course materials. */
-const HADAMARD_ACCENT = '#ef5f5b'
-
 const SINGLE_GATES: Record<string, { label: string; accent?: string }> = {
-  H: { label: 'H', accent: HADAMARD_ACCENT },
-  PETE: { label: 'H', accent: HADAMARD_ACCENT },
+  H: { label: 'H' },
+  PETE: { label: 'H' },
   Y: { label: 'Y' },
   Z: { label: 'Z' },
   S: { label: 'S' },
@@ -446,12 +444,21 @@ function readTable(text: string, lineNo: number): TableSpec | null {
   return read(rest, caption)
 }
 
-const CHART_LINE = /^(?:chart|plot)\s*(?:\(([^)]*)\))?\s*(?::\s*(.*?))?\s*$/i
+/**
+ * `chart`, and the two quantities as keywords in their own right.
+ *
+ * `amplitude` and `probability` say what they draw without a bracket, which is
+ * how a figure most often wants to ask for one — `chart(probability)` is the
+ * general form and this is the sentence anybody would write instead.
+ */
+const CHART_LINE =
+  /^(?:chart|plot|(amplitude|amplitudes|probability|probabilities)|)\s*(?:\(([^)]*)\))?\s*(?::\s*(.*?))?\s*$/i
 
 /** What the bars may be asked to stand for. */
 const CHART_MODES: Record<string, ChartSpec['mode']> = {
-  amplitude: 'amplitude', amp: 'amplitude', a: 'amplitude',
-  probability: 'probability', prob: 'probability', chance: 'probability', p: 'probability',
+  amplitude: 'amplitude', amplitudes: 'amplitude', amp: 'amplitude', a: 'amplitude',
+  probability: 'probability', probabilities: 'probability', prob: 'probability',
+  chance: 'probability', p: 'probability',
 }
 
 /**
@@ -465,17 +472,23 @@ function readChart(text: string, lineNo: number): ChartSpec | null {
   const trimmed = text.trim()
   const read = (src: string, caption?: string): ChartSpec | null => {
     const hit = CHART_LINE.exec(src)
-    if (!hit) return null
-    const asked = hit[1]?.trim().toLowerCase()
-    const mode = asked ? CHART_MODES[asked] : 'amplitude'
+    // The alternation can match nothing at all, which would make every blank
+    // line a chart; a bare word or `chart` is required.
+    if (!hit || (!hit[1] && !/^(chart|plot)\b/i.test(src.trim()))) return null
+    const named = hit[1] && CHART_MODES[hit[1].toLowerCase()]
+    const asked = hit[2]?.trim().toLowerCase()
+    if (named && asked) {
+      throw new ParseError(`${hit[1]} already says what to chart`, 0, lineNo)
+    }
+    const mode = named || (asked ? CHART_MODES[asked] : 'amplitude')
     if (!mode) {
       throw new ParseError(
-        `"${hit[1].trim()}" is not something to chart — use amplitude or probability`,
+        `"${hit[2].trim()}" is not something to chart — use amplitude or probability`,
         0,
         lineNo,
       )
     }
-    return { mode, caption, note: hit[2] || undefined }
+    return { mode, caption, note: hit[3] || undefined }
   }
 
   const direct = read(trimmed)

@@ -78,13 +78,6 @@
       rows: [{ code: '0|1|-1 = 0', text: '"=" chains expressions into an equation — and is checked' }],
     },
     {
-      heading: 'Annotations',
-      rows: [
-        { code: '50%: 0(0|1)', text: 'Text before ":" is an annotation on the left' },
-        { code: '0(0|1) : note', text: 'Text after ":" is an annotation on the right' },
-      ],
-    },
-    {
       heading: 'Shapes',
       rows: [
         { code: 'shape os^', text: 'Set the register: o s ^ d v * p h' },
@@ -150,6 +143,27 @@
         { code: 'I 2 0', text: 'An identity that shows what its qubit holds' },
       ],
     },
+  ]
+
+  /**
+   * Everything that is about the figure rather than about the physics.
+   *
+   * Annotations, what a figure works out and shows, whether it holds an answer
+   * back, whether it moves. None of it is a state or a gate, and leaving it
+   * scattered through the other two made the Circuits list twice as long as it
+   * needed to be — and documented annotations in both places at once, since
+   * states and gate lines take them the same way.
+   */
+  const figureGroups: Group[] = [
+    {
+      heading: 'Annotations',
+      rows: [
+        { code: '50%: 0(0|1)', text: 'Text before ":" is an annotation on the left' },
+        { code: '0(0|1) : note', text: 'Text after ":" is one on the right' },
+        { code: 'after H: 0(0|1)', text: 'A state inside a circuit takes them too' },
+        { code: 'step: H 1 : note', text: 'And so does a gate line' },
+      ],
+    },
     {
       heading: 'Working it out',
       rows: [
@@ -162,10 +176,10 @@
     {
       heading: 'Tables and charts',
       rows: [
-        { code: 'tabulate', text: 'The outcomes as a table instead ("table" too)' },
+        { code: 'tabulate', text: 'The outcomes as a table ("table" too)' },
         { code: 'tabulate(state, amp, p)', text: 'Which columns, and p="Chance" renames one' },
         { code: 'chart', text: 'A bar per basis state — signed amplitudes ("plot" too)' },
-        { code: 'chart(probability)', text: 'The chances instead, labelled and all positive' },
+        { code: 'chart(probability)', text: 'The chances instead, all positive and uncoloured' },
       ],
     },
     {
@@ -173,13 +187,6 @@
       rows: [
         { code: 'answer 010', text: 'What the question asks for — hidden until "Show answer"' },
         { code: 'answer', text: 'On its own: the state worked out, and hidden' },
-      ],
-    },
-    {
-      heading: 'Annotations',
-      rows: [
-        { code: 'after H: 0(0|1)', text: 'An annotation on the left; ": note" for the right' },
-        { code: 'step: H 1 : note', text: 'A gate line takes annotations the same way' },
       ],
     },
     {
@@ -274,13 +281,14 @@
   }
 
   const tabs = [
-    { id: 'state', label: 'States' },
-    { id: 'circuit', label: 'Circuits' },
-    { id: 'gates', label: 'Gates' },
+    { id: 'state', label: 'States', groups: stateGroups },
+    { id: 'circuit', label: 'Circuits', groups: circuitGroups },
+    { id: 'gates', label: 'Gates', groups: [] },
+    { id: 'figure', label: 'Figures', groups: figureGroups },
   ] as const
 
-  let active = $state<'state' | 'circuit' | 'gates'>('state')
-  const groups = $derived(active === 'circuit' ? circuitGroups : stateGroups)
+  let active = $state<'state' | 'circuit' | 'gates' | 'figure'>('state')
+  const groups = $derived(tabs.find((t) => t.id === active)!.groups)
 
   /** Left/right arrows move between tabs, as a tablist is expected to. */
   function onKey(event: KeyboardEvent) {
@@ -308,7 +316,7 @@
       tabindex={active === tab.id ? 0 : -1}
       onclick={() => (active = tab.id)}
       onkeydown={onKey}
-      class="-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors
+      class="-mb-px border-b-2 px-2.5 py-2 text-xs font-medium transition-colors
              {active === tab.id
         ? 'border-slate-800 text-slate-900'
         : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'}"

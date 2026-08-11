@@ -18,9 +18,29 @@ export interface Palette {
   measure: string
   accent: string
   hadamard: string
+  /**
+   * The chip behind a lettered gate, by its letter.
+   *
+   * Hue carries meaning rather than decorating: Z, S and T are the same turn by
+   * different amounts — a half, a quarter, an eighth — so they share a colour
+   * that lightens as the turn gets smaller, and `T·T = S`, `S·S = Z` is legible
+   * before the letters are read. H is the odd one out because it is the basis
+   * change rather than a phase, and Y stands apart because it is both.
+   */
+  gateChip: Record<string, string>
   muted: string
   /** Outline for a qubit whose value is unknown. */
   uncertain: string
+  /**
+   * The two ends of a chart's bars.
+   *
+   * A signed amplitude reads twice over: how far the bar reaches, and how
+   * strongly it is coloured. Neither is decoration — a plot of eight bars is
+   * scanned for its shape long before any one height is read off, and colour
+   * carries that at a glance where a row of similar heights does not.
+   */
+  chartUp: string
+  chartDown: string
 }
 
 export const LIGHT_PALETTE: Palette = {
@@ -35,8 +55,19 @@ export const LIGHT_PALETTE: Palette = {
   measure: '#9d9d9d',
   accent: '#1b3fae',
   hadamard: '#ef5f5b',
+  // Kept dark enough for the white letter on top: the progression is carried
+  // by hue and depth together, not by fading the chip out from under its label.
+  gateChip: {
+    H: '#ef5f5b',
+    Z: '#5b32b0',
+    S: '#7d57d4',
+    T: '#9b7ae6',
+    Y: '#0f9488',
+  },
   muted: '#6b6b6b',
   uncertain: '#b6b6b6',
+  chartUp: '#4a7fd4',
+  chartDown: '#d4574a',
 }
 
 export const DARK_PALETTE: Palette = {
@@ -51,8 +82,17 @@ export const DARK_PALETTE: Palette = {
   measure: '#4a4a54',
   accent: '#7aa2ff',
   hadamard: '#ef5f5b',
+  gateChip: {
+    H: '#ef5f5b',
+    Z: '#7042d6',
+    S: '#8a63e4',
+    T: '#a184ee',
+    Y: '#12998c',
+  },
   muted: '#9a9aa6',
   uncertain: '#565660',
+  chartUp: '#6f9dff',
+  chartDown: '#ff8878',
 }
 
 /**
@@ -181,12 +221,22 @@ export function drawQubit(
   return g({ transform: `translate(${n(p.cx)} ${n(p.cy)})` }, body + shading + mark)
 }
 
+/** Blend two hex colours, `t` of the way from `a` to `b`. */
+export function mix(a: string, b: string, t: number): string {
+  const part = (hex: string, at: number) => parseInt(hex.slice(at, at + 2), 16)
+  const k = Math.max(0, Math.min(1, t))
+  const to = (at: number) => Math.round(part(a, at) + (part(b, at) - part(a, at)) * k)
+  return `#${[1, 3, 5].map((at) => to(at).toString(16).padStart(2, '0')).join('')}`
+}
+
 export function drawText(p: TextPrim, pal: Palette): string {
+  const y = p.cy + baselineOffset(p.size, p.baseline)
   return el(
     'text',
     {
       x: p.x,
-      y: p.cy + baselineOffset(p.size, p.baseline),
+      y,
+      ...(p.rotate ? { transform: `rotate(${p.rotate} ${p.x} ${y})` } : {}),
       'text-anchor': p.anchor,
       'font-family': p.mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : FONT_STACK,
       'font-size': p.size,

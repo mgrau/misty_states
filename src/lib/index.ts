@@ -125,7 +125,8 @@ const CIRCUIT_KEYWORDS = new Set([
   'qubits', 'in', 'out', 'view', 'show', 'header', 'labels',
   'h', 'x', 'y', 'z', 's', 't', 'i', 'id', 'identity', 'pete', 'not',
   'cnot', 'cx', 'cz', 'toffoli', 'ccnot', 'ccx', 'swap',
-  'measure', 'm', 'box', 'gate', 'blank', 'tabulate', 'table', 'chart', 'plot', 'animate', 'answer',
+  'measure', 'm', 'box', 'gate', 'blank', 'tabulate', 'table', 'chart', 'plot', 'amplitude', 'amplitudes',
+  'probability', 'probabilities', 'animate', 'answer',
 ])
 
 /**

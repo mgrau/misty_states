@@ -11,7 +11,7 @@
 import { Path, el, g, n } from '../svg'
 import type { Metrics, Prim } from './primitives'
 import {
-  FLAT_ATTACH, basisLabel, drawBar, drawCloud, drawQubit, drawSign, drawText,
+  FLAT_ATTACH, basisLabel, drawBar, drawCloud, drawQubit, drawSign, drawText, mix,
   labelChip, meterGlyph, notGlyph, swapGlyph,
   type Attach, type Palette, type QubitStyle, type Theme, type ThemeId,
 } from './theme'
@@ -267,19 +267,29 @@ function makeTheme(
           const body = s.body(p.box, fill, pal, m)
           const cx = p.box.x + p.box.w / 2
           const cy = p.box.y + p.box.h / 2
-          const accent = p.label === 'H' ? p.accent ?? pal.hadamard : p.accent
+          // An explicit `fill=` wins; otherwise the palette decides by letter,
+          // and a gate it says nothing about gets no chip at all.
+          const accent = p.accent ?? pal.gateChip[p.label]
           return body + labelChip(cx, cy, p.label, p.labelSize, accent, pal)
         }
 
-        case 'pane':
+        case 'pane': {
+          // Pale at nothing, strong at everything, and never quite white, so a
+          // bar with almost nothing in it is still visibly a bar.
+          const toned =
+            p.tone === undefined
+              ? undefined
+              : mix(pal.paper, p.tone < 0 ? pal.chartDown : pal.chartUp,
+                  0.16 + 0.64 * Math.min(1, Math.abs(p.tone)))
           // `||`, not `??`, for the same reason as the gate fill below: an
           // empty string would reach the SVG and paint the pane black.
           return el('rect', {
             x: p.box.x, y: p.box.y, width: p.box.w, height: p.box.h, rx: 2,
-            fill: p.fill || (p.tinted ? pal.gate : pal.paper),
+            fill: p.fill || toned || pal.paper,
             stroke: pal.gateEdge,
             'stroke-width': m.stroke * 0.55,
           })
+        }
 
         case 'measurebox': {
           const body = s.body(p.box, pal.measure, pal, m)

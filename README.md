@@ -607,10 +607,22 @@ chances instead, all positive and labelled with the odds. Both are normalised,
 unlike the table's amplitude column: a bar's height is a share of the whole
 state, so it has to be on the scale where that means something.
 
+**An amplitude bar is coloured, a probability bar is not.** Blue above the axis
+and red below, deepening with the size of the term, so the shape of a plot is
+taken in before any one bar is measured — and a plain grey plot is the tell that
+there is no sign left to say.
+
+Basis states are written *down* the page under their bars, not across. A
+register laid sideways under every bar makes the plot as many times wider as
+there are wires; the glyphs stay upright, because a triangle on its side is a
+different glyph rather than the same one rotated.
+
 The half below the axis is drawn only when something is down there. Past five
 wires the empty bars are dropped — 32 bars is already a smear rather than a
 reading — and past a measurement there is no single statevector left, so the
-bars become the outcomes and their chances, which is what the table lists.
+bars become the outcomes and their chances, which is what the table lists. A
+chance written over a bar shrinks to fit it, and is left off when even that
+would not be worth reading.
 
 ### Layers
 
