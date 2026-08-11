@@ -42,7 +42,7 @@ import { parseState } from '../state/parse'
 import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
 import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
-import type { CircuitDoc, Gate, Layer, TableColumn, TableSpec, ViewGate } from './ast'
+import type { ChartSpec, CircuitDoc, Gate, Layer, TableColumn, TableSpec, ViewGate } from './ast'
 import type { AnimationOptions } from './animate'
 import { gateSpan } from './ast'
 
@@ -446,6 +446,45 @@ function readTable(text: string, lineNo: number): TableSpec | null {
   return read(rest, caption)
 }
 
+const CHART_LINE = /^(?:chart|plot)\s*(?:\(([^)]*)\))?\s*(?::\s*(.*?))?\s*$/i
+
+/** What the bars may be asked to stand for. */
+const CHART_MODES: Record<string, ChartSpec['mode']> = {
+  amplitude: 'amplitude', amp: 'amplitude', a: 'amplitude',
+  probability: 'probability', prob: 'probability', chance: 'probability', p: 'probability',
+}
+
+/**
+ * Read `chart` with its mode and whatever annotations surround it.
+ *
+ * Amplitude is the default because it is the one a plot says something the
+ * drawn state does not: signs are what interfere, and a probability chart
+ * throws them away.
+ */
+function readChart(text: string, lineNo: number): ChartSpec | null {
+  const trimmed = text.trim()
+  const read = (src: string, caption?: string): ChartSpec | null => {
+    const hit = CHART_LINE.exec(src)
+    if (!hit) return null
+    const asked = hit[1]?.trim().toLowerCase()
+    const mode = asked ? CHART_MODES[asked] : 'amplitude'
+    if (!mode) {
+      throw new ParseError(
+        `"${hit[1].trim()}" is not something to chart — use amplitude or probability`,
+        0,
+        lineNo,
+      )
+    }
+    return { mode, caption, note: hit[2] || undefined }
+  }
+
+  const direct = read(trimmed)
+  if (direct) return direct
+
+  const { caption, rest } = splitCaption(trimmed)
+  return read(rest, caption)
+}
+
 /**
  * Read `calculate` with whatever annotations surround it.
  *
@@ -615,19 +654,45 @@ function parseGate(src: string, line: number): Gate {
   }
 
   if (head === 'CNOT' || head === 'CX' || head === 'TOFFOLI' || head === 'CCNOT' || head === 'CCX') {
+    // A quoted name may sit at either end, and where it sits is what it means:
+    // before the wires it stands on the target in place of the ⊕; after them it
+    // labels the link, naming the gate as a whole.
+    const front = rest[0]?.quoted ? rest.shift() : undefined
+    const back = rest[rest.length - 1]?.quoted ? rest.pop() : undefined
+
+    // The arrow says which wire is the target, and is worth writing where a
+    // reader might wonder. Without one the last wire is the target — the same
+    // reading `CZ 1 2` and `SWAP 1 2` already take, so `CNOT 1 2` means what
+    // anyone would expect it to rather than being an error about punctuation.
     const arrow = rest.findIndex((t) => t.text === '->')
-    if (arrow < 0) throw new ParseError(`${head} needs "->" between controls and target`, 0, line)
-    const controls = parseQubits(rest.slice(0, arrow), line)
-    const targets = parseQubits(rest.slice(arrow + 1), line)
+    const split = arrow < 0 ? rest.length - 1 : arrow
+    const controls = parseQubits(rest.slice(0, Math.max(0, split)), line)
+    const targets = parseQubits(rest.slice(arrow < 0 ? split : arrow + 1), line)
     if (!controls.length) throw new ParseError(`${head} needs at least one control`, 0, line)
     if (targets.length !== 1) throw new ParseError(`${head} needs exactly one target`, 0, line)
-    return { kind: 'controlled', controls, target: targets[0], targetGlyph: 'not' }
+    return {
+      kind: 'controlled',
+      controls,
+      target: targets[0],
+      targetGlyph: front ? 'label' : 'not',
+      label: front?.text ?? back?.text,
+      labelOnLink: back && !front ? true : undefined,
+    }
   }
 
   if (head === 'CZ') {
+    const front = rest[0]?.quoted ? rest.shift() : undefined
+    const back = rest[rest.length - 1]?.quoted ? rest.pop() : undefined
     const qs = parseQubits(rest, line)
     if (qs.length !== 2) throw new ParseError('CZ takes two qubits', 0, line)
-    return { kind: 'controlled', controls: [qs[0]], target: qs[1], targetGlyph: 'z' }
+    return {
+      kind: 'controlled',
+      controls: [qs[0]],
+      target: qs[1],
+      targetGlyph: front ? 'label' : 'z',
+      label: front?.text ?? back?.text,
+      labelOnLink: back && !front ? true : undefined,
+    }
   }
 
   if (head === 'SWAP') {
@@ -768,6 +833,7 @@ export function parseCircuit(text: string): CircuitDoc {
   let answerInput = false
   let answerOutput = false
   let table: TableSpec | undefined
+  let chart: ChartSpec | undefined
   let calculateOutput = false
   let calculateCaption: string | undefined
   let calculateNote: string | undefined
@@ -804,10 +870,11 @@ export function parseCircuit(text: string): CircuitDoc {
     let line = lines[i].replace(/(^|\s)#.*$/, '').trim()
     if (!line) continue
 
-    // A table is worked out from the whole circuit, so there is no position
-    // after it for anything to occupy.
-    if (table) {
-      throw new ParseError('tabulate draws the finished circuit, so nothing can follow it', 0, lineNo)
+    // A table or a chart is worked out from the whole circuit, so there is no
+    // position after it for anything to occupy.
+    if (table || chart) {
+      const word = table ? 'tabulate' : 'chart'
+      throw new ParseError(`${word} draws the finished circuit, so nothing can follow it`, 0, lineNo)
     }
 
     // `shape os^` says which shape each wire draws with, for figures whose
@@ -853,6 +920,20 @@ export function parseCircuit(text: string): CircuitDoc {
         }
         flushTail()
         table = bareTable
+        continue
+      }
+
+      const bareChart = readChart(line, lineNo)
+      if (bareChart) {
+        if (!sawGate && !input) {
+          throw new ParseError(
+            'chart is worked out from the input, so it cannot be the input',
+            0,
+            lineNo,
+          )
+        }
+        flushTail()
+        chart = bareChart
         continue
       }
 
@@ -921,6 +1002,18 @@ export function parseCircuit(text: string): CircuitDoc {
           )
         }
         table = outTable
+        continue
+      }
+      const outChart = readChart(arg, lineNo)
+      if (outChart) {
+        if (kw === 'in') {
+          throw new ParseError(
+            'chart is worked out from the input, so it cannot be the input',
+            0,
+            lineNo,
+          )
+        }
+        chart = outChart
         continue
       }
       const outCalc = readCalculate(arg)
@@ -1013,7 +1106,7 @@ export function parseCircuit(text: string): CircuitDoc {
   const layers = schedule(groups)
   return {
     kind: 'circuit', qubits, layers, input, output,
-    calculateOutput, calculateCaption, calculateNote, table, animate, header, shapePicks,
+    calculateOutput, calculateCaption, calculateNote, table, chart, animate, header, shapePicks,
     calculateInput: calculateInput || undefined,
     calculateInputCaption,
     calculateInputNote,

@@ -103,6 +103,14 @@ export interface PanePrim {
   t: 'pane'
   box: Box
   fill?: string
+  /**
+   * Fill with the drawing's gate tone rather than paper.
+   *
+   * A chart's bars are the only panes that are read for their size, and an
+   * unfilled one reads as an empty frame. Named rather than given a colour
+   * because layout runs before the palette is chosen.
+   */
+  tinted?: boolean
 }
 
 export interface MeasureBoxPrim {

@@ -26,8 +26,10 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "gifenc": "^1.0.3",
     "js-yaml": "^5.2.3",
     "jspdf": "^4.2.1",
+    "mp4-muxer": "^5.2.2",
     "svg2pdf.js": "^2.7.0"
   }
 }

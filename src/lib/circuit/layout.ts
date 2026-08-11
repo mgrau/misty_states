@@ -18,6 +18,7 @@ import {
 import { FLAT_ATTACH, type Attach } from '../render/theme'
 import { layoutState } from '../state/layout'
 import { layoutTable } from './table'
+import { layoutChart } from '../chart/layout'
 import type { CircuitDoc, Gate, Layer, ViewGate } from './ast'
 import { gateSpan } from './ast'
 import type { Factor, StateDoc, StateRow } from '../state/ast'
@@ -75,6 +76,7 @@ export interface CircuitLayout extends Layout {
 
 /** Horizontal padding between a gate's edge and the outermost pipe it covers. */
 const GATE_PAD_X = 12
+
 /**
  * Pipe left protruding at the open ends of the circuit. Projections that
  * foreshorten the mouth lengthen the top via `attach.topLeadExtra`.
@@ -104,6 +106,38 @@ const ROW_GAP = 12
 /** Radius of a control dot and of a ⊕ target, as fractions of the pipe width. */
 const CONTROL_R = 0.22
 const TARGET_R = 0.44
+
+/**
+ * How much taller a gate gets to hold a name beside its link.
+ *
+ * That name sits above the wire — it has to, or it would be written over the
+ * dots and the bar — and an ordinary body has no room up there, so it ends up
+ * straddling the top edge.
+ *
+ * The room is measured rather than guessed at: as much as the name actually
+ * reaches above the wire, plus a margin, so the box grows by what it needs and
+ * not by a round fraction that leaves it looking hollow. It is added at the top
+ * and nowhere else — the wire, the dots and the bottom edge stay exactly where
+ * an unnamed gate would have put them, so a name is something written above a
+ * gate rather than something that moves it.
+ */
+const LINK_LABEL_PAD = 5
+
+/**
+ * How far a name beside the link reaches above the wire.
+ *
+ * The full font size, not whatever `fitLabel` shrinks a long name to: two gates
+ * carrying the same name should be the same height whether or not one of them
+ * happens to span enough columns to write it out in full.
+ */
+const linkLabelReach = (m: Metrics): number =>
+  m.pipeWidth * TARGET_R + m.fontSize * 0.55 + m.fontSize / 2
+
+/** How tall this gate's body is drawn. */
+const bodyHeight = (gate: Gate, m: Metrics): number =>
+  gate.kind === 'controlled' && gate.labelOnLink && gate.label
+    ? Math.max(m.gateHeight, linkLabelReach(m) + LINK_LABEL_PAD + m.gateHeight / 2)
+    : m.gateHeight
 
 interface Interval {
   y0: number
@@ -464,14 +498,15 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   /**
    * Layers are as tall as what is in them.
    *
-   * A gate is always `gateHeight`, so an ordinary circuit keeps its even
-   * rhythm; a view is as tall as the state it shows, which for a row of bare
-   * qubits is a good deal shorter than a gate and for a cloud may be taller.
+   * A gate is `gateHeight` unless it is carrying a name, so an ordinary circuit
+   * keeps its even rhythm; a view is as tall as the state it shows, which for a
+   * row of bare qubits is a good deal shorter than a gate and for a cloud may
+   * be taller.
    */
   const layerHeight = (layer: Layer): number =>
     Math.max(
       ...layer.gates.map((gate) => {
-        if (gate.kind !== 'view') return m.gateHeight
+        if (gate.kind !== 'view') return bodyHeight(gate, m)
         const [q0, q1] = gateSpan(gate)
         const rows = viewRows(gate).map((r) => stateHeight(liftCaption(r).row, q0, q1))
         const stacked = rows.reduce((a, b) => a + b, 0) + ROW_GAP * (rows.length - 1)
@@ -605,6 +640,16 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     // which for a part-width layer is narrower than the circuit.
     let drawn: Box | null = null
 
+    // How much of the layer the gates themselves take up. Taken over the gates
+    // alone rather than the whole layer, so a view that makes a layer tall
+    // leaves the gates in it sitting at the top, exactly as they always have.
+    const bodyBand = Math.max(
+      0,
+      ...layer.gates
+        .filter((g) => g.kind !== 'view' && g.kind !== 'identity')
+        .map((g) => bodyHeight(g, m)),
+    )
+
     for (const gate of layer.gates) {
       // An identity is a length of pipe, not a body: it neither interrupts the
       // pipe nor draws anything. It still holds its slot in the layer, which is
@@ -613,13 +658,26 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       if (gate.kind === 'view') continue
 
       const [q0, q1] = gateSpan(gate)
+      // A name standing on the target needs room the span does not provide:
+      // on an end wire it would otherwise hang off the side of its own box.
+      const named =
+        gate.kind === 'controlled' && gate.targetGlyph === 'label' && gate.label
+          ? Math.max(0, textWidth(gate.label, m.fontSize, true) - m.pipeWidth) / 2
+          : 0
+      const h = bodyHeight(gate, m)
       const box: Box = {
-        x: gateX(q0) - m.pipeWidth / 2 - GATE_PAD_X,
-        y,
-        w: colX(q1) - colX(q0) + m.pipeWidth + 2 * GATE_PAD_X,
-        h: m.gateHeight,
+        x: gateX(q0) - m.pipeWidth / 2 - GATE_PAD_X - named,
+        // Bottom-aligned within the band its neighbours occupy: a gate that
+        // grew did so upwards, so its foot — and everything below it — stays
+        // put. With every gate the same height, which is every layer carrying
+        // no name, this is `y`.
+        y: y + bodyBand - h,
+        w: colX(q1) - colX(q0) + m.pipeWidth + 2 * (GATE_PAD_X + named),
+        h,
       }
-      const cy = y + m.gateHeight / 2
+      // Where an ordinary gate's wire would be: up from the foot, not the
+      // middle, so the dots and the link line up across the row.
+      const cy = y + bodyBand - m.gateHeight / 2
 
       const topY = box.y + attach.topDy
       const bottomY = box.y + box.h + attach.bottomDy
@@ -700,6 +758,31 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     const cy = box.y + box.h / 2
     if (doc.table.caption) captions.push({ text: doc.table.caption, cy, left: box.x })
     if (doc.table.note) notes.push({ text: doc.table.note, cy, right: box.x + box.w })
+  }
+
+  /* -------------------------------------------------------------- chart --- */
+
+  // Placed exactly as the table is, and for the same reason: a plot is a
+  // reading of the whole register, not of any one wire.
+  if (doc.chart?.bars?.length) {
+    const laid = layoutChart(doc.chart.bars, doc.chart, {
+      metrics: m,
+      shapeOrder: opts.shapeOrder,
+    })
+    const last = boxes[boxes.length - 1]
+    const top = (doc.output || doc.table?.lines?.length ? last.y + last.h : pipeBottom) + STATE_GAP
+    const box = {
+      x: (left + right) / 2 - laid.box.w / 2,
+      y: top,
+      w: laid.box.w,
+      h: laid.box.h,
+    }
+    caps.push(...translatePrims(laid.prims, box.x, box.y))
+    boxes.push(box)
+
+    const cy = box.y + box.h / 2
+    if (doc.chart.caption) captions.push({ text: doc.chart.caption, cy, left: box.x })
+    if (doc.chart.note) notes.push({ text: doc.chart.note, cy, right: box.x + box.w })
   }
 
   for (let q = 1; q <= doc.qubits; q++) {
@@ -881,13 +964,46 @@ function emitGate(
           glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R })
         }
       }
-      // Controlled-Z is symmetric, so its "target" is just another control dot.
-      const isZ = gate.targetGlyph === 'z'
-      glyphs.push({
-        t: 'target', cx: gateX(gate.target), cy,
-        r: m.pipeWidth * (isZ ? CONTROL_R : TARGET_R),
-        glyph: isZ ? 'z' : 'not',
-      })
+      // A name on the target stands in place of the glyph: what the gate does
+      // is the thing worth reading, and ⊕ would only say it again less well.
+      if (gate.targetGlyph === 'label' && gate.label) {
+        glyphs.push({
+          t: 'text',
+          x: gateX(gate.target),
+          cy,
+          text: gate.label,
+          // The box was widened to hold it, so it only has to fit that.
+          size: fitLabel(gate.label, textWidth(gate.label, m.fontSize, true) + 16, m),
+          anchor: 'middle',
+          weight: 600,
+        })
+      } else {
+        // Controlled-Z is symmetric, so its "target" is just another control dot.
+        const isZ = gate.targetGlyph === 'z'
+        glyphs.push({
+          t: 'target', cx: gateX(gate.target), cy,
+          r: m.pipeWidth * (isZ ? CONTROL_R : TARGET_R),
+          glyph: isZ ? 'z' : 'not',
+        })
+      }
+
+      // A name beside the link names the gate as a whole. It sits above the
+      // wire rather than on it, so the dots and the bar stay readable.
+      if (gate.labelOnLink && gate.label && gate.controls.length) {
+        const xs = [...gate.controls, gate.target].map(gateX)
+        const span = Math.max(...xs) - Math.min(...xs)
+        // Clear of the link and of the target glyph, which is the tallest
+        // thing on it — a name that sits on either is a name you cannot read.
+        glyphs.push({
+          t: 'text',
+          x: (Math.min(...xs) + Math.max(...xs)) / 2,
+          cy: cy - m.pipeWidth * TARGET_R - m.fontSize * 0.55,
+          text: gate.label,
+          size: fitLabel(gate.label, span + m.pipeWidth, m),
+          anchor: 'middle',
+          weight: 600,
+        })
+      }
       return
     }
   }

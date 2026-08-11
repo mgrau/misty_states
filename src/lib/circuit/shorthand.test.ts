@@ -113,3 +113,36 @@ describe('it does not confuse a run with a state', () => {
     expect(doc.qubits).toBe(3)
   })
 })
+
+/**
+ * The arrow in a controlled gate is punctuation, not grammar.
+ *
+ * It earns its place where a reader might wonder which wire is the target, and
+ * gets in the way everywhere else — `CZ 1 2` and `SWAP 1 2` never wanted one,
+ * so `CNOT 1 2` should not have to either.
+ */
+describe('a controlled gate without its arrow', () => {
+  const gate = (src: string) => parseCircuit(`qubits 3\n${src}`).layers[0].gates[0]
+
+  it('reads the last wire as the target', () => {
+    expect(gate('CNOT 1 2')).toEqual(gate('CNOT 1 -> 2'))
+    expect(gate('CX 3 1')).toEqual(gate('CX 3 -> 1'))
+  })
+
+  it('does the same for two controls', () => {
+    expect(gate('TOFFOLI 1 2 3')).toEqual(gate('TOFFOLI 1 2 -> 3'))
+  })
+
+  it('still takes a name either side of the wires', () => {
+    expect(gate('CNOT "Oracle" 1 2')).toMatchObject({ targetGlyph: 'label', label: 'Oracle' })
+    expect(gate('CNOT 1 2 "Tiger?"')).toMatchObject({ labelOnLink: true, label: 'Tiger?' })
+  })
+
+  it('draws the same figure either way', () => {
+    expect(render('in 00\nCNOT 1 2').svg).toBe(render('in 00\nCNOT 1 -> 2').svg)
+  })
+
+  it('still wants a control to go with the target', () => {
+    expect(() => gate('CNOT 2')).toThrow(/at least one control/)
+  })
+})

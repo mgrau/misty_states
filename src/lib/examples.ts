@@ -163,6 +163,18 @@ export const EXAMPLES: Example[] = [
     ].join('\n'),
   },
   {
+    id: 'chart',
+    title: 'Circuit — the state as a plot',
+    note: 'Every basis state gets a bar, including the empty ones — a term that has cancelled is a bar that is not there, which is what makes interference visible. "chart(probability)" plots the chances instead, with no signs.',
+    source: [
+      'in 00',
+      'H 1',
+      'H 2',
+      'CZ 1 2',
+      'chart',
+    ].join('\n'),
+  },
+  {
     id: 'animate',
     title: 'Circuit — watch it happen',
     note: 'The qubits travel down the wires and the gate goes clear as it acts on them. Only for classical states: a superposition has no single qubit on a wire to move.',

@@ -20,6 +20,7 @@ export const ICONS = {
   // three read apart at a glance rather than only by position.
   stepBack: 'M9.5 5 4 10l5.5 5zM16 5l-5.5 5 5.5 5z',
   stepNext: 'M10.5 5 16 10l-5.5 5zM4 5l5.5 5L4 15z',
+  layers: 'M3.5 6h13M3.5 10h13M3.5 14h13',
   rewind: 'M16 5 8 10l8 5zM4.5 4.5v11',
   eye: 'M10 5c4 0 7 5 7 5s-3 5-7 5-7-5-7-5 3-5 7-5ZM10 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z',
   repeat: 'M4.5 8.5A3.5 3.5 0 0 1 8 5h7m0 0-2.5-2.5M15 5l-2.5 2.5M15.5 11.5A3.5 3.5 0 0 1 12 15H5m0 0 2.5 2.5M5 15l2.5-2.5',

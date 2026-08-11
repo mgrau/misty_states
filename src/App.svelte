@@ -10,13 +10,15 @@
   import LibraryEditor from './components/LibraryEditor.svelte'
   import {
     canCopyImages, copyPNG, copySVGImage, copyText, downloadPDF, downloadPNG,
-    downloadSVG, pdfDataUrl, pngDataUrl, readSourceFile, svgDataUrl,
+    downloadSVG, pdfDataUrl, pngDataUrl, readSourceFile, svgDataUrl, triggerDownload,
   } from './lib/export'
   import { embedSvgMeta } from './lib/metadata'
+  import { canMakeMp4, toGif, toMp4 } from './lib/movie'
   import Icon from './components/Icon.svelte'
   import { editorUrl, fromSearchParams, imageUrl, type DiagramParams } from './lib/url'
   import SyntaxHelp from './components/SyntaxHelp.svelte'
   import SettingsPanel from './components/SettingsPanel.svelte'
+  import SidePanel from './components/SidePanel.svelte'
   import MenuButton from './components/MenuButton.svelte'
   import MenuItems from './components/MenuItems.svelte'
   import type { MenuItem } from './components/menu'
@@ -37,7 +39,7 @@
     exactOdds: boolean
     keepSign: boolean
     animateInside: boolean
-    helpOpen: boolean
+    movieFps: number
     checking: boolean
   }
 
@@ -56,7 +58,7 @@
       exactOdds: false,
       keepSign: false,
       animateInside: true,
-      helpOpen: true,
+      movieFps: 30,
       checking: true,
     }
 
@@ -111,7 +113,7 @@
   let exactOdds = $state(initial.exactOdds)
   let keepSign = $state(initial.keepSign)
   let animateInside = $state(initial.animateInside)
-  let helpOpen = $state(initial.helpOpen)
+  let movieFps = $state(initial.movieFps)
   let checking = $state(initial.checking)
   let zoom = $state(1)
 
@@ -125,6 +127,17 @@
   let answers = $state(false)
   let answersFor = $state('')
 
+  /**
+   * Reading a circuit a layer at a time, and reading its state as text.
+   *
+   * Both are ways of looking rather than parts of the figure, so neither is
+   * saved with it and neither is on to begin with: the drawing is the point,
+   * and a row of controls over it that nobody asked for is in the way.
+   */
+  let stepOn = $state(false)
+  let stepAt = $state(0)
+  let diracOn = $state(false)
+
   const result = $derived.by(() => {
     try {
       const r = render(source, {
@@ -136,6 +149,7 @@
         keepSign,
         animateInside,
         answers,
+        step: stepOn ? stepAt : undefined,
         check: checking,
         metrics: {
           qubit: qubitSize,
@@ -166,7 +180,7 @@
   $effect(() => {
     const snapshot: Saved = {
       source, name, theme, dark, shapeOrder, qubitSize, separator, cloudFluff, cloudPad,
-      factorCalculated, exactOdds, keepSign, animateInside, helpOpen, checking,
+      factorCalculated, exactOdds, keepSign, animateInside, movieFps, checking,
     }
     try {
       localStorage.setItem(STORE, JSON.stringify(snapshot))
@@ -188,9 +202,16 @@
 
   /** 300 dpi at 96 CSS pixels to the inch — the usual print requirement. */
   let pngScale = $state(300 / 96)
-  let settingsOpen = $state(false)
+  /**
+   * Which drawer is open, if any.
+   *
+   * One at a time: settings and the reference are both things you consult
+   * beside the drawing, and two panels covering it at once would leave nothing
+   * to consult them about.
+   */
+  let panel = $state<'settings' | 'syntax' | null>(null)
+  const show = (which: 'settings' | 'syntax') => (panel = panel === which ? null : which)
   let libraryOpen = $state(false)
-  let helpModalOpen = $state(false)
   let toast = $state('')
 
   /* -- Playback ----------------------------------------------------------- */
@@ -348,6 +369,34 @@
   })
 
   const hasAnswer = $derived(result.ok ? !!result.hasAnswer : false)
+
+  /** How many layers there are to step through; 0 when there is nothing to. */
+  const layerCount = $derived(result.ok ? (result.layers ?? 0) : 0)
+  const dirac = $derived(result.ok ? result.dirac : undefined)
+
+  /**
+   * Stepping only makes sense on a still circuit with gates in it, and an
+   * animation is already a way of walking one. Rather than leaving a control
+   * that does nothing, the row goes away — and the position resets, so the next
+   * circuit does not open part-way through.
+   */
+  const canStep = $derived(layerCount > 0 && !animation)
+  $effect(() => {
+    if (!canStep) {
+      stepOn = false
+      stepAt = 0
+    } else if (stepAt > layerCount) {
+      stepAt = layerCount
+    }
+  })
+
+  /** What the slider is pointing at, in words. */
+  const stepLabelFor = $derived.by(() => {
+    if (stepAt === 0) return 'before any gate'
+    if (stepAt >= layerCount) return 'after the last gate'
+    return `after ${stepAt} of ${layerCount}`
+  })
+
 
   /** The step at or before `at`, so stepping resumes from where a scrub left off. */
   const stepNow = $derived.by(() => {
@@ -607,6 +656,51 @@
 
   // PDF leads: these figures are bound for problem sets and exams, which are
   // built in LaTeX.
+  /**
+   * Encode the animation and hand it over.
+   *
+   * Every frame is drawn and read back, so a long one takes a moment; the toast
+   * says what is happening rather than leaving the button looking dead.
+   */
+  async function makeMovie(kind: 'gif' | 'mp4') {
+    if (making) return
+    making = true
+    toast = `Drawing frames…`
+    try {
+      const opts = {
+        theme,
+        dark,
+        shapeOrder,
+        factorCalculated,
+        exactOdds,
+        keepSign,
+        animateInside,
+        scale: 2,
+        background: true,
+        fps: movieFps,
+        metrics: {
+          qubit: qubitSize,
+          separator,
+          cloudFluff,
+          cloudPadX: cloudPad,
+          cloudPadY: cloudPad * (11 / 14),
+        },
+        onProgress: (done: number) => {
+          toast = `Drawing frames… ${Math.round(done * 100)}%`
+        },
+      }
+      const blob = kind === 'gif' ? await toGif(source, opts) : await toMp4(source, opts)
+      triggerDownload(blob, `${filename}.${kind}`)
+      flash(`${kind.toUpperCase()} saved`)
+    } catch (err) {
+      flash((err as Error).message || 'Could not save it')
+    } finally {
+      making = false
+    }
+  }
+
+  let making = $state(false)
+
   const saveItems = $derived<MenuItem[]>([
     {
       key: 'pdf',
@@ -626,6 +720,26 @@
       hint: `Raster at ${pngDpi} dpi`,
       run: () => guard(() => downloadPNG(svg, filename, pngScale), 'PNG saved'),
     },
+    // Only where there is something moving to save. The SVG above plays on its
+    // own; these are for everywhere that will not take one.
+    ...(animation
+      ? [
+          {
+            key: 'gif',
+            label: 'Animated GIF',
+            hint: `${movieFps} fps, loops by itself — plays anywhere`,
+            run: () => makeMovie('gif'),
+          },
+          ...(canMakeMp4()
+            ? [{
+                key: 'mp4',
+                label: 'MP4 video',
+                hint: `${movieFps} fps, smaller and full colour`,
+                run: () => makeMovie('mp4'),
+              }]
+            : []),
+        ]
+      : []),
   ])
 
   const linkItems = $derived<MenuItem[]>([
@@ -726,37 +840,42 @@
       </span>
     </div>
 
-    <!--
-      Only where the side column's copy is hidden. On a wide screen the
-      reference is already on the page and a second way in is clutter.
-    -->
-    <button
-      type="button"
-      onclick={() => (helpModalOpen = true)}
-      aria-label="Syntax reference"
-      class="ml-auto flex items-center gap-1.5 rounded border border-slate-300 bg-white
-             px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 lg:hidden"
-    >
-      <Icon name="help" />
-      Syntax
-    </button>
+    <div class="ml-auto flex items-center gap-1.5">
+      <button
+        type="button"
+        onclick={() => show('syntax')}
+        aria-label="Syntax reference"
+        aria-pressed={panel === 'syntax'}
+        class="flex items-center gap-1.5 rounded border px-2 py-1 text-xs transition-colors
+               {panel === 'syntax'
+          ? 'border-slate-800 bg-slate-800 text-white'
+          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}"
+      >
+        <Icon name="help" />
+        Syntax
+      </button>
 
-    <button
-      type="button"
-      onclick={() => (settingsOpen = true)}
-      aria-label="Settings"
-      class="flex items-center gap-1.5 rounded border border-slate-300 bg-white
-             px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 lg:ml-auto"
-    >
-      <svg viewBox="0 0 20 20" class="h-3.5 w-3.5" aria-hidden="true">
-        <circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6" />
-        <path
-          d="M10 2.6v2M10 15.4v2M17.4 10h-2M4.6 10h-2M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2L4.8 4.8"
-          fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
-        />
-      </svg>
-      Settings
-    </button>
+      <button
+        type="button"
+        onclick={() => show('settings')}
+        aria-label="Settings"
+        aria-pressed={panel === 'settings'}
+        class="flex items-center gap-1.5 rounded border px-2 py-1 text-xs transition-colors
+               {panel === 'settings'
+          ? 'border-slate-800 bg-slate-800 text-white'
+          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}"
+      >
+        <svg viewBox="0 0 20 20" class="h-3.5 w-3.5" aria-hidden="true">
+          <circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <path
+            d="M10 2.6v2M10 15.4v2M17.4 10h-2M4.6 10h-2M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2L4.8 4.8"
+            fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+          />
+        </svg>
+        Settings
+      </button>
+    </div>
+
   </header>
 
   <!--
@@ -765,14 +884,22 @@
     the reference hidden there is nothing else competing for the column, so
     handing the leftover space to the preview is the whole point.
   -->
+  <!--
+    The drawer is a column of this row, not a sheet over it: opening one takes
+    width from the editor and the drawing rather than hiding them. A phone has
+    no width to give, so there the panel is the page while it is open — the
+    header stays, and the same button puts it away.
+  -->
+  <div class="flex min-h-0 flex-1">
   <main
     class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-0
-           lg:grid-cols-[minmax(0,26rem)_1fr] lg:grid-rows-none"
+           lg:grid-cols-[minmax(0,26rem)_1fr] lg:grid-rows-none
+           {panel ? 'hidden sm:grid' : ''}"
   >
     <!-- Editor ------------------------------------------------------------ -->
     <section
-      class="flex max-h-[60vh] min-h-0 flex-col gap-3 overflow-y-auto border-slate-200 p-4
-             lg:max-h-none lg:border-r"
+      class="flex max-h-[42vh] min-h-0 flex-col gap-3 overflow-y-auto border-slate-200 p-3
+             sm:p-4 lg:max-h-none lg:border-r"
     >
       <!--
         Side by side while the column is the whole page, so the two pickers cost
@@ -857,8 +984,62 @@
         </p>
       {/if}
 
-      <div class="hidden min-h-0 lg:flex lg:flex-col">
-        <SyntaxHelp open={helpOpen} onopenchange={(v) => (helpOpen = v)} />
+      <!--
+        Below the source, because they belong to the document rather than to
+        the view of it: what this diagram is called, whether it is in the
+        library, and how big it is drawn on screen. The bar over the drawing is
+        then only the things you do *to* the drawing.
+      -->
+      <div
+        class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2
+               border-t border-slate-200 pt-3 text-xs"
+      >
+        <label for="misty-name" class="text-slate-500">Name</label>
+        <input
+          id="misty-name"
+          bind:value={name}
+          placeholder="Untitled"
+          spellcheck="false"
+          aria-label="Diagram name"
+          class="col-span-2 min-w-0 rounded border border-slate-300 px-2 py-1 text-slate-800
+                 focus:border-slate-500 focus:outline-none"
+        />
+
+        <button
+          type="button"
+          onclick={saveToLibrary}
+          disabled={!name.trim()}
+          title={savedEntry
+            ? 'Replace this diagram in the library'
+            : 'Add this diagram to the library'}
+          class="col-start-2 justify-self-start rounded border border-slate-300 bg-white px-2 py-1
+                 text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+        >
+          {savedEntry ? 'Update in Library' : 'Save to Library'}
+        </button>
+
+        <!-- The label is the reset: a separate button for one value is a
+             button too many, and "Zoom" is already pointing at the thing. -->
+        <button
+          type="button"
+          onclick={() => (zoom = 1)}
+          disabled={zoom === 1}
+          title="Back to 100%"
+          class="col-start-1 rounded text-left text-slate-500 hover:bg-slate-100
+                 hover:text-slate-800 disabled:hover:bg-transparent disabled:hover:text-slate-500"
+        >
+          Zoom
+        </button>
+        <input
+          type="range"
+          min={ZOOM_MIN}
+          max={ZOOM_MAX}
+          step="0.05"
+          bind:value={zoom}
+          class="min-w-0"
+          aria-label="Zoom"
+        />
+        <span class="w-10 text-right font-mono text-slate-500">{Math.round(zoom * 100)}%</span>
       </div>
     </section>
 
@@ -867,35 +1048,63 @@
       <div
         class="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2 text-xs"
       >
-        <div class="flex items-center gap-1.5">
-          <!-- The label is the reset: a separate button for one value is a
-               button too many, and "Zoom" is already pointing at the thing. -->
+        {#if hasAnswer}
           <button
             type="button"
-            onclick={() => (zoom = 1)}
-            disabled={zoom === 1}
-            title="Back to 100%"
-            class="rounded px-1 py-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800
-                   disabled:hover:bg-transparent disabled:hover:text-slate-500"
+            onclick={() => (answers = !answers)}
+            aria-pressed={answers}
+            title={answers ? 'Hide the answer' : 'Show the answer'}
+            class="flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 transition-colors
+                   {answers
+              ? 'border-slate-800 bg-slate-800 text-white'
+              : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
           >
-            Zoom
+            <Icon name="eye" />
+            <!--
+              Both labels occupy one grid cell, so the button is as wide as the
+              longer of them and does not resize as it is pressed — a control
+              that moves under the pointer invites a second, unmeant click.
+            -->
+            <span class="grid">
+              <span aria-hidden="true" class="invisible col-start-1 row-start-1">Show answer</span>
+              <span class="col-start-1 row-start-1 text-center">
+                {answers ? 'Answer' : 'Show answer'}
+              </span>
+            </span>
           </button>
-          <input
-            type="range"
-            min={ZOOM_MIN}
-            max={ZOOM_MAX}
-            step="0.05"
-            bind:value={zoom}
-            class="w-28"
-          />
-          <span class="w-10 font-mono text-slate-500">{Math.round(zoom * 100)}%</span>
-        </div>
+        {/if}
 
-        <div class="flex items-center gap-1.5">
-          <span class="text-slate-500">Qubit size</span>
-          <input type="range" min="16" max="44" step="1" bind:value={qubitSize} class="w-24" />
-          <span class="w-5 font-mono text-slate-500">{qubitSize}</span>
-        </div>
+        {#if canStep}
+          <button
+            type="button"
+            onclick={() => (stepOn = !stepOn)}
+            aria-pressed={stepOn}
+            title={stepOn ? 'Show the whole circuit' : 'Work through the circuit a layer at a time'}
+            class="flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 transition-colors
+                   {stepOn
+              ? 'border-slate-800 bg-slate-800 text-white'
+              : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
+          >
+            <Icon name="layers" />
+            Step
+          </button>
+        {/if}
+
+        {#if dirac?.length}
+          <button
+            type="button"
+            onclick={() => (diracOn = !diracOn)}
+            aria-pressed={diracOn}
+            title={diracOn ? 'Hide the state as text' : 'Write the state in Dirac notation'}
+            class="flex shrink-0 items-center gap-1 rounded border px-2 py-1 font-mono
+                   transition-colors
+                   {diracOn
+              ? 'border-slate-800 bg-slate-800 text-white'
+              : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
+          >
+            |ψ⟩
+          </button>
+        {/if}
 
         <div class="ml-auto flex flex-wrap items-center gap-1.5">
           <input
@@ -933,97 +1142,64 @@
         </div>
       </div>
 
-      <div
-        class="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2 text-xs"
-      >
-        <label class="flex flex-1 items-center gap-1.5">
-          <span class="text-slate-500">Name</span>
-          <input
-            bind:value={name}
-            placeholder="Untitled"
-            spellcheck="false"
-            aria-label="Diagram name"
-            class="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-slate-800
-                   focus:border-slate-500 focus:outline-none"
-          />
-        </label>
-
-        {#if hasAnswer}
+      <!--
+        Stepping and the written state get contextual rows of the same kind as
+        playback: on only when asked for, and immediately above the drawing they
+        describe rather than buried in the settings panel.
+      -->
+      {#if stepOn && canStep}
+        <div
+          class="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-1.5 text-xs"
+        >
           <button
             type="button"
-            onclick={() => (answers = !answers)}
-            aria-pressed={answers}
-            title={answers ? 'Hide the answer' : 'Show the answer'}
-            class="flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 transition-colors
-                   {answers
-              ? 'border-slate-800 bg-slate-800 text-white'
-              : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
+            onclick={() => (stepAt = Math.max(0, stepAt - 1))}
+            disabled={stepAt === 0}
+            aria-label="Back a layer"
+            class="rounded p-1 text-slate-600 hover:bg-slate-200 hover:text-slate-900
+                   disabled:text-slate-300 disabled:hover:bg-transparent"
           >
-            <Icon name="eye" />
-            {answers ? 'Answer' : 'Show answer'}
+            <Icon name="stepBack" class="h-4 w-4" />
           </button>
-        {/if}
-
-        {#if showCheck && check}
-          <!--
-            Subtle by design: a verdict, not an error. A figure that does not
-            check out still draws, because drawing a wrong one is sometimes the
-            exercise.
-          -->
-          <span
-            role="status"
-            title={check.problems.join('\n') ||
-              `${check.checked} claim${check.checked === 1 ? '' : 's'} in this diagram check out`}
-            class="flex items-center gap-1.5 rounded-full border px-2 py-0.5
-                   {check.ok
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-red-200 bg-red-50 text-red-700'}"
+          <input
+            type="range"
+            min="0"
+            max={layerCount}
+            step="1"
+            bind:value={stepAt}
+            class="min-w-20 flex-1"
+            aria-label="Step through the circuit"
+          />
+          <button
+            type="button"
+            onclick={() => (stepAt = Math.min(layerCount, stepAt + 1))}
+            disabled={stepAt === layerCount}
+            aria-label="On a layer"
+            class="rounded p-1 text-slate-600 hover:bg-slate-200 hover:text-slate-900
+                   disabled:text-slate-300 disabled:hover:bg-transparent"
           >
-            <svg viewBox="0 0 20 20" class="h-3 w-3" aria-hidden="true">
-              {#if check.ok}
-                <path
-                  d="M4.5 10.5l3.5 3.5 7.5-8"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              {:else}
-                <path
-                  d="M5 5l10 10M15 5L5 15"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.2"
-                  stroke-linecap="round"
-                />
-              {/if}
-            </svg>
-            {check.ok ? 'Checks out' : "Doesn't check out"}
-            <button
-              type="button"
-              onclick={() => (dismissed = source)}
-              aria-label="Dismiss the check"
-              class="-mr-1 rounded px-1 opacity-60 hover:opacity-100"
-            >
-              ✕
-            </button>
-          </span>
-        {/if}
+            <Icon name="stepNext" class="h-4 w-4" />
+          </button>
+          <span class="shrink-0 whitespace-nowrap text-slate-500">{stepLabelFor}</span>
+        </div>
+      {/if}
 
+      {#if diracOn && dirac?.length}
+        <!-- Selectable, and one click copies the lot: the point of writing it
+             out is to take it somewhere else. -->
         <button
           type="button"
-          onclick={saveToLibrary}
-          disabled={!name.trim()}
-          title={savedEntry
-            ? 'Replace this diagram in the library'
-            : 'Add this diagram to the library'}
-          class="rounded border border-slate-300 bg-white px-2 py-1 text-slate-700
-                 hover:bg-slate-50 disabled:opacity-40"
+          onclick={() => guard(() => copyText(dirac.join('\n')), 'State copied')}
+          title="Copy"
+          class="block w-full select-text overflow-x-auto border-b border-slate-200 bg-slate-50
+                 px-4 py-1.5 text-left text-sm whitespace-nowrap text-slate-700
+                 hover:bg-slate-100"
         >
-          {savedEntry ? 'Update in Library' : 'Save to Library'}
+          {#each dirac as line, i (i)}
+            <span class="mr-4 inline-block whitespace-nowrap">{line}</span>
+          {/each}
         </button>
-      </div>
+      {/if}
 
       <!--
         Playback gets a row of its own rather than a corner of the zoom bar:
@@ -1129,6 +1305,62 @@
         </div>
       {/if}
 
+      <!--
+        The verdict reads across the top of the drawing rather than sitting in
+        the toolbar: it is about what is below it, and given a whole line it can
+        say *what* did not check out instead of hiding that in a tooltip.
+
+        Subtle by design even so — a verdict, not an error. A figure that does
+        not check out still draws, because drawing a wrong one is sometimes the
+        exercise, which is also why it can be waved away.
+      -->
+      {#if showCheck && check}
+        <div
+          role="status"
+          class="flex items-center gap-2 border-b px-4 py-1.5 text-xs
+                 {check.ok
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            : 'border-red-200 bg-red-50 text-red-800'}"
+        >
+          <svg viewBox="0 0 20 20" class="h-3.5 w-3.5 shrink-0" aria-hidden="true">
+            {#if check.ok}
+              <path
+                d="M4.5 10.5l3.5 3.5 7.5-8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            {:else}
+              <path
+                d="M5 5l10 10M15 5L5 15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+              />
+            {/if}
+          </svg>
+          <span class="shrink-0 font-medium">
+            {check.ok ? 'Checks out' : "Doesn't check out"}
+          </span>
+          <span class="min-w-0 flex-1 truncate opacity-80" title={check.problems.join('\n')}>
+            {check.ok
+              ? `${check.checked} claim${check.checked === 1 ? '' : 's'} in this diagram`
+              : check.problems.join(' · ')}
+          </span>
+          <button
+            type="button"
+            onclick={() => (dismissed = source)}
+            aria-label="Dismiss the check"
+            class="-mr-1 shrink-0 rounded px-1 opacity-60 hover:opacity-100"
+          >
+            ✕
+          </button>
+        </div>
+      {/if}
+
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <div
         role="img"
@@ -1150,6 +1382,50 @@
       </div>
     </section>
   </main>
+
+  <SettingsPanel
+    open={panel === 'settings'}
+    {theme}
+    {dark}
+    {pngScale}
+    {separator}
+    {cloudFluff}
+    {cloudPad}
+    {qubitSize}
+    {factorCalculated}
+    {exactOdds}
+    {keepSign}
+    {animateInside}
+    {movieFps}
+    {checking}
+    {shapeOrder}
+    onclose={() => (panel = null)}
+    oneditlibrary={() => {
+      panel = null
+      libraryOpen = true
+    }}
+    onthemechange={(t) => (theme = t)}
+    ondarkchange={(d) => (dark = d)}
+    onpngscalechange={(s) => (pngScale = s)}
+    onseparatorchange={(v) => (separator = v)}
+    oncloudfluffchange={(v) => (cloudFluff = v)}
+    oncloudpadchange={(v) => (cloudPad = v)}
+    onqubitsizechange={(v) => (qubitSize = v)}
+    onfactorchange={(v) => (factorCalculated = v)}
+    onexactoddschange={(v) => (exactOdds = v)}
+    onkeepsignchange={(v) => (keepSign = v)}
+    oninsidechange={(v) => (animateInside = v)}
+    onfpschange={(v) => (movieFps = v)}
+    oncheckingchange={(v) => (checking = v)}
+    onshapeorderchange={(o) => (shapeOrder = o)}
+  />
+
+  {#if panel === 'syntax'}
+    <SidePanel title="Syntax" onclose={() => (panel = null)}>
+      <SyntaxHelp {theme} {dark} />
+    </SidePanel>
+  {/if}
+  </div>
 
   {#if dragDepth > 0}
     <div
@@ -1183,75 +1459,8 @@
     </div>
   {/if}
 
-  <SettingsPanel
-    open={settingsOpen}
-    {theme}
-    {dark}
-    {pngScale}
-    {separator}
-    {cloudFluff}
-    {cloudPad}
-    {factorCalculated}
-    {exactOdds}
-    {keepSign}
-    {animateInside}
-    {checking}
-    {shapeOrder}
-    onclose={() => (settingsOpen = false)}
-    oneditlibrary={() => {
-      settingsOpen = false
-      libraryOpen = true
-    }}
-    onthemechange={(t) => (theme = t)}
-    ondarkchange={(d) => (dark = d)}
-    onpngscalechange={(s) => (pngScale = s)}
-    onseparatorchange={(v) => (separator = v)}
-    oncloudfluffchange={(v) => (cloudFluff = v)}
-    oncloudpadchange={(v) => (cloudPad = v)}
-    onfactorchange={(v) => (factorCalculated = v)}
-    onexactoddschange={(v) => (exactOdds = v)}
-    onkeepsignchange={(v) => (keepSign = v)}
-    oninsidechange={(v) => (animateInside = v)}
-    oncheckingchange={(v) => (checking = v)}
-    onshapeorderchange={(o) => (shapeOrder = o)}
-  />
-
   {#if libraryOpen}
     <LibraryEditor onclose={() => (libraryOpen = false)} />
-  {/if}
-
-  {#if helpModalOpen}
-    <!-- Click-away backdrop; sits under the dialog. -->
-    <button
-      type="button"
-      aria-label="Close the syntax reference"
-      onclick={() => (helpModalOpen = false)}
-      class="fixed inset-0 z-40 cursor-default bg-slate-900/25"
-    ></button>
-
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Syntax reference"
-      class="fixed inset-x-4 top-8 bottom-8 z-50 mx-auto flex max-w-lg flex-col overflow-hidden
-             rounded-lg border border-slate-300 bg-white shadow-xl"
-    >
-      <header class="flex items-center border-b border-slate-200 px-4 py-3">
-        <h2 class="text-sm font-semibold">Syntax</h2>
-        <button
-          type="button"
-          onclick={() => (helpModalOpen = false)}
-          aria-label="Close the syntax reference"
-          class="ml-auto rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-100
-                 hover:text-slate-700"
-        >
-          ✕
-        </button>
-      </header>
-      <div class="overflow-y-auto px-4 py-2">
-        <SyntaxHelp collapsible={false} />
-      </div>
-    </div>
   {/if}
 
   {#if toast}

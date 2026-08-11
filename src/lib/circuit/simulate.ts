@@ -18,7 +18,7 @@
  * pictures rather than operations, and `?` has no value to propagate.
  */
 
-import type { CircuitDoc, Gate, Layer, TableLine } from './ast'
+import type { ChartBar, CircuitDoc, Gate, Layer, TableLine } from './ast'
 import { gateQubits } from './ast'
 import type { CloudNode, Factor, Product, QubitNode, StateRow, Term } from '../state/ast'
 
@@ -705,6 +705,139 @@ export function tabulate(
   }
 }
 
+/**
+ * A state written in Dirac notation.
+ *
+ * The escape hatch. Everything else here draws the notation the course uses,
+ * which is the point of the app — but a drawn state is a picture, and there are
+ * times a reader wants the thing itself: to check it against a textbook, to
+ * paste it into a problem set, or simply because they already read `|01⟩` more
+ * fluently than they read a square.
+ *
+ * Unlike everywhere else, this *is* normalised. The arithmetic runs on integers
+ * because `H·H = 2I` and dividing by roots would lose exactness, but a state
+ * written down is expected to have length one, so the common factor is taken
+ * out and the root written as a denominator — exactly, `/2` rather than `/√4`,
+ * whenever the sum of squares happens to be a square.
+ */
+export function diracOf(amps: Amplitudes, opts: PresentOptions = {}): string {
+  const entries = sorted(amps)
+  if (!entries.length) {
+    throw new SimulationError('the terms all cancel, leaving no state to write')
+  }
+
+  const size = entries.reduce((g, [, amp]) => gcd(g, Math.abs(amp)), 0) || 1
+  // The overall sign is not observable, so it is dropped the same way a drawn
+  // state's is — unless the figure asked to keep it.
+  const flip = !opts.keepSign && entries[0][1] < 0 ? -1 : 1
+  const terms = entries.map(([bits, amp]) => [bits, (amp / size) * flip] as const)
+
+  const square = terms.reduce((sum, [, amp]) => sum + amp * amp, 0)
+  const root = Math.sqrt(square)
+
+  const body = terms
+    .map(([bits, amp], i) => {
+      const mag = Math.abs(amp)
+      const ket = `${mag === 1 ? '' : mag}|${bits}⟩`
+      if (i === 0) return amp < 0 ? `−${ket}` : ket
+      return `${amp < 0 ? ' − ' : ' + '}${ket}`
+    })
+    .join('')
+
+  if (root === 1) return body
+  const wrapped = terms.length > 1 ? `(${body})` : body
+  return Number.isInteger(root) ? `${wrapped}/${root}` : `${wrapped}/√${square}`
+}
+
+/**
+ * The circuit's state after `layers`, written out.
+ *
+ * A measurement leaves no single state, so each outcome is written with the
+ * chance of getting it — which is the honest reading, and the same one the
+ * table gives.
+ */
+export function diracLines(
+  doc: CircuitDoc,
+  layers: number,
+  opts: PresentOptions = {},
+): string[] {
+  const { branches, measured } = simulateFrom(doc, layers)
+  return branches.map((branch) =>
+    measured
+      ? `${oddsLabel(branch.odds, opts.exactOdds)}  ${diracOf(branch.amps, opts)}`
+      : diracOf(branch.amps, opts),
+  )
+}
+
+/** Every basis state of `qubits` wires, in counting order. */
+const basisStates = (qubits: number): string[] =>
+  Array.from({ length: 2 ** qubits }, (_, i) => i.toString(2).padStart(qubits, '0'))
+
+/**
+ * Past this many bars a chart is a smear rather than a reading, so the empty
+ * ones are dropped. Five wires still fits; six would not.
+ */
+const MAX_BARS = 32
+
+/**
+ * The bars of a statevector plot.
+ *
+ * Unmeasured, the bars are the basis states — *all* of them, because a state
+ * missing from a superposition is a fact about it, and a plot that silently
+ * omitted the zeros would read as a different state. Past `MAX_BARS` that stops
+ * being legible and only the occupied ones are drawn.
+ *
+ * After a measurement there is no one statevector left to plot, so the bars
+ * become the outcomes and their chances — the same thing `tabulate` lists.
+ */
+export function chartBars(
+  doc: CircuitDoc,
+  layers: number,
+  opts: PresentOptions = {},
+): { bars: ChartBar[]; measured: boolean; complete: boolean } {
+  const { branches, measured } = simulateFrom(doc, layers)
+  if (!branches.length) {
+    throw new SimulationError('the terms all cancel, leaving nothing to chart')
+  }
+
+  if (measured) {
+    return {
+      measured,
+      complete: true,
+      bars: branches.map((branch) => ({
+        state: stateFrom(branch.amps, doc.qubits, opts),
+        probability: branch.odds.n / branch.odds.d,
+        label: oddsLabel(branch.odds, opts.exactOdds),
+      })),
+    }
+  }
+
+  const amps = branches[0].amps
+  const total = weight(amps)
+  const length = Math.sqrt(total)
+  // The overall sign is not observable, so it is normalised away the same way
+  // a drawn state's is — otherwise the identical state plots upside down
+  // depending on which term happened to come out first.
+  const flip = !opts.keepSign && sorted(amps)[0][1] < 0 ? -1 : 1
+
+  const complete = 2 ** doc.qubits <= MAX_BARS
+  const bits = complete ? basisStates(doc.qubits) : sorted(amps).map(([b]) => b)
+
+  return {
+    measured,
+    complete,
+    bars: bits.map((b) => {
+      const amp = (amps.get(b) ?? 0) * flip
+      return {
+        state: stateFrom(new Map([[b, 1]]), doc.qubits, opts),
+        amplitude: amp / length,
+        probability: (amp * amp) / total,
+        label: oddsLabel(frac(amp * amp, total), opts.exactOdds),
+      }
+    }),
+  }
+}
+
 /** The table's lines with their numbers written out, ready to be drawn. */
 function tableLines(doc: CircuitDoc, opts: PresentOptions): TableLine[] {
   const { entries } = tabulate(doc, doc.layers.length, opts)
@@ -722,7 +855,9 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
   const wanted = doc.layers.some((l) =>
     l.gates.some((g) => g.kind === 'view' && g.calculate),
   )
-  if (!wanted && !doc.calculateOutput && !doc.calculateInput && !doc.table) return doc
+  if (!wanted && !doc.calculateOutput && !doc.calculateInput && !doc.table && !doc.chart) {
+    return doc
+  }
 
   const layers = doc.layers.map((layer, at) => ({
     ...layer,
@@ -746,6 +881,9 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
   // Refuses the same way `calculate` does when the arithmetic cannot be
   // followed — a table of nothing would be worse than being told why.
   const table = doc.table ? { ...doc.table, lines: tableLines(doc, opts) } : undefined
+  const chart = doc.chart
+    ? { ...doc.chart, ...chartBars(doc, doc.layers.length, opts) }
+    : undefined
 
-  return { ...doc, layers, input, output, table }
+  return { ...doc, layers, input, output, table, chart }
 }

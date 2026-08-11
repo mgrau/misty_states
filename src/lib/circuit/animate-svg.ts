@@ -52,6 +52,15 @@ function belongsTo(p: Prim, layers: { y: number; h: number }[]): { layer: number
  * seen through. Closed: the pipe alone, so it goes behind the box and comes out
  * the other side.
  */
+/**
+ * The curve applied between one keyframe and the next.
+ *
+ * Chosen to sit as close to the smooth step the sampled frames use as a cubic
+ * bezier can: the played animation and a saved one have to move alike, not
+ * merely start and stop in the same places.
+ */
+const EASE = 'cubic-bezier(0.35,0,0.65,1)'
+
 const behind = (p: Prim, inside: boolean): boolean =>
   p.t === 'pipe' ||
   (inside && (p.t === 'gatebox' || p.t === 'measurebox' || p.t === 'pane'))
@@ -182,7 +191,7 @@ export function animatedSvg(
   // no script inside it, and nothing to strip before sending it to someone.
   const style = [
     `g[style*="animation-name"]{animation-duration:${n(duration)}s;`,
-    `animation-timing-function:linear;animation-fill-mode:both;`,
+    `animation-timing-function:${EASE};animation-fill-mode:both;`,
     `animation-play-state:var(--misty-play,running);`,
     `animation-delay:var(--misty-at,0s);`,
     `animation-iteration-count:${timeline.loop ? 'infinite' : 1}}`,
@@ -430,7 +439,7 @@ export function animatedTermSvg(
 
   const style = [
     `g[style*="animation-name"]{animation-duration:${n(duration)}s;`,
-    `animation-timing-function:linear;animation-fill-mode:both;`,
+    `animation-timing-function:${EASE};animation-fill-mode:both;`,
     `animation-play-state:var(--misty-play,running);`,
     `animation-delay:var(--misty-at,0s);`,
     `animation-iteration-count:${timeline.loop ? 'infinite' : 1}}`,

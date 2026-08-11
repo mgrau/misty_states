@@ -276,7 +276,7 @@ function makeTheme(
           // empty string would reach the SVG and paint the pane black.
           return el('rect', {
             x: p.box.x, y: p.box.y, width: p.box.w, height: p.box.h, rx: 2,
-            fill: p.fill || pal.paper,
+            fill: p.fill || (p.tinted ? pal.gate : pal.paper),
             stroke: pal.gateEdge,
             'stroke-width': m.stroke * 0.55,
           })

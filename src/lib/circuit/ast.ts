@@ -35,7 +35,17 @@ export interface ControlledGate {
   target: number
   /** 'not' draws ⊕, otherwise the label sits in a chip on the target. */
   targetGlyph: 'not' | 'z' | 'label'
+  /**
+   * A name for what the gate does.
+   *
+   * Two placements, because the course uses two. On the target it replaces the
+   * glyph, which is what a "Parity" gate wants; beside the link it names the
+   * whole thing, which is what "Tiger?" wants. Which one is chosen by where the
+   * quoted name is written, not by a second field.
+   */
   label?: string
+  /** True when the label names the link rather than standing on the target. */
+  labelOnLink?: boolean
 }
 
 /** SWAP: an × on each of the two qubits, joined by a bar. */
@@ -164,6 +174,40 @@ export interface TableSpec {
   lines?: TableLine[]
 }
 
+/**
+ * One bar of a chart.
+ *
+ * The numbers are normalised — a bar's height is a share of the whole state, so
+ * it has to be on the scale where that means something, unlike the table's
+ * amplitude column which shows the notation's own integers. The chance arrives
+ * as text for the same reason a table's does: how a likelihood is written is
+ * settled where the arithmetic is.
+ */
+export interface ChartBar {
+  /** The basis state this bar stands over, drawn. */
+  state: StateRow
+  /** Signed, between -1 and 1. Absent after a measurement, which leaves none. */
+  amplitude?: number
+  /** Between 0 and 1. */
+  probability: number
+  /** That chance written out, for the bar's label. */
+  label: string
+}
+
+/** Written `chart`: the state as a bar per basis state. */
+export interface ChartSpec {
+  /** Which quantity the bars stand for. */
+  mode: 'amplitude' | 'probability'
+  caption?: string
+  note?: string
+  /** Filled in by `resolveCalculations`; absent until the circuit is run. */
+  bars?: ChartBar[]
+  /** True once a measurement has left outcomes rather than a statevector. */
+  measured?: boolean
+  /** False when empty bars were dropped to keep the plot readable. */
+  complete?: boolean
+}
+
 export interface CircuitDoc {
   kind: 'circuit'
   qubits: number
@@ -183,6 +227,8 @@ export interface CircuitDoc {
   calculateNote?: string
   /** Written `tabulate`: drawn in place of an output state, below the circuit. */
   table?: TableSpec
+  /** Written `chart`: a bar chart of the state, drawn below the circuit. */
+  chart?: ChartSpec
   /** Written `animate`: the state travels through the circuit rather than being drawn at each end. */
   animate?: AnimationOptions
   /** Written `answer` on the input or the output line. */

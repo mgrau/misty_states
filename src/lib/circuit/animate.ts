@@ -60,8 +60,24 @@ export const DEFAULT_ANIMATION: Required<AnimationOptions> = {
   loop: false,
 }
 
-/** Pixels a qubit travels per second, before `speed`. */
-const TRAVEL_RATE = 190
+/**
+ * Pixels a qubit travels per second, before `speed`.
+ *
+ * Slow enough that moving takes a comparable share of the run to standing
+ * still. Faster and the qubits dart between gates and wait about, which reads
+ * as a stutter however many frames a second it is drawn at.
+ */
+const TRAVEL_RATE = 105
+
+/**
+ * Ease a segment, so nothing starts or stops dead.
+ *
+ * A constant-speed run that halts in a single frame is the other half of what
+ * makes an animation look jerky; this is the usual smooth step, and it leaves
+ * the endpoints and the midpoint exactly where they were, so every stop the
+ * stepper knows about still lands on the same picture.
+ */
+export const ease = (u: number): number => u * u * (3 - 2 * u)
 
 /** How far the gate's casing fades while it is being passed through. */
 export const GATE_FADE = 0.22
@@ -450,9 +466,10 @@ export function positionAt(
     // Colour and shape change halfway through the segment rather than at its
     // end, so a gate is seen acting while it is at its most transparent.
     const shown = u >= 0.5 ? b : a
+    const e = ease(u)
     return {
-      x: a.x + (b.x - a.x) * u,
-      y: a.y + (b.y - a.y) * u,
+      x: a.x + (b.x - a.x) * e,
+      y: a.y + (b.y - a.y) * e,
       value: shown.value,
       shape: shown.shape,
     }

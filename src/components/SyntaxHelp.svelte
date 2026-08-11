@@ -1,86 +1,269 @@
 <script lang="ts">
+  /**
+   * The syntax reference.
+   *
+   * Grouped by what you are trying to do rather than by when each piece was
+   * added, because that is how it gets read: someone writing a circuit wants
+   * *controlled gates*, not the fourteenth row of a flat list. The two tabs are
+   * the top-level split — a source is a state or a circuit, never both — and
+   * inside each, headed groups keep any one of them short enough to scan.
+   *
+   * Every entry is a line you could type as it stands.
+   *
+   * The third tab draws instead of describing. A gate's name says nothing about
+   * what it looks like on the page, and half of writing one of these figures is
+   * knowing which glyph you are after — so the gallery renders each one with
+   * the app's own renderer, in the theme the drawing is using, and puts the
+   * line that produces it underneath.
+   */
+  import { render } from '../lib/index'
+  import type { ThemeId } from '../lib/render/theme'
+
+  const {
+    theme = 'solid',
+    dark = false,
+  }: {
+    theme?: ThemeId
+    dark?: boolean
+  } = $props()
+
   interface Row {
     code: string
     text: string
   }
 
-  const stateRows: Row[] = [
-    { code: '0  1', text: 'A white (0) and a black (1) qubit' },
-    { code: '00|11', text: 'Superposition — "," works too: 00,11' },
-    { code: '000|-111', text: 'A leading "-" gives the term a negative amplitude' },
-    { code: '0(0|1)', text: 'A bare qubit beside a cloud (a factored state)' },
-    { code: '(0|1)(0|1)', text: 'Two adjacent clouds — a product of separable states' },
-    { code: '(0|1) x (0|1)', text: 'An explicit × between factors ("*" is for coefficients)' },
-    { code: '(0|1)|(0|1)', text: 'Clouds nested inside a cloud' },
-    { code: '3*0|2*1', text: 'Numeric amplitudes — same as 0|0|0|1|1' },
-    { code: '0|1|-1 = 0', text: '"=" chains expressions into an equation — and is checked' },
-    { code: '50%: 0(0|1)', text: 'Text before ":" is an annotation on the left' },
-    { code: '0(0|1) : note', text: 'Text after ":" is an annotation on the right' },
-    { code: '0?1', text: 'Each "?" is a qubit of unknown value' },
-    { code: '("???")', text: 'Quoted text inside a cloud — any caption, not just ???' },
-    { code: 'shape os^', text: 'Set the register: o s ^ d v * p h' },
-    { code: '0@3', text: 'Force this qubit to use shape 3' },
+  interface Group {
+    heading: string
+    rows: Row[]
+  }
+
+  const stateGroups: Group[] = [
+    {
+      heading: 'Qubits and superpositions',
+      rows: [
+        { code: '0  1', text: 'A white (0) and a black (1) qubit' },
+        { code: '00|11', text: 'Superposition — "," works too: 00,11' },
+        { code: '000|-111', text: 'A leading "-" gives the term a negative amplitude' },
+        { code: '3*0|2*1', text: 'Numeric amplitudes — same as 0|0|0|1|1' },
+      ],
+    },
+    {
+      heading: 'Products and clouds',
+      rows: [
+        { code: '0(0|1)', text: 'A bare qubit beside a cloud (a factored state)' },
+        { code: '(0|1)(0|1)', text: 'Two adjacent clouds — a product of separable states' },
+        { code: '(0|1) x (0|1)', text: 'An explicit × between factors ("*" is for coefficients)' },
+        { code: '(0|1)|(0|1)', text: 'Clouds nested inside a cloud' },
+      ],
+    },
+    {
+      heading: 'Leaving something out',
+      rows: [
+        { code: '0?1', text: 'Each "?" is a qubit of unknown value' },
+        { code: '("???")', text: 'Quoted text inside a cloud — any caption, not just ???' },
+      ],
+    },
+    {
+      heading: 'Equations',
+      rows: [{ code: '0|1|-1 = 0', text: '"=" chains expressions into an equation — and is checked' }],
+    },
+    {
+      heading: 'Annotations',
+      rows: [
+        { code: '50%: 0(0|1)', text: 'Text before ":" is an annotation on the left' },
+        { code: '0(0|1) : note', text: 'Text after ":" is an annotation on the right' },
+      ],
+    },
+    {
+      heading: 'Shapes',
+      rows: [
+        { code: 'shape os^', text: 'Set the register: o s ^ d v * p h' },
+        { code: '0@3', text: 'Force this qubit to use shape 3' },
+      ],
+    },
   ]
 
-  const circuitRows: Row[] = [
-    { code: 'qubits 3', text: 'Declare the register (otherwise inferred)' },
-    { code: 'shape s^o', text: 'Which shape each wire draws with' },
-    { code: 'H 2', text: 'Single-qubit gate — also X Y Z S T' },
-    { code: 'H', text: 'No wire given means the first: same as H 1' },
-    { code: 'HZT', text: 'A row of one-letter gates, one per wire' },
-    { code: 'I 2', text: 'Identity — plain pipe, just holds a slot in the layer' },
-    { code: 'CNOT 3 -> 2', text: 'Control 3, target 2' },
-    { code: 'TOFFOLI 1 2 -> 3', text: 'Two controls' },
-    { code: 'CZ 1 2', text: 'Controlled-Z' },
-    { code: 'SWAP 1 2', text: 'Swap two qubits' },
-    { code: 'measure 2 Z', text: 'Measurement in a basis' },
-    { code: 'box "Oracle" 1-3', text: 'Custom box spanning a range; add fill=#e3efe3' },
-    { code: 'blank 1-2', text: 'Empty frame for students to fill in' },
-    { code: 'H 1; H 2', text: '";" pins gates into the same layer' },
-    { code: '---', text: 'Force a new layer' },
-    { code: '000', text: 'A state line: above the gates it is the input, below it the output' },
-    { code: '0(0|1)0', text: 'Between gates it is a view — the state at that point' },
-    { code: 'view 2-3 00|11', text: 'A view of some qubits; the rest flow past' },
-    { code: 'out calculate', text: 'Work the state out from the input ("calc" too)' },
-    { code: 'in calculate', text: 'Work the input back from a state written later' },
-    { code: 'after H: calc', text: 'Calculated part-way through, with a caption' },
-    { code: 'measure 1 Z', text: 'calculate draws every outcome, with its odds' },
-    { code: 'tabulate', text: 'The outcomes as a table instead ("table" too)' },
-    { code: 'tabulate(state, amp, p)', text: 'Which columns, and p="Chance" renames one' },
-    { code: 'window 010', text: 'The same, framed with a pane; fill= colours the pane' },
-    { code: 'I 2 0', text: 'An identity that shows what its qubit holds' },
-    { code: 'after H: 0(0|1)', text: 'An annotation on the left; ": note" for the right' },
-    { code: 'step: H 1 : note', text: 'A gate line takes annotations the same way' },
-    { code: 'in 00|11', text: 'Names the input explicitly (out for below)' },
-    { code: 'out 00|11', text: 'A written output is checked against the circuit' },
-    { code: 'answer 010', text: 'What the question asks for — hidden until "Show answer"' },
-    { code: 'answer', text: 'On its own: the state worked out, and hidden' },
-    { code: 'animate', text: 'The state travels through the circuit; a superposition a term at a time' },
-    { code: 'animate speed=1.5', text: 'Also dwell=, hold= and loop=off; the toolbar plays and steps it' },
-    { code: 'animate inside=off', text: 'Gates as closed boxes: qubits in, qubits out' },
-    { code: 'header on', text: 'Label the columns with qubit shapes (off by default)' },
+  const circuitGroups: Group[] = [
+    {
+      heading: 'The register',
+      rows: [
+        { code: 'qubits 3', text: 'Declare the register (otherwise inferred)' },
+        { code: 'shape s^o', text: 'Which shape each wire draws with' },
+        { code: 'header on', text: 'Label the columns with qubit shapes (off by default)' },
+      ],
+    },
+    {
+      heading: 'Gates',
+      rows: [
+        { code: 'H 2', text: 'Single-qubit gate — also X Y Z S T' },
+        { code: 'H', text: 'No wire given means the first: same as H 1' },
+        { code: 'HZT', text: 'A row of one-letter gates, one per wire' },
+        { code: 'I 2', text: 'Identity — plain pipe, just holds a slot in the layer' },
+        { code: 'SWAP 1 2', text: 'Swap two qubits' },
+      ],
+    },
+    {
+      heading: 'Controlled gates',
+      rows: [
+        { code: 'CNOT 3 -> 2', text: 'Control 3, target 2' },
+        { code: 'CNOT 3 2', text: 'The arrow is optional — the last wire is the target' },
+        { code: 'TOFFOLI 1 2 -> 3', text: 'Two controls' },
+        { code: 'CZ 1 2', text: 'Controlled-Z' },
+        { code: 'CNOT "Oracle" 1 2', text: 'A name before the wires stands on the target' },
+        { code: 'CNOT 1 2 "Tiger?"', text: 'A name after them labels the link' },
+      ],
+    },
+    {
+      heading: 'Boxes and measurement',
+      rows: [
+        { code: 'measure 2 Z', text: 'Measurement in a basis ("M" too)' },
+        { code: 'box "Oracle" 1-3', text: 'Custom box spanning a range; add fill=#e3efe3' },
+        { code: 'blank 1-2', text: 'Empty frame for students to fill in' },
+      ],
+    },
+    {
+      heading: 'Layers',
+      rows: [
+        { code: 'H 1; H 2', text: '";" pins gates into the same layer' },
+        { code: '---', text: 'Force a new layer' },
+      ],
+    },
+    {
+      heading: 'States along the way',
+      rows: [
+        { code: 'in 00|11', text: 'The state above the circuit' },
+        { code: 'out 00|11', text: 'The state below it — and it is checked' },
+        { code: '000', text: 'A bare state line: input above the gates, output below' },
+        { code: '0(0|1)0', text: 'Between gates it is a view — the state at that point' },
+        { code: 'view 2-3 00|11', text: 'A view of some qubits; the rest flow past' },
+        { code: 'window 010', text: 'The same, framed with a pane; fill= colours the pane' },
+        { code: 'I 2 0', text: 'An identity that shows what its qubit holds' },
+      ],
+    },
+    {
+      heading: 'Working it out',
+      rows: [
+        { code: 'out calculate', text: 'Work the state out from the input ("calc" too)' },
+        { code: 'in calculate', text: 'Work the input back from a state written later' },
+        { code: 'after H: calc', text: 'Calculated part-way through, with a caption' },
+        { code: 'measure 1 Z', text: 'calculate draws every outcome, with its odds' },
+      ],
+    },
+    {
+      heading: 'Tables and charts',
+      rows: [
+        { code: 'tabulate', text: 'The outcomes as a table instead ("table" too)' },
+        { code: 'tabulate(state, amp, p)', text: 'Which columns, and p="Chance" renames one' },
+        { code: 'chart', text: 'A bar per basis state — signed amplitudes ("plot" too)' },
+        { code: 'chart(probability)', text: 'The chances instead, labelled and all positive' },
+      ],
+    },
+    {
+      heading: 'Questions and answers',
+      rows: [
+        { code: 'answer 010', text: 'What the question asks for — hidden until "Show answer"' },
+        { code: 'answer', text: 'On its own: the state worked out, and hidden' },
+      ],
+    },
+    {
+      heading: 'Annotations',
+      rows: [
+        { code: 'after H: 0(0|1)', text: 'An annotation on the left; ": note" for the right' },
+        { code: 'step: H 1 : note', text: 'A gate line takes annotations the same way' },
+      ],
+    },
+    {
+      heading: 'Animation',
+      rows: [
+        { code: 'animate', text: 'The state travels through; a superposition a term at a time' },
+        { code: 'animate speed=1.5', text: 'Also dwell=, hold= and loop=off' },
+        { code: 'animate inside=off', text: 'Gates as closed boxes: qubits in, qubits out' },
+      ],
+    },
   ]
+
+  /** One gate drawn beside the line that draws it. */
+  interface Swatch {
+    code: string
+    name: string
+    /** Only where the picture does not already say it. */
+    text?: string
+    /** What to render, when the entry alone would not stand up as a circuit. */
+    source?: string
+  }
+
+  const gallery: { heading: string; items: Swatch[] }[] = [
+    {
+      heading: 'One wire',
+      items: [
+        { code: 'H 1', name: 'Hadamard', text: 'Splits a qubit into a superposition' },
+        { code: 'X 1', name: 'NOT', text: 'Drawn as a bare ⊕, as the course draws it' },
+        { code: 'Z 1', name: 'Z', text: 'Flips the sign of the black term' },
+        { code: 'Y 1', name: 'Y' },
+        { code: 'S 1', name: 'S' },
+        { code: 'T 1', name: 'T' },
+        { code: 'I 1', name: 'Identity', text: 'Plain pipe — holds a slot and does nothing' },
+      ],
+    },
+    {
+      heading: 'Two or more wires',
+      items: [
+        { code: 'CNOT 1 2', name: 'Controlled NOT', source: 'qubits 2\nCNOT 1 2' },
+        { code: 'CZ 1 2', name: 'Controlled Z', source: 'qubits 2\nCZ 1 2' },
+        { code: 'SWAP 1 2', name: 'Swap', source: 'qubits 2\nSWAP 1 2' },
+        { code: 'TOFFOLI 1 2 3', name: 'Toffoli', source: 'qubits 3\nTOFFOLI 1 2 3' },
+        {
+          code: 'CNOT 1 2 "Tiger?"',
+          name: 'Named link',
+          source: 'qubits 2\nCNOT 1 2 "Tiger?"',
+        },
+        {
+          // Across three wires rather than two: at swatch size a six-letter
+          // name on the wire next door sits almost against the control dot.
+          code: 'CNOT "Oracle" 1 3',
+          name: 'Named target',
+          source: 'qubits 3\nCNOT "Oracle" 1 3',
+        },
+      ],
+    },
+    {
+      heading: 'Boxes',
+      items: [
+        { code: 'box "U" 1-2', name: 'Custom box', source: 'qubits 2\nbox "U" 1-2' },
+        { code: 'blank 1-2', name: 'Blank', text: 'For students to fill in', source: 'qubits 2\nblank 1-2' },
+        { code: 'measure 1 Z', name: 'Measurement', source: 'qubits 1\nmeasure 1 Z' },
+      ],
+    },
+  ]
+
+  /**
+   * Drawn small, and in the theme in use — a swatch in the wrong style would be
+   * a picture of a different app.
+   */
+  function drawn(item: Swatch): string {
+    try {
+      return render(item.source ?? `qubits 1\n${item.code}`, {
+        theme,
+        dark,
+        check: false,
+        // A wider column gap than the drawing uses: at this size a name on a
+        // target comes within a few pixels of the control beside it, which
+        // reads as a collision even though it is not one.
+        metrics: { qubit: 13, pipeWidth: 16, colGap: 16, gateHeight: 28, fontSize: 12 },
+      }).svg
+    } catch {
+      return ''
+    }
+  }
 
   const tabs = [
-    { id: 'state', label: 'States', rows: stateRows },
-    { id: 'circuit', label: 'Circuits', rows: circuitRows },
+    { id: 'state', label: 'States' },
+    { id: 'circuit', label: 'Circuits' },
+    { id: 'gates', label: 'Gates' },
   ] as const
 
-  const {
-    open = true,
-    onopenchange,
-    collapsible = true,
-  }: {
-    open?: boolean
-    onopenchange?: (open: boolean) => void
-    /** In the side column it folds away; in a dialog there is nothing to fold. */
-    collapsible?: boolean
-  } = $props()
-
-  const shown = $derived(collapsible ? open : true)
-
-  let active = $state<'state' | 'circuit'>('state')
-  const rows = $derived(tabs.find((t) => t.id === active)!.rows)
+  let active = $state<'state' | 'circuit' | 'gates'>('state')
+  const groups = $derived(active === 'circuit' ? circuitGroups : stateGroups)
 
   /** Left/right arrows move between tabs, as a tablist is expected to. */
   function onKey(event: KeyboardEvent) {
@@ -91,68 +274,78 @@
   }
 </script>
 
-<div class="flex min-h-0 flex-col">
-  {#if collapsible}
-  <button
-    type="button"
-    onclick={() => onopenchange?.(!open)}
-    aria-expanded={open}
-    class="flex items-center gap-1.5 py-1 text-xs font-medium text-slate-500
-           hover:text-slate-800"
-  >
-    <svg
-      viewBox="0 0 16 16"
-      class="h-3.5 w-3.5 transition-transform {open ? '' : '-rotate-90'}"
-      aria-hidden="true"
+<!--
+  The tabs stay put while the entries scroll under them: which of the three you
+  are reading is the thing you least want to lose track of.
+-->
+<div
+  role="tablist"
+  aria-label="Syntax reference"
+  class="sticky top-0 z-10 flex border-b border-slate-200 bg-white px-2"
+>
+  {#each tabs as tab (tab.id)}
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active === tab.id}
+      tabindex={active === tab.id ? 0 : -1}
+      onclick={() => (active = tab.id)}
+      onkeydown={onKey}
+      class="-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors
+             {active === tab.id
+        ? 'border-slate-800 text-slate-900'
+        : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'}"
     >
-      <path
-        d="M4 6l4 4 4-4"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.8"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </svg>
-    Syntax
-  </button>
-  {/if}
-
-  {#if shown}
-    <div role="tablist" aria-label="Syntax reference" class="flex border-b border-slate-200">
-      {#each tabs as tab (tab.id)}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active === tab.id}
-          tabindex={active === tab.id ? 0 : -1}
-          onclick={() => (active = tab.id)}
-          onkeydown={onKey}
-          class="-mb-px border-b-2 px-3 py-1.5 text-xs font-medium transition-colors
-                 {active === tab.id
-            ? 'border-slate-800 text-slate-900'
-            : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'}"
-        >
-          {tab.label}
-        </button>
-      {/each}
-    </div>
-
-    <!--
-      Capped and scrolled in its own right. The reference is far longer than
-      the editor above it, and without a ceiling it pushes the source box off
-      the top of the column.
-    -->
-    <dl
-      data-syntax-rows
-      class="divide-y divide-slate-100 {collapsible ? 'max-h-72 overflow-y-auto' : ''}"
-    >
-      {#each rows as row (row.code)}
-        <div class="grid grid-cols-[minmax(0,9rem)_1fr] gap-3 px-1 py-1.5 text-xs">
-          <dt class="font-mono whitespace-pre text-slate-800">{row.code}</dt>
-          <dd class="text-slate-500">{row.text}</dd>
-        </div>
-      {/each}
-    </dl>
-  {/if}
+      {tab.label}
+    </button>
+  {/each}
 </div>
+
+{#if active === 'gates'}
+  <!--
+    Each swatch is the gate as it will actually be drawn, with the line that
+    draws it underneath — so the gallery answers "what does that look like?"
+    and "what do I type?" in the same glance.
+  -->
+  <div data-gate-gallery class="px-3 pt-1 pb-6">
+    {#each gallery as group (group.heading)}
+      <h3 class="mt-4 mb-1 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+        {group.heading}
+      </h3>
+      <ul class="grid grid-cols-2 gap-2">
+        {#each group.items as item (item.code)}
+          <li
+            class="flex flex-col items-center gap-1 rounded border border-slate-200 bg-slate-50/60
+                   px-2 py-2 text-center"
+          >
+            <span class="flex h-14 items-center justify-center">
+              <!-- Rendered by our own renderer; values are escaped in svg.ts. -->
+              {@html drawn(item)}
+            </span>
+            <span class="text-[11px] font-medium text-slate-700">{item.name}</span>
+            <code class="text-[10px] break-all text-slate-500">{item.code}</code>
+            {#if item.text}
+              <span class="text-[10px] leading-snug text-slate-400">{item.text}</span>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/each}
+  </div>
+{:else}
+  <div data-syntax-rows class="px-3 pt-1 pb-6">
+    {#each groups as group (group.heading)}
+      <h3 class="mt-4 mb-1 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+        {group.heading}
+      </h3>
+      <dl class="divide-y divide-slate-100">
+        {#each group.rows as row (row.code)}
+          <div class="grid gap-0.5 py-1.5 text-xs">
+            <dt class="font-mono whitespace-pre-wrap text-slate-800">{row.code}</dt>
+            <dd class="text-slate-500">{row.text}</dd>
+          </div>
+        {/each}
+      </dl>
+    {/each}
+  </div>
+{/if}

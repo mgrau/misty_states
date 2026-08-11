@@ -251,161 +251,81 @@ describe('reopening a saved figure', () => {
 })
 
 describe('the syntax reference', () => {
-  // Two buttons say "Syntax": this one folds the side column's copy away, the
-  // other opens the dialog that stands in for it on a narrow screen.
-  const toggle = () =>
-    [...host.querySelectorAll('button')].find(
-      (b) => b.textContent?.trim() === 'Syntax' && b.hasAttribute('aria-expanded'),
+  const openWith = (label: string) => {
+    const btn = [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === label,
     )!
+    btn.click()
+    flushSync()
+    return btn
+  }
+  const drawer = () => host.querySelector('aside[aria-label="Syntax"]')
   const rows = () => host.querySelector('[data-syntax-rows]')
 
-  it('opens by default and lists the syntax', () => {
+  it('stays out of the way until it is asked for', () => {
     boot()
-    expect(toggle().getAttribute('aria-expanded')).toBe('true')
+    expect(drawer()).toBeNull()
+    expect(rows()).toBeNull()
+  })
+
+  it('opens in the drawer on the right, and lists the syntax', () => {
+    boot()
+    openWith('Syntax reference')
+    expect(drawer()).not.toBeNull()
     expect(rows()!.querySelectorAll('dt').length).toBeGreaterThan(10)
   })
 
-  it('caps its height rather than pushing the editor off the top', () => {
+  it('groups the entries under headings rather than one flat list', () => {
     boot()
-    // The reference is far longer than the column, so it scrolls in its own
-    // right instead of stretching the page.
-    expect(rows()!.className).toMatch(/max-h-/)
-    expect(rows()!.className).toMatch(/overflow-y-auto/)
+    openWith('Syntax reference')
+    const headings = [...rows()!.querySelectorAll('h3')].map((h) => h.textContent!.trim())
+    expect(headings.length).toBeGreaterThan(2)
+    expect(headings).toContain('Qubits and superpositions')
   })
 
-  it('collapses away entirely', () => {
+  it('keeps the two grammars on their own tabs', () => {
     boot()
-    toggle().click()
+    openWith('Syntax reference')
+    const tab = (label: string) =>
+      [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+        (t) => t.textContent?.trim() === label,
+      )!
+    expect(rows()!.textContent).toContain('Superposition')
+    tab('Circuits').click()
     flushSync()
-    expect(toggle().getAttribute('aria-expanded')).toBe('false')
-    expect(rows()).toBeNull()
-    // The tabs go with it.
-    expect(host.querySelector('[role="tablist"]')).toBeNull()
+    expect([...rows()!.querySelectorAll('h3')].map((h) => h.textContent!.trim()))
+      .toContain('Controlled gates')
+    expect(rows()!.textContent).not.toContain('Superposition')
   })
 
-  it('stays collapsed across a reload', () => {
+  it('scrolls its body while the tabs stay put', () => {
     boot()
-    toggle().click()
-    flushSync()
-    expect(localStorage.getItem('misty.v1')).toContain('"helpOpen":false')
-
-    unmount(app!)
-    app = undefined
-    boot()
-    expect(rows()).toBeNull()
-  })
-})
-
-describe('zoom', () => {
-  const label = () =>
-    [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Zoom')!
-  const slider = () => host.querySelector('input[type="range"]') as HTMLInputElement
-  const readout = () => host.querySelector('.font-mono.text-slate-500')?.textContent?.trim()
-
-  const setZoom = (v: number) => {
-    const el = slider()
-    el.value = String(v)
-    el.dispatchEvent(new Event('input', { bubbles: true }))
-    flushSync()
-  }
-
-  it('has no separate reset button — the label does it', () => {
-    boot()
-    expect([...host.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Reset'))
-      .toBe(false)
-    expect(label()).toBeTruthy()
+    openWith('Syntax reference')
+    // The reference is far longer than the panel, so the panel gives it a
+    // scrolling region rather than growing past the bottom of the window.
+    const body = drawer()!.querySelector('.overflow-y-auto')!
+    expect(body.contains(rows())).toBe(true)
+    expect(drawer()!.querySelector('[role="tablist"]')!.className).toMatch(/sticky/)
   })
 
-  it('resets to 100% when the label is clicked', () => {
+  it('closes again from the same button', () => {
     boot()
-    setZoom(2)
-    expect(readout()).toBe('200%')
-    label().click()
+    const btn = openWith('Syntax reference')
+    expect(btn.getAttribute('aria-pressed')).toBe('true')
+    btn.click()
     flushSync()
-    expect(readout()).toBe('100%')
+    expect(drawer()).toBeNull()
   })
 
-  it('greys the label out when there is nothing to reset', () => {
+  it('gives way to settings rather than sharing the drawer', () => {
     boot()
-    expect(label().hasAttribute('disabled')).toBe(true)
-    setZoom(1.5)
-    expect(label().hasAttribute('disabled')).toBe(false)
-  })
-
-  it('zooms on a scroll over the drawing', () => {
-    boot()
-    const area = host.querySelector('[role="img"]')!
-    area.dispatchEvent(new WheelEvent('wheel', { deltaY: -200, bubbles: true, cancelable: true }))
-    flushSync()
-    expect(readout()).not.toBe('100%')
-    const zoomedIn = readout()!
-    area.dispatchEvent(new WheelEvent('wheel', { deltaY: 400, bubbles: true, cancelable: true }))
-    flushSync()
-    expect(parseInt(readout()!)).toBeLessThan(parseInt(zoomedIn))
-  })
-
-  it('stays within the slider range however hard you scroll', () => {
-    boot()
-    const area = host.querySelector('[role="img"]')!
-    for (let i = 0; i < 40; i++) {
-      area.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, bubbles: true, cancelable: true }))
-    }
-    flushSync()
-    expect(parseInt(readout()!)).toBe(300)
-    for (let i = 0; i < 80; i++) {
-      area.dispatchEvent(new WheelEvent('wheel', { deltaY: 400, bubbles: true, cancelable: true }))
-    }
-    flushSync()
-    expect(parseInt(readout()!)).toBe(25)
-  })
-
-  it('leaves a modified scroll to the browser', () => {
-    boot()
-    const area = host.querySelector('[role="img"]')!
-    const e = new WheelEvent('wheel', { deltaY: -200, ctrlKey: true, bubbles: true, cancelable: true })
-    area.dispatchEvent(e)
-    flushSync()
-    expect(readout()).toBe('100%')
-    expect(e.defaultPrevented).toBe(false)
-  })
-})
-
-describe('the syntax reference on a narrow screen', () => {
-  const dialogButton = () =>
-    [...host.querySelectorAll('button')].find(
-      (b) => b.getAttribute('aria-label') === 'Syntax reference',
-    )!
-
-  it('offers a button beside Settings, with an icon', () => {
-    boot()
-    expect(dialogButton()).toBeTruthy()
-    expect(dialogButton().querySelector('svg')).not.toBeNull()
-    // Hidden once the side column has room for the reference itself.
-    expect(dialogButton().className).toMatch(/lg:hidden/)
-  })
-
-  it('opens the reference in a dialog, with no fold-away header inside it', () => {
-    boot()
-    expect(host.querySelector('[role="dialog"][aria-label="Syntax reference"]')).toBeNull()
-    dialogButton().click()
-    flushSync()
-    const dialog = host.querySelector('[role="dialog"][aria-label="Syntax reference"]')!
-    expect(dialog).not.toBeNull()
-    expect(dialog.querySelectorAll('dt').length).toBeGreaterThan(10)
-    // Nothing to collapse in a dialog that is already the reference.
-    expect(dialog.querySelector('[aria-expanded]')).toBeNull()
-  })
-
-  it('closes again', () => {
-    boot()
-    dialogButton().click()
-    flushSync()
-    const close = host.querySelector(
-      'button[aria-label="Close the syntax reference"]',
-    ) as HTMLElement
-    close.click()
-    flushSync()
-    expect(host.querySelector('[role="dialog"][aria-label="Syntax reference"]')).toBeNull()
+    openWith('Syntax reference')
+    openWith('Settings')
+    expect(drawer()).toBeNull()
+    expect(host.querySelector('aside[aria-label="Settings"]')).not.toBeNull()
+    openWith('Syntax reference')
+    expect(host.querySelector('aside[aria-label="Settings"]')).toBeNull()
+    expect(drawer()).not.toBeNull()
   })
 })
 
@@ -476,7 +396,9 @@ describe('the correctness badge', () => {
     boot()
     setSource('00|01 = 0(0|-1)')
     expect(badge()!.textContent).toContain("Doesn't check out")
-    expect(badge()!.getAttribute('title')).toMatch(/not the same state/)
+    // The line has room to say what went wrong, so it says it rather than
+    // keeping it in a tooltip.
+    expect(badge()!.textContent).toMatch(/not the same state/)
   })
 
   it('still draws the wrong diagram', () => {
@@ -1130,5 +1052,168 @@ describe('animation controls', () => {
     expect(at()).toBe('-0s')
     expect(running()).toBe(true)
     expect(host.textContent).toContain('1/4')
+  })
+})
+
+/**
+ * The two toggles that change how a figure is read rather than what it says.
+ *
+ * Both live beside the zoom, and both are off to begin with — a reader who has
+ * not asked to step through a circuit should not be given a row of controls
+ * over the drawing.
+ */
+describe('reading a circuit another way', () => {
+  const STEPPED = 'in 001\nSWAP 2 3\nCNOT 2 -> 1; X 3'
+  const toggle = (label: string) =>
+    [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+  const stepSlider = () =>
+    host.querySelector('input[aria-label="Step through the circuit"]') as HTMLInputElement | null
+  const stepTo = (value: number) => {
+    const el = stepSlider()!
+    el.value = String(value)
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    flushSync()
+  }
+
+  it('offers stepping only once there is a gate to step past', () => {
+    boot()
+    setSource('00|11')
+    expect(toggle('Step')).toBeUndefined()
+    setSource(STEPPED)
+    expect(toggle('Step')).toBeTruthy()
+  })
+
+  it('shows no controls until asked, then a slider over the layers', () => {
+    boot()
+    setSource(STEPPED)
+    expect(stepSlider()).toBeNull()
+    toggle('Step')!.click()
+    flushSync()
+    expect(stepSlider()!.max).toBe('2')
+    expect(host.textContent).toContain('before any gate')
+  })
+
+  it('redraws as it is stepped, and says where it has got to', () => {
+    boot()
+    setSource(STEPPED)
+    toggle('Step')!.click()
+    flushSync()
+    const start = diagram().outerHTML
+    stepTo(1)
+    expect(diagram().outerHTML).not.toBe(start)
+    expect(host.textContent).toContain('after 1 of 2')
+    stepTo(2)
+    expect(host.textContent).toContain('after the last gate')
+  })
+
+  it('puts the controls away when the next diagram has nothing to step', () => {
+    boot()
+    setSource(STEPPED)
+    toggle('Step')!.click()
+    flushSync()
+    setSource('00|11')
+    expect(stepSlider()).toBeNull()
+  })
+
+  it('writes the state out in Dirac notation, following the step', () => {
+    boot()
+    setSource(STEPPED)
+    toggle('|ψ⟩')!.click()
+    flushSync()
+    expect(host.textContent).toContain('|111⟩')
+
+    toggle('Step')!.click()
+    flushSync()
+    // The written state has to be the one drawn above it, not the last one.
+    expect(host.textContent).toContain('|001⟩')
+    stepTo(1)
+    expect(host.textContent).toContain('|010⟩')
+  })
+
+  it('offers the writing for a bare state too', () => {
+    boot()
+    setSource('00|11')
+    toggle('|ψ⟩')!.click()
+    flushSync()
+    expect(host.textContent).toContain('(|00⟩ + |11⟩)/√2')
+  })
+})
+
+/**
+ * The gallery of gates.
+ *
+ * A name says nothing about what a gate looks like on the page, and knowing
+ * which glyph you are after is half of writing one of these figures — so this
+ * tab draws each one rather than describing it.
+ */
+describe('the gate gallery', () => {
+  const open = () => {
+    const btn = [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Syntax reference',
+    )!
+    btn.click()
+    flushSync()
+    const tab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+      (t) => t.textContent?.trim() === 'Gates',
+    )!
+    tab.click()
+    flushSync()
+  }
+  const gallery = () => host.querySelector('[data-gate-gallery]')
+
+  it('is a third tab beside the two grammars', () => {
+    boot()
+    open()
+    expect(gallery()).not.toBeNull()
+    // The written reference gives way to it rather than sitting underneath.
+    expect(host.querySelector('[data-syntax-rows]')).toBeNull()
+  })
+
+  it('draws every gate rather than describing it', () => {
+    boot()
+    open()
+    const swatches = gallery()!.querySelectorAll('svg')
+    expect(swatches.length).toBeGreaterThan(12)
+    // Drawn by the real renderer, so a gate that stopped drawing shows up here.
+    for (const svg of swatches) expect(svg.querySelector('rect, path, line')).not.toBeNull()
+  })
+
+  it('shows the line that draws each one', () => {
+    boot()
+    open()
+    const codes = [...gallery()!.querySelectorAll('code')].map((c) => c.textContent!.trim())
+    expect(codes).toContain('H 1')
+    expect(codes).toContain('CNOT 1 2')
+    expect(codes).toContain('TOFFOLI 1 2 3')
+    expect(codes).toContain('CNOT "Oracle" 1 3')
+    expect(codes).toContain('measure 1 Z')
+  })
+
+  it('groups by how many wires a gate takes', () => {
+    boot()
+    open()
+    const headings = [...gallery()!.querySelectorAll('h3')].map((h) => h.textContent!.trim())
+    expect(headings).toEqual(['One wire', 'Two or more wires', 'Boxes'])
+  })
+
+  it('draws in the theme the diagram is using', () => {
+    boot()
+    open()
+    const before = gallery()!.innerHTML
+    // The isometric theme projects its bodies, so the markup has to change.
+    const btn = [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Settings',
+    )!
+    btn.click()
+    flushSync()
+    const iso = [...host.querySelectorAll<HTMLElement>('aside button')].find((b) =>
+      b.textContent?.includes('Isometric'),
+    )!
+    iso.click()
+    flushSync()
+    btn.click()
+    flushSync()
+    open()
+    expect(gallery()!.innerHTML).not.toBe(before)
   })
 })

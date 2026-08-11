@@ -174,6 +174,25 @@ whole rows.)
 The written `in` and `out` states are left undrawn, since the travelling qubits
 are them.
 
+**Saving one.** The SVG plays by itself, which suits a web page and nothing
+else. **Save → Animated GIF** and **MP4 video** encode the run for everywhere
+that will not take an SVG — slides, a document, a message. Both are drawn from
+the same timeline the SVG's keyframes come from, sampled rather than played, so
+a saved file and what was on screen cannot disagree.
+
+A GIF plays anywhere and loops by itself, at the cost of 256 colours — nothing
+on flat line art, visible banding on the isometric theme's gradients. An MP4 is
+several times smaller and keeps the colour, but wants WebCodecs, so it is
+offered only where the browser has it. `loop=off` reaches the file: a GIF made
+from it plays once rather than sitting there restarting.
+
+Settings chooses the frame rate — 25, 30, 50 or 60. A GIF holds its timing in
+hundredths of a second and nothing finer, so it is sampled at the nearest rate
+it can actually express: ask for 30 and the file runs at 33⅓, keeping the run's
+true length rather than drifting from it. Higher rates cost size sharply — a
+two-second figure is about 460 kB at 30 and 700 kB at 60 — which is the case for
+MP4 where the browser can make one.
+
 **Controls.** An animation gets a toolbar of its own below the figure's name:
 back to the start, a step either way, play/pause, repeat, and a scrubber marked
 with the keyframes. Stepping *plays* the piece between two stops rather than
@@ -303,9 +322,11 @@ out 000|111
 | `qubits 3` | Widen the register. Rarely needed — it is inferred from the gates and the `in`/`out` states |
 | `H 2` | Single-qubit gate. Also `X Y Z S T`, and `PETE` as an alias for `H` |
 | `I 2` | Identity — drawn as plain pipe, so it just holds a slot in the layer |
-| `CNOT 3 -> 2` | Control 3, target 2. `CX` is an alias |
-| `TOFFOLI 1 2 -> 3` | Two controls. `CCNOT`/`CCX` are aliases |
+| `CNOT 3 -> 2` | Control 3, target 2. `CX` is an alias; the arrow is optional, so `CNOT 3 2` reads the same |
+| `TOFFOLI 1 2 -> 3` | Two controls. `CCNOT`/`CCX` are aliases; `TOFFOLI 1 2 3` too |
 | `CZ 1 2` | Controlled-Z, drawn symmetrically |
+| `CNOT "Oracle" 1 -> 2` | A quoted name **before** the wires stands on the target, in place of the ⊕ |
+| `CNOT 1 -> 2 "Tiger?"` | A quoted name **after** them labels the link between the wires |
 | `SWAP 1 2` | Swap two qubits |
 | `measure 2 Z` | Measurement in a basis. `M` is an alias; the basis defaults to `Z` |
 | `box "Oracle" 1-3` | Custom labelled box spanning a range; add `fill=#e3efe3` |
@@ -560,6 +581,36 @@ subtly wrong draws plausible diagrams rather than obvious errors:
 - a second implementation in `reference.ts` that builds dense matrices from
   Kronecker products and multiplies floating-point vectors through them — a
   different algorithm, run against the first on hundreds of random circuits
+
+### Charts
+
+`chart` — or `plot` — draws the state as a bar per basis state, the view the
+misty state cannot give. A cloud says *which* states are in a superposition;
+this puts them all on one scale, including the ones with nothing in them, which
+is what makes interference visible: a term that has cancelled is a bar that is
+not there.
+
+```
+in 00
+H 1
+H 2
+CZ 1 2
+chart
+```
+
+It goes exactly where a table goes — `out chart` or a line of its own, nothing
+after it — and takes a caption and a note the same way.
+
+Amplitudes are the default, because the sign is the half a probability throws
+away, and the half that does the interfering. `chart(probability)` plots the
+chances instead, all positive and labelled with the odds. Both are normalised,
+unlike the table's amplitude column: a bar's height is a share of the whole
+state, so it has to be on the scale where that means something.
+
+The half below the axis is drawn only when something is down there. Past five
+wires the empty bars are dropped — 32 bars is already a smear rather than a
+reading — and past a measurement there is no single statevector left, so the
+bars become the outcomes and their chances, which is what the table lists.
 
 ### Layers
 
@@ -824,7 +875,12 @@ MistyStates.themes                                   // ['solid', 'flat', 'isome
 ```
 
 Render options (`theme`, `dark`, `background`, `scale`, `metrics`, `shapeOrder`)
-are accepted by every render call. Parse errors throw with the column-level
+are accepted by every render call. Two of them are ways of *reading* a figure
+rather than parts of it: `step: n` works the state out after `n` layers and
+draws it in the middle of the circuit, and every result carries `dirac` — the
+state it ends on, written `(|00⟩ + |11⟩)/√2`, one line per outcome once a
+measurement has left more than one. `layers` says how many there are to step
+through. Parse errors throw with the column-level
 message the editor shows.
 
 Whether a source is a state or a circuit is worked out automatically — the two
@@ -849,6 +905,7 @@ src/lib/
   circuit/             circuit AST, parser (incl. layer scheduling), layout
     simulate.ts        exact-integer simulation behind `calculate`
     reference.ts       a second, dense implementation, used only to disagree
+  chart/layout.ts      the statevector plot: a bar per basis state
   render/
     primitives.ts      positioned, theme-agnostic drawing instructions
     cloud.ts           cloud outline generation
@@ -867,7 +924,9 @@ src/
   App.svelte           the editor
   Viewer.svelte        the bare image view for ?format=
   components/
+    SidePanel.svelte       the drawer on the right, shared by both panels below
     SettingsPanel.svelte   style, appearance and library import/export
+    SyntaxHelp.svelte      the syntax reference, grouped by what you are doing
     LibraryEditor.svelte   arranging the library: names, groups, order
 scripts/
   render-examples.ts   dump every example to SVG for eyeballing

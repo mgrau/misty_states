@@ -3,7 +3,8 @@
    * Dismissable settings, slid in from the right.
    *
    * Everything here changes how a diagram looks rather than what it says, so it
-   * is kept out of the editing column entirely.
+   * is kept out of the editing column entirely. It shares the drawer with the
+   * syntax reference — see `SidePanel` — so only one ever covers the drawing.
    */
   import { render } from '../lib/index'
   import { THEMES, THEME_IDS } from '../lib/render/themes'
@@ -13,6 +14,7 @@
   import { libraryStore, entryCount, replaceLibrary, resetLibrary } from '../lib/library-store.svelte'
   import { fromYaml, toYaml, LibraryFormatError } from '../lib/library-yaml'
   import { downloadText } from '../lib/export'
+  import SidePanel from './SidePanel.svelte'
 
   interface Props {
     open: boolean
@@ -22,10 +24,12 @@
     separator: 'bar' | 'comma'
     cloudFluff: number
     cloudPad: number
+    qubitSize: number
     factorCalculated: boolean
     exactOdds: boolean
     keepSign: boolean
     animateInside: boolean
+    movieFps: number
     checking: boolean
     shapeOrder: ShapeName[]
     onclose: () => void
@@ -36,10 +40,12 @@
     onseparatorchange: (separator: 'bar' | 'comma') => void
     oncloudfluffchange: (value: number) => void
     oncloudpadchange: (value: number) => void
+    onqubitsizechange: (value: number) => void
     onfactorchange: (factor: boolean) => void
     onexactoddschange: (exact: boolean) => void
     onkeepsignchange: (keep: boolean) => void
     oninsidechange: (inside: boolean) => void
+    onfpschange: (fps: number) => void
     oncheckingchange: (on: boolean) => void
     onshapeorderchange: (order: ShapeName[]) => void
   }
@@ -52,10 +58,12 @@
     separator,
     cloudFluff,
     cloudPad,
+    qubitSize,
     factorCalculated,
     exactOdds,
     keepSign,
     animateInside,
+    movieFps,
     checking,
     shapeOrder,
     onclose,
@@ -66,10 +74,12 @@
     onseparatorchange,
     oncloudfluffchange,
     oncloudpadchange,
+    onqubitsizechange,
     onfactorchange,
     onexactoddschange,
     onkeepsignchange,
     oninsidechange,
+    onfpschange,
     oncheckingchange,
     onshapeorderchange,
   }: Props = $props()
@@ -137,39 +147,7 @@
 </script>
 
 {#if open}
-  <!-- Click-away backdrop. -->
-  <button
-    type="button"
-    aria-label="Close settings"
-    onclick={onclose}
-    class="fixed inset-0 z-30 cursor-default bg-slate-900/10"
-  ></button>
-
-  <aside
-    class="fixed top-0 right-0 z-40 flex h-full w-80 flex-col overflow-y-auto border-l
-           border-slate-200 bg-white shadow-xl"
-    aria-label="Settings"
-  >
-    <header class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-      <h2 class="text-sm font-semibold text-slate-800">Settings</h2>
-      <button
-        type="button"
-        onclick={onclose}
-        aria-label="Close settings"
-        class="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-      >
-        <svg viewBox="0 0 20 20" class="h-4 w-4" aria-hidden="true">
-          <path
-            d="M5 5l10 10M15 5L5 15"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.8"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
-    </header>
-
+  <SidePanel title="Settings" {onclose}>
     <div class="flex flex-col gap-6 p-4">
       <!-- Theme ------------------------------------------------------------ -->
       <section class="flex flex-col gap-2">
@@ -362,6 +340,27 @@
           and the pair leaves together. Closed, qubits go in and qubits come out.
           A source's own <span class="font-mono">inside=off</span> overrides this.
         </p>
+
+        <div class="flex rounded-md border border-slate-200 p-0.5">
+          {#each [{ id: 25, label: '25 fps' }, { id: 30, label: '30 fps' }, { id: 50, label: '50 fps' }, { id: 60, label: '60 fps' }] as const as opt (opt.id)}
+            <button
+              type="button"
+              onclick={() => onfpschange(opt.id)}
+              aria-pressed={movieFps === opt.id}
+              class="flex-1 rounded px-2 py-1 text-xs transition-colors
+                     {movieFps === opt.id
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-600 hover:text-slate-900'}"
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="text-[11px] text-slate-400">
+          How smooth a saved GIF or MP4 is. Higher costs size and encoding time,
+          and a GIF holds its timing in hundredths of a second, so it plays at
+          the nearest rate it can express — 50 or 33⅓, not 60 or 30.
+        </p>
       </section>
 
       <!-- Checking ----------------------------------------------------------- -->
@@ -386,6 +385,30 @@
                    {checking ? 'left-4.5' : 'left-0.5'}"
           ></span>
         </button>
+      </section>
+
+      <!-- Qubit size --------------------------------------------------------- -->
+      <!--
+        Lives here rather than over the drawing: it is how big the figure is
+        drawn, which is settled once and then left alone, unlike zoom — and a
+        toolbar with two sliders in it reads as two ways of doing the same
+        thing.
+      -->
+      <section class="flex flex-col gap-2">
+        <h3 class="text-xs font-medium text-slate-500">Qubit size</h3>
+        <label class="flex items-center gap-2 text-[11px] text-slate-500">
+          <span class="w-12 shrink-0">Glyph</span>
+          <input
+            type="range"
+            min="16"
+            max="44"
+            step="1"
+            value={qubitSize}
+            oninput={(e) => onqubitsizechange(Number((e.currentTarget as HTMLInputElement).value))}
+            class="flex-1"
+          />
+          <span class="w-6 text-right font-mono">{qubitSize}</span>
+        </label>
       </section>
 
       <!-- Clouds ------------------------------------------------------------- -->
@@ -539,5 +562,5 @@
         <ShapeOrderList order={shapeOrder} onchange={onshapeorderchange} />
       </section>
     </div>
-  </aside>
+  </SidePanel>
 {/if}
