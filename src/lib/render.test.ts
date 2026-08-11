@@ -1040,3 +1040,42 @@ describe('determinism', () => {
     expect(a).toBe(b)
   })
 })
+
+/**
+ * Two drawings on one page.
+ *
+ * A drawing is a standalone SVG document and names its gradients and filters
+ * accordingly, which is right until two of them are inlined side by side. Then
+ * `url(#ms-pipe)` finds whichever came first — and if that one happens to sit
+ * in a hidden subtree, everything referring to it is painted with nothing.
+ */
+describe('naming what a drawing defines', () => {
+  const SRC = 'in 00\nH 1\nCNOT 1 2'
+
+  it('uses the shared names by default', () => {
+    const svg = render(SRC).svg
+    expect(svg).toContain('id="ms-pipe"')
+    expect(svg).toContain('url(#ms-pipe)')
+  })
+
+  it('renames both the definition and every reference to it', () => {
+    const svg = render(SRC, { idPrefix: 'pal' }).svg
+    expect(svg).toContain('id="pal-pipe"')
+    expect(svg).toContain('url(#pal-pipe)')
+    // Nothing left pointing at the other document's names.
+    expect(svg).not.toContain('ms-pipe')
+    expect(svg).not.toContain('ms-gate')
+    expect(svg).not.toContain('ms-shadow')
+  })
+
+  it('leaves the drawing otherwise identical', () => {
+    const plain = render(SRC).svg
+    const moved = render(SRC, { idPrefix: 'pal' }).svg
+    expect(moved.split('pal-').join('ms-')).toBe(plain)
+  })
+
+  it('covers an animation\'s definitions too', () => {
+    const svg = render('in 11\nCNOT 1 2\nanimate', { idPrefix: 'pal' }).svg
+    expect(svg).not.toContain('ms-pipe')
+  })
+})

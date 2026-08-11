@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
 import { layoutCircuit } from './layout'
 import {
-  asDroppable, dropTarget, gateAt, gateLine, insertGate, moveGate, removeGate,
+  asDroppable, cycleTarget, dropTarget, gateAt, gateLine, insertGate, moveGate, removeGate,
   type Droppable, type DropTarget,
 } from './edit'
 import { DEFAULT_METRICS } from '../render/primitives'
@@ -280,6 +280,70 @@ describe('moving a gate that is already there', () => {
           }
         }
       }
+    }
+  })
+})
+
+describe('moving a target round its own wires', () => {
+  /** Spin the first gate of a layer n times, reporting the line each time. */
+  const spin = (source: string, times: number, layer = 0, i = 0) => {
+    const out: string[] = []
+    let cur = source
+    for (let n = 0; n < times; n++) {
+      const doc = parseCircuit(cur)
+      const next = cycleTarget(cur, doc, doc.layers[layer].gates[i])
+      if (!next) return out.concat('(refused)')
+      cur = next.source
+      out.push(cur.split('\n')[next.line - 1])
+    }
+    return out
+  }
+
+  it('swaps the two wires of a CNOT and comes back', () => {
+    expect(spin('in 00\nCNOT 1 -> 2', 2)).toEqual(['CNOT 2 -> 1', 'CNOT 1 -> 2'])
+  })
+
+  it('goes round all three wires of a Toffoli', () => {
+    expect(spin('in 000\nTOFFOLI 1 2 3', 3)).toEqual([
+      'TOFFOLI 2 3 1',
+      'TOFFOLI 1 3 2',
+      'TOFFOLI 1 2 3',
+    ])
+  })
+
+  it('writes it back the way it was written', () => {
+    // The arrow only where there was one, and the keyword as it was typed.
+    expect(spin('in 00\nCNOT 1 2', 1)).toEqual(['CNOT 2 1'])
+    expect(spin('qubits 3\nCX 3 1', 1)).toEqual(['CX 1 3'])
+  })
+
+  it('keeps a name on whichever side it was on', () => {
+    expect(spin('in 00\nCNOT 1 2 "Tiger?"', 1)).toEqual(['CNOT 2 1 "Tiger?"'])
+    expect(spin('in 000\nCNOT "Oracle" 1 3', 1)).toEqual(['CNOT "Oracle" 3 1'])
+  })
+
+  it('leaves its line-mates alone', () => {
+    expect(spin('in 000\nH 3; CNOT 1 2', 1, 0, 1)).toEqual(['H 3; CNOT 2 1'])
+  })
+
+  it('refuses where there is no target to move', () => {
+    // Controlled-Z is symmetric, and a bare NOT has no controls to swap with.
+    expect(spin('in 00\nCZ 1 2', 1)).toEqual(['(refused)'])
+    expect(spin('in 00\nX 1', 1)).toEqual(['(refused)'])
+    expect(spin('in 00\nH 1', 1)).toEqual(['(refused)'])
+  })
+
+  it('never changes which wires the gate covers', () => {
+    const wires = (src: string) => {
+      const g = parseCircuit(src).layers[0].gates[0]
+      return g.kind === 'controlled' ? [...g.controls, g.target].sort() : []
+    }
+    let cur = 'in 000\nTOFFOLI 1 2 3'
+    const want = wires(cur)
+    for (let n = 0; n < 5; n++) {
+      const doc = parseCircuit(cur)
+      cur = cycleTarget(cur, doc, doc.layers[0].gates[0])!.source
+      expect(wires(cur)).toEqual(want)
     }
   })
 })

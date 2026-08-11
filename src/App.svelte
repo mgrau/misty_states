@@ -19,11 +19,12 @@
   import SyntaxHelp from './components/SyntaxHelp.svelte'
   import SettingsPanel from './components/SettingsPanel.svelte'
   import SidePanel from './components/SidePanel.svelte'
+  import GatePalette from './components/GatePalette.svelte'
   import MenuButton from './components/MenuButton.svelte'
   import MenuItems from './components/MenuItems.svelte'
   import type { MenuItem } from './components/menu'
   import {
-    asDroppable, dropTarget, gateAt, insertGate, moveGate,
+    asDroppable, cycleTarget, dropTarget, gateAt, insertGate, moveGate, removeGate,
     type Droppable, type Edit,
   } from './lib/circuit/edit'
   import { parseCircuit } from './lib/circuit/parse'
@@ -39,6 +40,7 @@
     dark: boolean
     shapeOrder: ShapeName[]
     qubitSize: number
+    paneWidth: number
     separator: 'bar' | 'comma'
     cloudFluff: number
     cloudPad: number
@@ -58,6 +60,7 @@
       dark: false,
       shapeOrder: [...DEFAULT_SHAPE_ORDER],
       qubitSize: 26,
+      paneWidth: 320,
       separator: 'bar',
       cloudFluff: 1,
       cloudPad: 14,
@@ -113,6 +116,32 @@
   let dark = $state(initial.dark)
   let shapeOrder = $state<ShapeName[]>(initial.shapeOrder)
   let qubitSize = $state(initial.qubitSize)
+
+  /**
+   * How wide the editing column is, in pixels.
+   *
+   * Dragged rather than fixed: how much room the source wants depends entirely
+   * on what is being written — a one-line state and a twenty-line circuit are
+   * not the same job — and the drawing wants whatever is left.
+   */
+  let paneWidth = $state(initial.paneWidth)
+  const PANE_MIN = 240
+  const PANE_MAX = 640
+
+  function resizePane(event: PointerEvent) {
+    event.preventDefault()
+    const from = event.clientX
+    const was = paneWidth
+    const move = (e: PointerEvent) => {
+      paneWidth = Math.min(PANE_MAX, Math.max(PANE_MIN, was + e.clientX - from))
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+  }
   let separator = $state<'bar' | 'comma'>(initial.separator)
   let cloudFluff = $state(initial.cloudFluff)
   let cloudPad = $state(initial.cloudPad)
@@ -171,6 +200,8 @@
   let dragPreview = $state.raw<Edit | null>(null)
   /** Where the pointer is, so the gate being carried can follow it. */
   let carriedAt = $state<{ x: number; y: number } | null>(null)
+  /** True while letting go would throw the carried gate away. */
+  let removing = $state(false)
   let held: {
     source: string
     doc: CircuitDoc
@@ -183,28 +214,6 @@
   /** The element the anchor compensation is applied to. */
   let anchorEl = $state<HTMLElement | undefined>()
   let previewEl = $state<HTMLElement | undefined>()
-
-  /**
-   * Whether the name-and-view block is showing on a narrow screen.
-   *
-   * Folded away by default there and always open once the columns sit side by
-   * side. On a phone the drawing is the scarce thing, and none of what is in
-   * there — what the figure is called, how big it is drawn — is needed while
-   * writing one.
-   */
-  let controlsOpen = $state(false)
-  let controlsEl = $state<HTMLElement | undefined>()
-
-  /**
-   * Bring it into view when it is opened.
-   *
-   * The column is capped on a phone and scrolls, so unfolding something at the
-   * bottom of it otherwise reveals a sliver and leaves the reader to work out
-   * that there is more below.
-   */
-  $effect(() => {
-    if (controlsOpen) controlsEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  })
 
   let stepOn = $state(false)
   let stepAt = $state(0)
@@ -252,7 +261,7 @@
 
   $effect(() => {
     const snapshot: Saved = {
-      source, name, theme, dark, shapeOrder, qubitSize, separator, cloudFluff, cloudPad,
+      source, name, theme, dark, shapeOrder, qubitSize, paneWidth, separator, cloudFluff, cloudPad,
       factorCalculated, exactOdds, keepSign, animateInside, movieFps, checking,
     }
     try {
@@ -718,7 +727,7 @@
     }
     pending = { gate, x: event.clientX, y: event.clientY }
     window.addEventListener('pointermove', onPendingMove)
-    window.addEventListener('pointerup', dropPending, { once: true })
+    window.addEventListener('pointerup', clickGate, { once: true })
   }
 
   function onPendingMove(event: PointerEvent) {
@@ -743,7 +752,25 @@
     window.removeEventListener('pointermove', onPendingMove)
   }
 
-  /** A press that went nowhere: a click, so nothing was picked up. */
+  /**
+   * A press that went nowhere is a click, and a click on a controlled gate
+   * moves its target to the next wire it covers.
+   *
+   * The wires are obvious from where the gate was dropped; which of them takes
+   * the ⊕ is not, and rewriting the line by hand to find out is the one edit
+   * that dragging left undone.
+   */
+  function clickGate() {
+    const gate = pending?.gate
+    forgetPending()
+    if (gate && held && !dragging) {
+      const spun = cycleTarget(held.source, held.doc, gate)
+      if (spun) source = spun.source
+    }
+    if (!dragging) held = null
+  }
+
+  /** Give up on a press without acting on it. */
   function dropPending() {
     forgetPending()
     if (!dragging) held = null
@@ -759,6 +786,18 @@
       over &&
       event.clientX >= over.left && event.clientX <= over.right &&
       event.clientY >= over.top && event.clientY <= over.bottom
+
+    // Off to the left with a gate out of the drawing: that is a deletion. To
+    // the left specifically, because that is away from the figure and towards
+    // the text — a pointer straying above or below is a slip, not an intent.
+    removing =
+      !inside && dragging.from === 'diagram' && !!over && event.clientX < over.left && !!held
+    if (removing && held && dragging.from === 'diagram') {
+      const cut = removeGate(held.source, held.doc, dragging.gate)
+      // Line 0 highlights nothing: what is being pointed at is no longer there.
+      dragPreview = cut ? { source: cut.source, line: 0 } : null
+      return
+    }
 
     if (!inside || !hold() || !held) {
       dragPreview = null
@@ -794,6 +833,7 @@
     dragging = null
     dragPreview = null
     carriedAt = null
+    removing = false
     held = null
     window.removeEventListener('pointermove', onCarryMove)
     window.removeEventListener('pointerup', onCarryUp)
@@ -1272,15 +1312,23 @@
   -->
   <div class="flex min-h-0 flex-1">
   <main
+    style="--misty-pane: {paneWidth}px;"
     class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-0
-           lg:grid-cols-[minmax(0,26rem)_1fr] lg:grid-rows-none
+           lg:grid-cols-[var(--misty-pane)_minmax(0,1fr)] lg:grid-rows-none
            {panel ? 'hidden sm:grid' : ''}"
   >
     <!-- Editor ------------------------------------------------------------ -->
+    <!--
+      A frame rather than one long scroll: the writing scrolls in the top of it
+      and the palette takes whatever is left, so the gates stay in view however
+      much source there is above them.
+    -->
     <section
-      class="flex max-h-[42vh] min-h-0 flex-col gap-3 overflow-y-auto border-slate-200 p-3
-             sm:p-4 lg:max-h-none lg:border-r"
+      class="flex max-h-[42vh] min-h-0 flex-col overflow-hidden border-slate-200
+             lg:max-h-none lg:border-r"
     >
+      <div class="flex min-h-0 flex-col gap-3 overflow-y-auto p-3 sm:p-4">
+
       <!--
         Side by side while the column is the whole page, so the two pickers cost
         one row's height rather than two and the drawing keeps the difference.
@@ -1340,6 +1388,36 @@
       {/if}
 
       <!--
+        Over the source rather than under it: what a figure is called and
+        whether it is in the library belong with the writing of it. No label —
+        a text box with "Untitled" in it beside a Save button says what it is.
+      -->
+      <div class="flex shrink-0 items-center gap-2 text-xs">
+        <input
+          bind:value={name}
+          placeholder="Untitled"
+          spellcheck="false"
+          aria-label="Diagram name"
+          class="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-slate-800
+                 focus:border-slate-500 focus:outline-none"
+        />
+        <button
+          type="button"
+          onclick={saveToLibrary}
+          disabled={!name.trim()}
+          title={savedEntry
+            ? 'Replace this diagram in the library'
+            : 'Add this diagram to the library'}
+          class="shrink-0 rounded border border-slate-300 bg-white px-2 py-1 text-slate-700
+                 hover:bg-slate-50 disabled:opacity-40"
+        >
+          <!-- Short, because the tooltip carries the sentence and the button
+               sits beside the name it is acting on. -->
+          {savedEntry ? 'Update' : 'Add'}
+        </button>
+      </div>
+
+      <!--
         `shrink-0`: the box has a minimum height, and a flex item that is
         allowed to shrink below its content would let the reference below it
         ride up over the box in a short window. The column scrolls instead.
@@ -1364,126 +1442,68 @@
         </p>
       {/if}
 
-      <!-- Mobile only: side by side there is room for the lot. -->
-      <button
-        type="button"
-        onclick={() => (controlsOpen = !controlsOpen)}
-        aria-expanded={controlsOpen}
-        class="flex items-center gap-1.5 border-t border-slate-200 pt-3 text-xs font-medium
-               text-slate-500 hover:text-slate-800 lg:hidden"
-      >
-        <Icon name="chevron" class="h-3.5 w-3.5 transition-transform {controlsOpen ? '' : '-rotate-90'}" />
-        Name and view
-      </button>
+
+      </div>
 
       <!--
-        Below the source, because they belong to the document rather than to
-        the view of it: what this diagram is called, whether it is in the
-        library, and how big it is drawn on screen. The bar over the drawing is
-        then only the things you do *to* the drawing.
+        The space the reference used to take, given to the gates themselves.
+        Only where there is room for it: on a phone the column is capped and
+        every row of it competes with the drawing. `min-h-32` so a very tall
+        source cannot squeeze it away entirely — past that the writing scrolls
+        instead.
       -->
-      <div
-        bind:this={controlsEl}
-        class="{controlsOpen ? 'grid' : 'hidden'} lg:grid grid-cols-[auto_minmax(0,1fr)_auto]
-               items-center gap-x-2 gap-y-2 border-slate-200 pt-3 text-xs lg:border-t"
-      >
-        <label for="misty-name" class="text-slate-500">Name</label>
-        <input
-          id="misty-name"
-          bind:value={name}
-          placeholder="Untitled"
-          spellcheck="false"
-          aria-label="Diagram name"
-          class="col-span-2 min-w-0 rounded border border-slate-300 px-2 py-1 text-slate-800
-                 focus:border-slate-500 focus:outline-none"
-        />
-
-        <button
-          type="button"
-          onclick={saveToLibrary}
-          disabled={!name.trim()}
-          title={savedEntry
-            ? 'Replace this diagram in the library'
-            : 'Add this diagram to the library'}
-          class="col-start-2 justify-self-start rounded border border-slate-300 bg-white px-2 py-1
-                 text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-        >
-          {savedEntry ? 'Update in Library' : 'Save to Library'}
-        </button>
-
-<!--
-          Ways of reading the diagram rather than parts of it, so they sit with
-          the zoom rather than in the bar over the drawing, which is for what
-          you do *to* a figure.
-        -->
-        {#if canStep || dirac?.length}
-          <div class="col-start-2 flex flex-wrap items-center gap-1.5">
-            {#if canStep}
-              <button
-                type="button"
-                onclick={() => (stepOn = !stepOn)}
-                aria-pressed={stepOn}
-                title={stepOn
-                  ? 'Show the whole circuit'
-                  : 'Work through the circuit a layer at a time'}
-                class="flex items-center gap-1.5 rounded border px-2 py-1 transition-colors
-                       {stepOn
-                  ? 'border-slate-800 bg-slate-800 text-white'
-                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
-              >
-                <Icon name="layers" />
-                Step
-              </button>
-            {/if}
-
-            {#if dirac?.length}
-              <button
-                type="button"
-                onclick={() => (diracOn = !diracOn)}
-                aria-pressed={diracOn}
-                title={diracOn ? 'Hide the state as text' : 'Write the state in Dirac notation'}
-                class="flex items-center gap-1 rounded border px-2 py-1 font-mono
-                       transition-colors
-                       {diracOn
-                  ? 'border-slate-800 bg-slate-800 text-white'
-                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
-              >
-                |ψ⟩
-              </button>
-            {/if}
-          </div>
-        {/if}
-
-        <!-- The label is the reset: a separate button for one value is a
-             button too many, and "Zoom" is already pointing at the thing. -->
-        <button
-          type="button"
-          onclick={() => (zoom = 1)}
-          disabled={zoom === 1}
-          title="Back to 100%"
-          class="col-start-1 rounded text-left text-slate-500 hover:bg-slate-100
-                 hover:text-slate-800 disabled:hover:bg-transparent disabled:hover:text-slate-500"
-        >
-          Zoom
-        </button>
-        <input
-          type="range"
-          min={ZOOM_MIN}
-          max={ZOOM_MAX}
-          step="0.05"
-          bind:value={zoom}
-          class="min-w-0"
-          aria-label="Zoom"
-        />
-        <span class="w-10 text-right font-mono text-slate-500">{Math.round(zoom * 100)}%</span>
+      <div class="hidden min-h-32 flex-1 flex-col px-3 pb-3 sm:px-4 sm:pb-4 lg:flex">
+        <GatePalette {theme} {dark} onpick={carryNew} />
       </div>
     </section>
 
     <!-- Preview ----------------------------------------------------------- -->
-    <section class="flex min-h-0 flex-col">
+    <section class="relative flex min-h-0 flex-col">
+      <!--
+        The divider, on this side of the line because the column opposite
+        scrolls and would clip anything hanging off its edge. Wide enough to
+        catch a pointer without being wide enough to see, and only where the
+        columns are side by side — stacked, there is no width to trade.
+      -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        onpointerdown={resizePane}
+        class="absolute top-0 left-0 z-20 hidden h-full w-2 -translate-x-1/2 cursor-col-resize
+               hover:bg-slate-300/60 lg:block"
+      ></div>
       <div
         class="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2 text-xs"
       >
+        <!--
+          At the near end of the bar, away from the file actions: it says how
+          the drawing is being looked at, not what is being done to it. Only
+          where there is room — on a phone a slider across the bar costs more
+          than the drawing can spare, and Settings has one. Pinch and scroll
+          work everywhere regardless.
+        -->
+        <div class="hidden items-center gap-1.5 lg:flex">
+          <button
+            type="button"
+            onclick={() => (zoom = 1)}
+            disabled={zoom === 1}
+            title="Back to 100%"
+            class="rounded px-1 py-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800
+                   disabled:hover:bg-transparent disabled:hover:text-slate-500"
+          >
+            Zoom
+          </button>
+          <input
+            type="range"
+            min={ZOOM_MIN}
+            max={ZOOM_MAX}
+            step="0.05"
+            bind:value={zoom}
+            class="w-24"
+            aria-label="Zoom"
+          />
+          <span class="w-9 font-mono text-slate-500">{Math.round(zoom * 100)}%</span>
+        </div>
+
         {#if hasAnswer}
           <button
             type="button"
@@ -1817,6 +1837,16 @@
     {movieFps}
     {checking}
     {shapeOrder}
+    {canStep}
+    {stepOn}
+    {diracOn}
+    {zoom}
+    zoomMin={ZOOM_MIN}
+    zoomMax={ZOOM_MAX}
+    onzoomchange={(v: number) => (zoom = v)}
+    hasDirac={!!dirac?.length}
+    onstepchange={(v: boolean) => (stepOn = v)}
+    ondiracchange={(v: boolean) => (diracOn = v)}
     onclose={() => (panel = null)}
     oneditlibrary={() => {
       panel = null
@@ -1888,7 +1918,10 @@
     -->
     <div
       class="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded border
-             border-slate-400 bg-white/90 px-2 py-1 font-mono text-xs text-slate-700 shadow-lg"
+             px-2 py-1 font-mono text-xs shadow-lg
+             {removing
+        ? 'border-red-400 bg-red-50/95 text-red-700 line-through'
+        : 'border-slate-400 bg-white/90 text-slate-700'}"
       style="left: {carriedAt.x}px; top: {carriedAt.y}px;"
     >
       {dragging.from === 'palette' ? dragging.gate.head : asDroppable(dragging.gate).head}

@@ -32,6 +32,14 @@
     movieFps: number
     checking: boolean
     shapeOrder: ShapeName[]
+    /** Whether the drawing has layers to step through, and text to write out. */
+    canStep: boolean
+    hasDirac: boolean
+    stepOn: boolean
+    diracOn: boolean
+    zoom: number
+    zoomMin: number
+    zoomMax: number
     onclose: () => void
     oneditlibrary: () => void
     onthemechange: (theme: ThemeId) => void
@@ -48,6 +56,9 @@
     onfpschange: (fps: number) => void
     oncheckingchange: (on: boolean) => void
     onshapeorderchange: (order: ShapeName[]) => void
+    onstepchange: (on: boolean) => void
+    ondiracchange: (on: boolean) => void
+    onzoomchange: (zoom: number) => void
   }
 
   const {
@@ -66,6 +77,13 @@
     movieFps,
     checking,
     shapeOrder,
+    canStep,
+    hasDirac,
+    stepOn,
+    diracOn,
+    zoom,
+    zoomMin,
+    zoomMax,
     onclose,
     oneditlibrary,
     onthemechange,
@@ -82,6 +100,9 @@
     onfpschange,
     oncheckingchange,
     onshapeorderchange,
+    onstepchange,
+    ondiracchange,
+    onzoomchange,
   }: Props = $props()
 
   /**
@@ -149,6 +170,84 @@
 {#if open}
   <SidePanel title="Settings" {onclose}>
     <div class="flex flex-col gap-6 p-4">
+      <!-- This diagram ----------------------------------------------------- -->
+      <!--
+        How the figure on screen is read, rather than settings that outlive it.
+        Zoom always applies; the other two appear only while there is something
+        to step through or write out.
+      -->
+      <section class="flex flex-col gap-2">
+        <h3 class="text-xs font-medium text-slate-500">This diagram</h3>
+
+        <!--
+          Scroll and pinch zoom the drawing directly, which is what anyone
+          reaches for. The slider is here for when a figure wants a particular
+          size rather than whatever the wheel landed on — and it is the only way
+          on a phone, where a slider in the editing column costs a row that the
+          drawing wants more.
+        -->
+        <label class="flex items-center gap-2 text-[11px] text-slate-500">
+          <button
+            type="button"
+            onclick={() => onzoomchange(1)}
+            disabled={zoom === 1}
+            title="Back to 100%"
+            class="w-12 shrink-0 text-left hover:text-slate-800 disabled:hover:text-slate-500"
+          >
+            Zoom
+          </button>
+          <input
+            type="range"
+            min={zoomMin}
+            max={zoomMax}
+            step="0.05"
+            value={zoom}
+            oninput={(e) => onzoomchange(Number((e.currentTarget as HTMLInputElement).value))}
+            class="min-w-0 flex-1"
+            aria-label="Zoom"
+          />
+          <span class="w-9 text-right font-mono">{Math.round(zoom * 100)}%</span>
+        </label>
+
+        {#if canStep}
+          <label class="flex items-center gap-2 text-[11px] text-slate-500">
+            <button
+              type="button"
+              onclick={() => onstepchange(!stepOn)}
+              aria-pressed={stepOn}
+              aria-label="Step through the circuit"
+              class="relative h-5 w-9 shrink-0 rounded-full transition-colors
+                     {stepOn ? 'bg-slate-800' : 'bg-slate-300'}"
+            >
+              <span
+                class="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all
+                       {stepOn ? 'left-4.5' : 'left-0.5'}"
+              ></span>
+            </button>
+            Work through the circuit a layer at a time
+          </label>
+        {/if}
+
+        {#if hasDirac}
+          <label class="flex items-center gap-2 text-[11px] text-slate-500">
+            <button
+              type="button"
+              onclick={() => ondiracchange(!diracOn)}
+              aria-pressed={diracOn}
+              aria-label="Write the state in Dirac notation"
+              class="relative h-5 w-9 shrink-0 rounded-full transition-colors
+                     {diracOn ? 'bg-slate-800' : 'bg-slate-300'}"
+            >
+              <span
+                class="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all
+                       {diracOn ? 'left-4.5' : 'left-0.5'}"
+              ></span>
+            </button>
+            Write the state out as |ψ⟩
+          </label>
+        {/if}
+      </section>
+
       <!-- Theme ------------------------------------------------------------ -->
       <section class="flex flex-col gap-2">
         <h3 class="text-xs font-medium text-slate-500">Style</h3>

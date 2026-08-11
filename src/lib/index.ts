@@ -65,6 +65,17 @@ export interface RenderOptions {
    */
   step?: number | null
   /**
+   * Rename the ids this drawing defines.
+   *
+   * A drawing is a standalone SVG document and names its gradients and filters
+   * accordingly. Put two on one page and the names collide — `url(#ms-pipe)`
+   * finds whichever came first, and if that one happens to sit in a hidden
+   * subtree the shapes referring to it are painted with nothing at all. Give
+   * each surface that inlines a drawing its own prefix and they stop reaching
+   * into each other.
+   */
+  idPrefix?: string
+  /**
    * Mark the gate written on this source line as being placed.
    *
    * For a drag: the drawing shows what dropping here would give, and this says
@@ -259,6 +270,22 @@ function diracForState(doc: StateDoc): string[] | undefined {
   return attempt(() => [diracOf(sideAmplitudes(side))])
 }
 
+/** Every id the emitters define, so a rename can be exact rather than fuzzy. */
+const DEFINED_IDS = [
+  'ms-pipe', 'ms-gate', 'ms-shadow', 'ms-qubit-shadow', 'ms-qubit-lit', 'ms-qubit-dim',
+]
+
+/** The same drawing with its ids under a different name. */
+function renamed(svg: string, prefix: string): string {
+  if (prefix === 'ms') return svg
+  let out = svg
+  for (const id of DEFINED_IDS) {
+    const to = id.replace(/^ms/, prefix)
+    out = out.split(`id="${id}"`).join(`id="${to}"`).split(`url(#${id})`).join(`url(#${to})`)
+  }
+  return out
+}
+
 export function render(source: string, opts: RenderOptions = {}): RenderResult {
   const metrics: Metrics = { ...DEFAULT_METRICS, ...opts.metrics }
   const shapeOrder = opts.shapeOrder ?? DEFAULT_SHAPE_ORDER
@@ -351,7 +378,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
           background: opts.background,
         })
     return {
-      svg,
+      svg: renamed(svg, opts.idPrefix ?? 'ms'),
       kind,
       width: run.box.w + theme.bleed.left + theme.bleed.right,
       height: run.box.h + theme.bleed.top + theme.bleed.bottom,
@@ -372,7 +399,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
   })
 
   return {
-    svg,
+    svg: renamed(svg, opts.idPrefix ?? 'ms'),
     kind,
     width: layout.box.w + theme.bleed.left + theme.bleed.right,
     height: layout.box.h + theme.bleed.top + theme.bleed.bottom,

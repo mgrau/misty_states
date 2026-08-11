@@ -474,32 +474,32 @@ describe('naming a diagram and saving it to the library', () => {
 
   it('will not save without a name', () => {
     boot()
-    expect(button('Save to Library')!.hasAttribute('disabled')).toBe(true)
+    expect(button('Add')!.hasAttribute('disabled')).toBe(true)
   })
 
   it('saves, and then offers to update rather than add again', () => {
     boot()
     setName('Bell pair')
-    button('Save to Library')!.click()
+    button('Add')!.click()
     flushSync()
-    expect(button('Update in Library')).toBeTruthy()
-    expect(button('Save to Library')).toBeUndefined()
+    expect(button('Update')).toBeTruthy()
+    expect(button('Add')).toBeUndefined()
     expect(localStorage.getItem('misty.library.v1')).toContain('Bell pair')
   })
 
   it('offers to update as soon as a name already in the library is typed', () => {
     replaceLibrary({ groups: [{ label: 'X', entries: [{ id: 'a', title: 'Bell pair', source: '0' }] }] })
     boot()
-    expect(button('Save to Library')).toBeTruthy()
+    expect(button('Add')).toBeTruthy()
     setName('bell PAIR')
-    expect(button('Update in Library')).toBeTruthy()
+    expect(button('Update')).toBeTruthy()
   })
 
   it('reveals the library picker, which was hidden while empty', () => {
     boot()
     expect(host.querySelectorAll('select')).toHaveLength(1)
     setName('Bell pair')
-    button('Save to Library')!.click()
+    button('Add')!.click()
     flushSync()
     expect(host.querySelectorAll('select')).toHaveLength(2)
   })
@@ -1064,8 +1064,25 @@ describe('animation controls', () => {
  */
 describe('reading a circuit another way', () => {
   const STEPPED = 'in 001\nSWAP 2 3\nCNOT 2 -> 1; X 3'
-  const toggle = (label: string) =>
-    [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)
+  /**
+   * The two view switches live in the settings drawer, so reaching one means
+   * opening it. They are found by what they do rather than by their text, which
+   * is a sentence there rather than a word on a button.
+   */
+  const toggle = (label: string) => {
+    const settings = [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Settings',
+    )!
+    if (!host.querySelector('aside[aria-label="Settings"]')) {
+      settings.click()
+      flushSync()
+    }
+    return [...host.querySelectorAll<HTMLButtonElement>('aside button')].find(
+      (b) => b.getAttribute('aria-label') === label,
+    )
+  }
+  const STEP = 'Step through the circuit'
+  const DIRAC = 'Write the state in Dirac notation'
   const stepSlider = () =>
     host.querySelector('input[aria-label="Step through the circuit"]') as HTMLInputElement | null
   const stepTo = (value: number) => {
@@ -1078,16 +1095,16 @@ describe('reading a circuit another way', () => {
   it('offers stepping only once there is a gate to step past', () => {
     boot()
     setSource('00|11')
-    expect(toggle('Step')).toBeUndefined()
+    expect(toggle(STEP)).toBeUndefined()
     setSource(STEPPED)
-    expect(toggle('Step')).toBeTruthy()
+    expect(toggle(STEP)).toBeTruthy()
   })
 
   it('shows no controls until asked, then a slider over the layers', () => {
     boot()
     setSource(STEPPED)
     expect(stepSlider()).toBeNull()
-    toggle('Step')!.click()
+    toggle(STEP)!.click()
     flushSync()
     expect(stepSlider()!.max).toBe('2')
     expect(host.textContent).toContain('before any gate')
@@ -1096,7 +1113,7 @@ describe('reading a circuit another way', () => {
   it('redraws as it is stepped, and says where it has got to', () => {
     boot()
     setSource(STEPPED)
-    toggle('Step')!.click()
+    toggle(STEP)!.click()
     flushSync()
     const start = diagram().outerHTML
     stepTo(1)
@@ -1109,7 +1126,7 @@ describe('reading a circuit another way', () => {
   it('puts the controls away when the next diagram has nothing to step', () => {
     boot()
     setSource(STEPPED)
-    toggle('Step')!.click()
+    toggle(STEP)!.click()
     flushSync()
     setSource('00|11')
     expect(stepSlider()).toBeNull()
@@ -1118,11 +1135,11 @@ describe('reading a circuit another way', () => {
   it('writes the state out in Dirac notation, following the step', () => {
     boot()
     setSource(STEPPED)
-    toggle('|ψ⟩')!.click()
+    toggle(DIRAC)!.click()
     flushSync()
     expect(host.textContent).toContain('|111⟩')
 
-    toggle('Step')!.click()
+    toggle(STEP)!.click()
     flushSync()
     // The written state has to be the one drawn above it, not the last one.
     expect(host.textContent).toContain('|001⟩')
@@ -1133,7 +1150,7 @@ describe('reading a circuit another way', () => {
   it('offers the writing for a bare state too', () => {
     boot()
     setSource('00|11')
-    toggle('|ψ⟩')!.click()
+    toggle(DIRAC)!.click()
     flushSync()
     expect(host.textContent).toContain('(|00⟩ + |11⟩)/√2')
   })
@@ -1215,5 +1232,63 @@ describe('the gate gallery', () => {
     flushSync()
     open()
     expect(gallery()!.innerHTML).not.toBe(before)
+  })
+})
+
+/**
+ * The palette beside the source box.
+ *
+ * The same gates the reference draws, with the words taken away. It exists so
+ * that placing one does not mean opening a drawer that covers the drawing you
+ * are placing it on.
+ */
+describe('the gate palette', () => {
+  const tiles = () => [...host.querySelectorAll('[data-palette-gate]')]
+
+  it('offers the gates without a panel having to be open', () => {
+    boot()
+    expect(host.querySelector('aside')).toBeNull()
+    expect(tiles().length).toBeGreaterThan(10)
+  })
+
+  it('draws each one rather than naming it', () => {
+    boot()
+    for (const tile of tiles()) {
+      expect(tile.querySelector('svg')).not.toBeNull()
+      // Compact: the picture is the label, and the words are in the tooltip.
+      // A gate's own lettering is part of the drawing, so only text *outside*
+      // the drawing counts as naming it.
+      const drawn = tile.querySelector('svg')!.textContent ?? ''
+      expect(tile.textContent!.replace(drawn, '').trim()).toBe('')
+      expect(tile.getAttribute('title')).toBeTruthy()
+    }
+  })
+
+  it('offers only what can actually be dropped', () => {
+    boot()
+    const codes = tiles().map((t) => t.getAttribute('data-palette-gate'))
+    expect(codes).toContain('H 1')
+    expect(codes).toContain('CNOT 1 2')
+    // A named gate needs a name, which is a decision to type rather than drag.
+    expect(codes).not.toContain('CNOT 1 2 "Tiger?"')
+  })
+
+  it('shows the same set the reference does', () => {
+    boot()
+    const btn = [...host.querySelectorAll('button')].find(
+      (b) => b.getAttribute('aria-label') === 'Syntax reference',
+    )!
+    btn.click()
+    flushSync()
+    const tab = [...host.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+      (t) => t.textContent?.trim() === 'Gates',
+    )!
+    tab.click()
+    flushSync()
+    const gallery = [...host.querySelectorAll('[data-gate]')].map((t) => t.getAttribute('data-gate'))
+    // One list behind both, so a gate cannot appear in one and not the other.
+    for (const code of tiles().map((t) => t.getAttribute('data-palette-gate'))) {
+      expect(gallery).toContain(code)
+    }
   })
 })

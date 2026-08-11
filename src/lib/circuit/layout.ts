@@ -180,6 +180,8 @@ const bodyHeight = (gate: Gate, m: Metrics): number =>
 interface Interval {
   y0: number
   y1: number
+  /** The gate that blocked this stretch, where one did. */
+  key?: string
 }
 
 function stateLayoutOf(row: StateRow, opts: CircuitLayoutOptions): Layout {
@@ -726,9 +728,11 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       // The gate interrupts the pipe here; `gaps` then fills everything else
       // with a single run of pipe, so a gate's stubs and the run to the next
       // gate are one continuous piece rather than overlapping collars.
+      const key = gateKey(gate, keys)
+
       for (let q = q0; q <= q1; q++) {
         const list = blocked.get(q) ?? []
-        list.push({ y0: topY, y1: bottomY })
+        list.push({ y0: topY, y1: bottomY, key })
         blocked.set(q, list)
       }
 
@@ -737,7 +741,6 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       const wasBodies = bodies.length
       const wasGlyphs = glyphs.length
       emitGate(gate, box, cy, gateX, m, bodies, glyphs)
-      const key = gateKey(gate, keys)
       const highlight = gate.line !== undefined && gate.line === opts.highlight
       const tag = { key, ...(highlight ? { highlight } : {}) }
       for (let i = wasBodies; i < bodies.length; i++) bodies[i] = { ...bodies[i], ...tag }
@@ -839,9 +842,16 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   }
 
   for (let q = 1; q <= doc.qubits; q++) {
-    for (const seg of gaps(pipeTop, pipeBottom, blocked.get(q) ?? [])) {
+    const stops = blocked.get(q) ?? []
+    for (const [i, seg] of gaps(pipeTop, pipeBottom, stops).entries()) {
+      // Named for the gate it leaves, so a run keeps its identity when
+      // something is dropped in further down. A gate's stubs are the ends of
+      // the runs either side of it, and without a name they sat still while
+      // the gate slid out from between them.
+      const from = stops.find((b) => Math.abs(b.y1 - seg.y0) < 0.01)?.key
       pipes.push({
         t: 'pipe',
+        key: `pipe:${q}:${from ?? `n${i}`}`,
         cx: colX(q),
         y0: seg.y0,
         y1: seg.y1,

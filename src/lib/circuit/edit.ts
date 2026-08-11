@@ -270,6 +270,77 @@ export function gateAt(doc: CircuitDoc, geometry: CircuitGeometry, at: Point): G
 const statements = (body: string) => body.split(';').map((part) => part.trim()).filter(Boolean)
 
 /**
+ * Find a gate's own statement within the line it was written on.
+ *
+ * A line can hold several gates joined by `;`, and they come off it in the
+ * order they are written — so a gate's place among its line-mates is its place
+ * in the text. Both editing a gate and removing one need this, and neither
+ * should be re-deriving it.
+ */
+function locate(
+  source: string,
+  doc: CircuitDoc,
+  gate: Gate,
+): { lines: string[]; at: number; parts: string[]; which: number; layer: number } | null {
+  if (gate.line === undefined) return null
+  const lines = source.split('\n')
+  const at = gate.line - 1
+  if (at < 0 || at >= lines.length) return null
+
+  const layer = doc.layers.findIndex((l) => l.gates.includes(gate))
+  if (layer < 0) return null
+  const lifted = liftGateAnnotations(lines[at])
+  const parts = statements(lifted ? lifted.body : lines[at])
+  const mates = doc.layers[layer].gates.filter((g) => g.line === gate.line)
+  const which = mates.indexOf(gate)
+  if (which < 0 || which >= parts.length) return null
+  return { lines, at, parts, which, layer }
+}
+
+/**
+ * Move the target of a controlled gate onto the next wire it covers.
+ *
+ * The wires stay the same and only the ⊕ moves, wrapping round — which is the
+ * edit anybody makes after dropping one of these in, because the wires are
+ * obvious from where it was dropped and which of them takes the ⊕ is not.
+ *
+ * A controlled-Z is symmetric and has no target to move; a bare NOT has no
+ * controls to swap with.
+ */
+export function cycleTarget(source: string, doc: CircuitDoc, gate: Gate): Edit | null {
+  if (gate.kind !== 'controlled' || !gate.controls.length || gate.targetGlyph === 'z') return null
+  const found = locate(source, doc, gate)
+  if (!found) return null
+
+  const wires = [...gate.controls, gate.target].sort((a, b) => a - b)
+  const target = wires[(wires.indexOf(gate.target) + 1) % wires.length]
+  const controls = wires.filter((w) => w !== target)
+
+  // The keyword as it was written — `CX` should not silently become `CNOT` —
+  // and the arrow only where there already was one.
+  const was = found.parts[found.which]
+  const head = was.trim().split(/\s+/)[0]
+  const arrow = was.includes('->')
+  const name = gate.label ? `"${gate.label}"` : ''
+  const text = [
+    head,
+    !gate.labelOnLink ? name : '',
+    controls.join(' '),
+    arrow ? '->' : '',
+    String(target),
+    gate.labelOnLink ? name : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const parts = [...found.parts]
+  parts[found.which] = text
+  const lines = [...found.lines]
+  lines[found.at] = rewrite(lines[found.at], parts.join('; '))
+  return { source: lines.join('\n'), line: gate.line! }
+}
+
+/**
  * The source with one gate taken out of it.
  *
  * A line holding nothing else goes entirely; a line sharing gates with `;`
@@ -282,21 +353,9 @@ export function removeGate(
   doc: CircuitDoc,
   gate: Gate,
 ): { source: string; line: number; layerRemoved?: number } | null {
-  if (gate.line === undefined) return null
-  const lines = source.split('\n')
-  const at = gate.line - 1
-  if (at < 0 || at >= lines.length) return null
-
-  const layerOf = doc.layers.findIndex((l) => l.gates.includes(gate))
-  const lifted = liftGateAnnotations(lines[at])
-  const body = lifted ? lifted.body : lines[at]
-  const parts = statements(body)
-
-  // Which statement is this one? Gates come off a line in the order they are
-  // written, so its position among its line-mates is its position in the text.
-  const mates = doc.layers[layerOf]?.gates.filter((g) => g.line === gate.line) ?? []
-  const which = mates.indexOf(gate)
-  if (which < 0 || which >= parts.length) return null
+  const found = locate(source, doc, gate)
+  if (!found) return null
+  const { lines, at, parts, which, layer: layerOf } = found
 
   const kept = parts.filter((_, i) => i !== which)
   const alone = doc.layers[layerOf]?.lines.filter((l) => l === gate.line).length === 1
@@ -307,7 +366,7 @@ export function removeGate(
 
   return {
     source: next.join('\n'),
-    line: gate.line,
+    line: gate.line!,
     // The layer goes only when this line was the whole of it.
     layerRemoved: !kept.length && alone && (doc.layers[layerOf]?.lines.length ?? 0) === 1
       ? layerOf
