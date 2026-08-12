@@ -4,6 +4,7 @@
 
 import { parseState, ParseError } from './state/parse'
 import type { StateDoc } from './state/ast'
+import { productWidth } from './state/ast'
 import { isGateRun, parseCircuit } from './circuit/parse'
 import { diracLines, diracOf, resolveCalculations, sideAmplitudes } from './circuit/simulate'
 import { checkCircuit, checkState, type Check } from './check'
@@ -116,6 +117,14 @@ export interface RenderResult {
   hasAnswer?: boolean
   /** How many layers a circuit has, so it can be stepped through. */
   layers?: number
+  /**
+   * How many wires the register has.
+   *
+   * Reported for a state as well as a circuit, because a state *is* a register
+   * — it is just one that has had nothing done to it yet, and a gate dropped
+   * onto it has to land on one of its wires.
+   */
+  qubits?: number
   /**
    * Where the wires and layers ended up, for pointing at the drawing.
    *
@@ -312,6 +321,9 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       return {
         doc: undefined,
         layers: undefined,
+        // The widest row: a state narrower than another describes the wires it
+        // names and leaves the rest alone, which is the usual reading.
+        qubits: Math.max(0, ...doc.rows.map((r) => productWidth(r.sides[0]))),
         dirac: diracForState(doc),
         answered: hasAnswer(doc),
         // Checked before concealing: the claim is the answer the source holds,
@@ -336,6 +348,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       doc,
       // The injected step is not one of the circuit's own layers.
       layers: doc.layers.length - (opts.step === null || opts.step === undefined ? 0 : 1),
+      qubits: doc.qubits,
       // Read at the step being shown, not at the end: the written state and the
       // drawn one have to be the same state, or the text quietly contradicts
       // the picture above it.
@@ -373,7 +386,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       throw err
     }
   }
-  const { doc, layout, check, answered, layers, dirac } = built
+  const { doc, layout, check, answered, layers, qubits, dirac } = built
   const geometry = 'geometry' in layout ? layout.geometry : undefined
 
   // An animation is a different document, not a different drawing: the still
@@ -442,6 +455,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     check: check?.checked ? check : undefined,
     hasAnswer: answered || undefined,
     layers,
+    qubits,
     dirac,
     geometry,
   }

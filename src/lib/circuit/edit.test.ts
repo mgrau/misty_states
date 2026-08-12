@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
 import { layoutCircuit } from './layout'
+import { detectMode, render } from '../index'
 import {
   asDroppable, cycleTarget, dropTarget, gateAt, gateLine, insertGate, moveGate, removeGate,
   type Droppable, type DropTarget,
@@ -345,5 +346,49 @@ describe('moving a target round its own wires', () => {
       cur = cycleTarget(cur, doc, doc.layers[0].gates[0])!.source
       expect(wires(cur)).toEqual(want)
     }
+  })
+})
+
+/**
+ * A state is a circuit nothing has been done to yet.
+ *
+ * That is what lets a gate be dragged onto one: the bare state line at the top
+ * of a document *is* the input, so a gate dropped on it belongs underneath, and
+ * the result is a circuit.
+ */
+describe('starting a circuit from a state', () => {
+  const put = (source: string, wire = 1) =>
+    insertGate(source, parseCircuit(source), at(wire, 0, 'after'), H).source
+
+  it('goes under a bare state line, not over it', () => {
+    expect(put('00|11', 2)).toBe('00|11\nH 2')
+    expect(put('0(0|1)')).toBe('0(0|1)\nH 1')
+  })
+
+  it('knows the line whether the input was named or not', () => {
+    expect(parseCircuit('00|11').inputLine).toBe(1)
+    expect(parseCircuit('# a note\n\nin 00|11').inputLine).toBe(3)
+    expect(parseCircuit('H 1').inputLine).toBeUndefined()
+  })
+
+  it('still goes after anything that sets the register up', () => {
+    expect(put('qubits 3\n000', 3)).toBe('qubits 3\n000\nH 3')
+    expect(put('shape os\nin 00', 2)).toBe('shape os\nin 00\nH 2')
+  })
+
+  it('turns the document into a circuit, which is the point', () => {
+    const after = put('00|11')
+    expect(detectMode('00|11')).toBe('state')
+    expect(detectMode(after)).toBe('circuit')
+    // And the state it was is now the state it starts from.
+    expect(parseCircuit(after).layers).toHaveLength(1)
+    expect(render(after).dirac).toEqual(render('00|11').dirac?.map(() => expect.any(String)))
+  })
+
+  it('reports the register width for a state as well as a circuit', () => {
+    // A gate has to land on one of its wires, so there have to be wires.
+    expect(render('00|11').qubits).toBe(2)
+    expect(render('000|-111').qubits).toBe(3)
+    expect(render('in 00\nH 1').qubits).toBe(2)
   })
 })

@@ -244,6 +244,14 @@ export interface CircuitDoc {
   layers: Layer[]
   /** Optional misty state drawn above the circuit. */
   input?: StateRow
+  /**
+   * The source line the input was written on.
+   *
+   * A gate dropped onto a circuit that has none yet has to go *after* the
+   * state, not before it — and a bare state line looks like nothing in
+   * particular until the parser has decided it is the input.
+   */
+  inputLine?: number
   /** Optional misty state drawn below the circuit; several after a measurement. */
   output?: StateRow[]
   /** Written `out calculate`: the output is worked out rather than given. */

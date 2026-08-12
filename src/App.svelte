@@ -29,7 +29,7 @@
   } from './lib/circuit/edit'
   import { parseCircuit } from './lib/circuit/parse'
   import type { CircuitDoc, Gate } from './lib/circuit/ast'
-  import type { CircuitGeometry } from './lib/circuit/layout'
+  import type { DropTarget } from './lib/circuit/edit'
 
   const STORE = 'misty.v1'
 
@@ -205,7 +205,8 @@
   let held: {
     source: string
     doc: CircuitDoc
-    geometry: CircuitGeometry
+    /** Where a pointer lands, worked out the way this document needs. */
+    aim: (event: PointerEvent) => DropTarget
     /** Screen to diagram, for reading the pointer. */
     screen: DOMMatrix
     /** Where the diagram's origin sat on screen, for keeping it there. */
@@ -583,22 +584,50 @@
    */
   function hold(): boolean {
     if (held) return true
-    const svg = previewEl?.querySelector('svg')
-    const geometry = result.ok ? result.geometry : undefined
-    const screen = (svg as SVGSVGElement | null)?.getScreenCTM()
-    if (!geometry || !screen) return false
+    const el = previewEl?.querySelector('svg') as SVGSVGElement | null
+    const screen = el?.getScreenCTM()
+    if (!el || !screen || !result.ok) return false
+
+    let doc: CircuitDoc
     try {
-      held = {
-        source,
-        doc: parseCircuit(source),
-        geometry,
-        screen: screen.inverse(),
-        anchor: { x: screen.e, y: screen.f },
-      }
-      return true
+      // A state parses as a circuit too — one with an input and nothing done to
+      // it yet — which is what lets a gate be dropped onto one.
+      doc = parseCircuit(source)
     } catch {
       return false
     }
+
+    /**
+     * How a point on the drawing becomes a place to put a gate.
+     *
+     * Decided once, here, because the two cases read the drawing differently.
+     * A circuit has wires and layers laid out, and the pointer is matched
+     * against them. A state has neither — it is a register nothing has been
+     * done to — so the wire is taken from how far across the drawing the
+     * pointer is, and there is only ever one place for the gate to go: after
+     * the state, which is what turns it into a circuit.
+     */
+    const geometry = result.geometry
+    const wires = result.qubits ?? 1
+    const rect = el.getBoundingClientRect()
+    const inverse = screen.inverse()
+    const aim: (event: PointerEvent) => DropTarget = geometry
+      ? (event) =>
+          dropTarget(
+            geometry,
+            new DOMPoint(event.clientX, event.clientY).matrixTransform(inverse),
+          )
+      : (event) => ({
+          wire: Math.min(
+            wires,
+            Math.max(1, Math.floor(((event.clientX - rect.left) / rect.width) * wires) + 1),
+          ),
+          layer: 0,
+          where: 'after',
+        })
+
+    held = { source, doc, aim, screen: inverse, anchor: { x: screen.e, y: screen.f } }
+    return true
   }
 
   /**
@@ -701,11 +730,23 @@
       const was = from.get(`${key}|${nth}`)
       if (!was) continue
       const now = el.getBoundingClientRect()
-      const dx = (was.left - now.left) / per
+      // Measured from the top and the centre rather than from a corner,
+      // because that is the point a stretch is taken about.
+      const dx = (was.left + was.width / 2 - (now.left + now.width / 2)) / per
       const dy = (was.top - now.top) / per
-      if (Math.abs(dx) < 0.4 && Math.abs(dy) < 0.4) continue
+      // A pipe between two gates does not move so much as change length: a
+      // layer dropped in below lengthens it, and a translate cannot say that.
+      // Scaled from its top, a pipe grows the way it actually grew — and its
+      // fill is a gradient across the pipe, not along it, so stretching it
+      // downwards distorts nothing.
+      const grow = now.height > 0.5 ? was.height / now.height : 1
+      const stretched = Math.abs(grow - 1) > 0.01
+      if (Math.abs(dx) < 0.4 && Math.abs(dy) < 0.4 && !stretched) continue
       el.style.transition = 'none'
-      el.style.transform = `translate(${dx}px, ${dy}px)`
+      el.style.transformBox = 'fill-box'
+      el.style.transformOrigin = 'top center'
+      el.style.transform =
+        `translate(${dx}px, ${dy}px)` + (stretched ? ` scaleY(${grow})` : '')
       moved.push(el)
     }
     if (!moved.length) return
@@ -745,7 +786,9 @@
 
   function onPreviewDown(event: PointerEvent) {
     if (event.button !== 0 || dragging || !hold() || !held) return
-    const gate = gateAt(held.doc, held.geometry, toDiagram(event))
+    const gate = result.ok && result.geometry
+      ? gateAt(held.doc, result.geometry, toDiagram(event))
+      : undefined
     if (!gate) {
       held = null
       return
@@ -831,7 +874,7 @@
 
     // Through the mapping taken at pick-up, so the aim does not chase the
     // drawing as the drawing moves under it.
-    const target = dropTarget(held.geometry, toDiagram(event))
+    const target = held.aim(event)
     dragPreview =
       dragging.from === 'palette'
         ? insertGate(held.source, held.doc, target, dragging.gate)

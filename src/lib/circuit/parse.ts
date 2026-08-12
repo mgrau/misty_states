@@ -872,6 +872,8 @@ export function parseCircuit(text: string): CircuitDoc {
   let calculateInputNote: string | undefined
   let answerInput = false
   let answerOutput = false
+  /** Which line the input state was written on, for anything editing the text. */
+  let inputLine: number | undefined
   let table: TableSpec | undefined
   let chart: ChartSpec | undefined
   let calculateOutput = false
@@ -1005,6 +1007,7 @@ export function parseCircuit(text: string): CircuitDoc {
       }
       if (!sawGate && !input && !pendingTail) {
         input = parseState(line).rows[0]
+        inputLine = lineNo
         if (asked) answerInput = true
       } else {
         flushTail()
@@ -1080,6 +1083,7 @@ export function parseCircuit(text: string): CircuitDoc {
       const doc = parseState(arg)
       if (kw === 'in') {
         input = doc.rows[0]
+        inputLine = lineNo
         if (asked) answerInput = true
       } else {
         output = [doc.rows[0]]
@@ -1150,7 +1154,7 @@ export function parseCircuit(text: string): CircuitDoc {
 
   const layers = schedule(groups)
   return {
-    kind: 'circuit', qubits, layers, input, output,
+    kind: 'circuit', qubits, layers, input, inputLine, output,
     calculateOutput, calculateCaption, calculateNote, table, chart, animate, header, shapePicks,
     calculateInput: calculateInput || undefined,
     calculateInputCaption,

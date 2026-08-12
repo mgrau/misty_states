@@ -135,11 +135,18 @@ function appendToLine(line: string, text: string): string {
     .join('')
 }
 
-/** Where a gate goes in a circuit that has none yet: after whatever sets it up. */
-function afterPreamble(lines: string[]): number {
-  let at = 1
+/**
+ * Where a gate goes in a circuit that has none yet: after whatever sets it up.
+ *
+ * The input counts as setting it up whether or not it was written with `in` —
+ * a bare state line at the top of a document *is* the input, and a gate dropped
+ * onto one belongs below it. That is what lets a plain state become a circuit
+ * by having a gate dragged onto it.
+ */
+function afterPreamble(lines: string[], doc: CircuitDoc): number {
+  let at = doc.inputLine ? doc.inputLine + 1 : 1
   lines.forEach((line, i) => {
-    if (PREAMBLE.test(line)) at = i + 2
+    if (PREAMBLE.test(line)) at = Math.max(at, i + 2)
   })
   return at
 }
@@ -168,7 +175,7 @@ function candidates(
   const layer = doc.layers[target.layer]
 
   if (!layer?.lines.length) {
-    const at = afterPreamble(lines)
+    const at = afterPreamble(lines, doc)
     return [{ source: spliceLine(lines, at, text), line: at }]
   }
 
