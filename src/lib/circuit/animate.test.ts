@@ -451,6 +451,44 @@ describe('the brackets round a worked term', () => {
     })
   }
 
+  for (const inside of [true, false]) {
+    it(`sits round the qubits it holds, not beside them, with inside=${inside}`, () => {
+      const { banded, timeline } = timelineOf('0|1\nH\nanimate', inside)
+      const band = banded.geometry.layers[0]
+      let worst = 0
+      let checked = 0
+      for (let t = 0; t <= timeline.duration; t += 0.02) {
+        const prims = termFrameAt(banded, timeline, t, DEFAULT_METRICS)
+        const near = prims.filter(
+          (p) =>
+            p.t === 'cloud' &&
+            (p.opacity ?? 1) > 0.5 &&
+            p.content.y > band.y - 40 &&
+            p.content.y < band.y + band.h + 40,
+        )
+        for (const c of near) {
+          if (c.t !== 'cloud') continue
+          const held = prims.filter(
+            (p) =>
+              p.t === 'qubit' &&
+              (p.opacity ?? 1) > 0.5 &&
+              Math.abs(p.cy - (c.content.y + DEFAULT_METRICS.qubit / 2)) < 3,
+          )
+          if (held.length < 2) continue
+          const xs = held.map((q) => (q.t === 'qubit' ? q.cx : 0))
+          const middle = (Math.min(...xs) + Math.max(...xs)) / 2
+          worst = Math.max(worst, Math.abs(middle - (c.content.x + c.content.w / 2)))
+          checked++
+        }
+      }
+      // The results are spread one way inside the gate and shuffle to another
+      // on the way down; a bracket that started from the landing spread would
+      // sit off to one side of what it is supposed to be holding.
+      expect(checked).toBeGreaterThan(0)
+      expect(worst).toBeLessThan(0.5)
+    })
+  }
+
   it('drops the inner brackets before the outer one arrives', () => {
     const { banded, timeline } = timelineOf('0|1\nH\nanimate', true)
     let together = 0

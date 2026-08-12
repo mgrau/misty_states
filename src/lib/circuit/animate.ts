@@ -999,21 +999,22 @@ export function buildTermTimeline(
 
       // The bracket round them, made where they are made and travelling with
       // them. It is dropped later, when the results are all in.
-      if (gave.length > 1 && inside) {
-        travelling(k + 1, first, gave.length, acts, {
-          x: within[0] - outOffsets[first],
-          y: leaveY - bandY(k + 1),
-        }, [now, now + away, now + away + sideways])
-      } else if (gave.length > 1) {
-        // A closed gate shows nothing of what happens inside it, but what comes
-        // out is still one state — so the bracket forms as the results leave,
-        // and travels with them. Waiting until they had arrived read as the
-        // gate handing over loose qubits that only became a state afterwards.
-        travelling(k + 1, first, gave.length, now, { x: 0, y: leaveY - bandY(k + 1) }, [
-          now,
-          now + away,
-          now + away + sideways,
-        ])
+      //
+      // Where it starts is the same either way, because the results themselves
+      // are: they are spread by `within` inside the gate and only shuffle to
+      // `outOffsets` on the way down. What differs is *when* — an open gate
+      // shows the results being made, so the bracket is round them from the
+      // moment they exist; a closed one shows nothing until they leave, so it
+      // forms as they emerge. Either way it is round them, never beside them.
+      if (gave.length > 1) {
+        travelling(
+          k + 1,
+          first,
+          gave.length,
+          inside ? acts : now,
+          { x: within[0] - outOffsets[first], y: leaveY - bandY(k + 1) },
+          [now, now + away, now + away + sideways],
+        )
       }
 
       passes.push({
