@@ -739,8 +739,18 @@ export interface TermTimeline {
   loop: boolean
 }
 
+/**
+ * Seconds a bracket takes to fade away.
+ *
+ * The tidying reads as a sequence rather than a dissolve: the brackets round
+ * each term's results go first, and only once they are gone does the one round
+ * the whole state arrive. Two clouds cross-fading through each other says
+ * nothing about which became which.
+ */
+const BRACKET_FADE = 0.25
+
 /** Seconds spent dropping the brackets round each term's own results. */
-const FLATTEN = 0.4
+const FLATTEN = 0.6
 /** Seconds spent adding up what a layer produced. */
 const COLLECT = 0.55
 /** Seconds spent dividing out the common factor. */
@@ -995,7 +1005,15 @@ export function buildTermTimeline(
           y: leaveY - bandY(k + 1),
         }, [now, now + away, now + away + sideways])
       } else if (gave.length > 1) {
-        travelling(k + 1, first, gave.length, now + away + sideways, { x: 0, y: 0 }, [])
+        // A closed gate shows nothing of what happens inside it, but what comes
+        // out is still one state — so the bracket forms as the results leave,
+        // and travels with them. Waiting until they had arrived read as the
+        // gate handing over loose qubits that only became a state afterwards.
+        travelling(k + 1, first, gave.length, now, { x: 0, y: leaveY - bandY(k + 1) }, [
+          now,
+          now + away,
+          now + away + sideways,
+        ])
       }
 
       passes.push({
@@ -1027,9 +1045,9 @@ export function buildTermTimeline(
     const flatEnd = allLanded + FLATTEN / speed
     const mergeEnd = flatEnd + COLLECT / speed
 
-    // The brackets made during the layer last until the brackets are dropped.
+    // The brackets made during the layer go as soon as the flattening starts.
     for (const bracket of brackets) {
-      const stops = [...bracket.steps, ...bracket.tail(flatEnd)]
+      const stops = [...bracket.steps, ...bracket.tail(allLanded)]
       clouds.push({ box: bracket.box, stops })
       for (let i = bracket.from; i + 1 < bracket.from + bracket.n; i++) {
         bars.push({
@@ -1041,10 +1059,21 @@ export function buildTermTimeline(
       }
     }
 
-    // The bracket round the lot. It hands over to the bracket round the sum
-    // when there is one; when the whole thing collapses to a single term there
-    // is nothing to hand over to, so it stays up until the adding is done.
-    cloud(k + 1, layer.gave.length, allLanded, layer.summed.length > 1 ? flatEnd : mergeEnd)
+    // The bracket round the lot, arriving only once the inner ones have gone —
+    // that hand-over *is* the flattening step. It in turn hands over to the
+    // bracket round the sum when there is one; when the whole thing collapses
+    // to a single term there is nothing to hand over to, so it stays up until
+    // the adding is done.
+    // Twice the fade: once for the inner brackets to go, and again for the
+    // outer one to arrive. `cloud` rises *into* the time it is given, so
+    // anything less would start it while the others were still there.
+    const flattened = brackets.length ? allLanded + BRACKET_FADE * 2 : allLanded
+    cloud(
+      k + 1,
+      layer.gave.length,
+      flattened,
+      layer.summed.length > 1 ? flatEnd : mergeEnd,
+    )
 
     const homes = spread(layer.summed.length)
     const targets = new Map(layer.summed.map((term, i) => [term.bits, i] as const))

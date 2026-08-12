@@ -10,16 +10,17 @@
 import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
 import { layoutCircuit } from './layout'
-import { simulate } from './simulate'
+import { resolveCalculations, simulate } from './simulate'
 import {
-  buildTimeline, classicalRun, frameAt, positionAt, activeAt, steps,
-  NotClassicalError, GATE_FADE,
+  buildTimeline, buildTermTimeline, classicalRun, frameAt, positionAt, activeAt, steps,
+  termRun, NotClassicalError, GATE_FADE, type TermTimeline,
 } from './animate'
-import { animatedSvg, animationBox } from './animate-svg'
+import { animatedSvg, animationBox, termFrameAt } from './animate-svg'
 import { render } from '../index'
 import { THEMES } from '../render/themes'
 import { LIGHT_PALETTE } from '../render/theme'
 import { DEFAULT_METRICS } from '../render/primitives'
+import { DEFAULT_SHAPE_ORDER } from '../shapes'
 
 const laid = (src: string) => {
   const doc = parseCircuit(src)
@@ -403,5 +404,66 @@ describe('driving it from outside', () => {
   it('still plays unattended, the defaults being what it does alone', () => {
     expect(svg()).toContain('running')
     expect(svg()).not.toContain('<script')
+  })
+})
+
+/**
+ * What a bracket is doing while a term is worked through.
+ *
+ * The bracket is not decoration round an answer — it is the claim that these
+ * qubits are one state. So it has to exist from the moment the gate makes them,
+ * and the handover from the brackets round each term's results to the one round
+ * the whole state has to read as a handover rather than a dissolve.
+ */
+describe('the brackets round a worked term', () => {
+  const timelineOf = (src: string, inside: boolean) => {
+    const doc = resolveCalculations(parseCircuit(src))
+    const banded = layoutCircuit(doc, {
+      metrics: DEFAULT_METRICS,
+      shapeOrder: DEFAULT_SHAPE_ORDER,
+      attach: THEMES.solid.attach,
+      bareEnds: true,
+      bands: new Array(doc.layers.length + 1).fill(120),
+    })
+    return { banded, timeline: buildTermTimeline(termRun(doc), banded.geometry, DEFAULT_METRICS, { inside }) }
+  }
+
+  const cloudsAt = (banded: ReturnType<typeof layoutCircuit>, timeline: TermTimeline, t: number) =>
+    termFrameAt(banded, timeline, t, DEFAULT_METRICS)
+      .filter((p) => p.t === 'cloud' && (p.opacity ?? 1) > 0.15)
+
+  for (const inside of [true, false]) {
+    it(`forms round the results at the gate, with inside=${inside}`, () => {
+      const { banded, timeline } = timelineOf('0|1\nH\nanimate', inside)
+      const band = banded.geometry.layers[0]
+      let seen = false
+      for (let t = 0; t <= timeline.duration; t += 0.05) {
+        // A bracket sitting over the gate's own band: the results are held
+        // together from where they are made, not from where they arrive.
+        if (cloudsAt(banded, timeline, t).some(
+          (c) => c.t === 'cloud' && c.content.y > band.y - 30 && c.content.y < band.y + band.h,
+        )) {
+          seen = true
+          break
+        }
+      }
+      expect(seen).toBe(true)
+    })
+  }
+
+  it('drops the inner brackets before the outer one arrives', () => {
+    const { banded, timeline } = timelineOf('0|1\nH\nanimate', true)
+    let together = 0
+    for (let t = 0; t <= timeline.duration; t += 0.02) {
+      const clouds = cloudsAt(banded, timeline, t)
+      const outer = clouds.filter((c) => c.t === 'cloud' && c.content.w > 150).length
+      const inner = clouds.filter(
+        (c) => c.t === 'cloud' && c.content.w <= 150 && c.content.y > 300,
+      ).length
+      if (outer && inner) together++
+    }
+    // Never both: the handover is a sequence, and two clouds fading through
+    // each other says nothing about which became which.
+    expect(together).toBe(0)
   })
 })
