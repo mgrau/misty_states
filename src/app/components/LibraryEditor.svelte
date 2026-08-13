@@ -26,8 +26,8 @@
   import {
     addGroup, libraryStore, moveEntry, removeEntry, removeGroup, renameEntry,
     renameGroup, renameLibrary, reorderGroups, type EntrySlot,
-  } from '../lib/library-store.svelte'
-  import type { LibraryGroup } from '../lib/library'
+  } from '../library-store.svelte'
+  import type { LibraryGroup } from '../library'
 
   const { onclose }: { onclose: () => void } = $props()
 

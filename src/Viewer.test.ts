@@ -8,7 +8,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { flushSync, mount, unmount } from 'svelte'
 import Viewer from './Viewer.svelte'
 import App from './App.svelte'
-import { routeFor } from './lib/route'
+import { routeFor } from './app/route'
 
 let host: HTMLDivElement
 let app: Record<string, unknown> | undefined

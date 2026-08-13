@@ -8,7 +8,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { flushSync, mount, unmount } from 'svelte'
 import App from './App.svelte'
-import { replaceLibrary, resetLibrary } from './lib/library-store.svelte'
+import { replaceLibrary, resetLibrary } from './app/library-store.svelte'
 
 /**
  * No project library here.

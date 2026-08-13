@@ -6,14 +6,14 @@
    * is kept out of the editing column entirely. It shares the drawer with the
    * syntax reference — see `SidePanel` — so only one ever covers the drawing.
    */
-  import { render } from '../core/index'
-  import { THEMES, THEME_IDS } from '../core/render/themes'
-  import type { ThemeId } from '../core/render/theme'
-  import { DEFAULT_SHAPE_ORDER, type ShapeName } from '../core/shapes'
+  import { render } from '../../core/index'
+  import { THEMES, THEME_IDS } from '../../core/render/themes'
+  import type { ThemeId } from '../../core/render/theme'
+  import { DEFAULT_SHAPE_ORDER, type ShapeName } from '../../core/shapes'
   import ShapeOrderList from './ShapeOrderList.svelte'
-  import { libraryStore, entryCount, replaceLibrary, resetLibrary } from '../lib/library-store.svelte'
-  import { fromYaml, toYaml, LibraryFormatError } from '../lib/library-yaml'
-  import { downloadText } from '../lib/export'
+  import { libraryStore, entryCount, replaceLibrary, resetLibrary } from '../library-store.svelte'
+  import { fromYaml, toYaml, LibraryFormatError } from '../library-yaml'
+  import { downloadText } from '../export'
   import SidePanel from './SidePanel.svelte'
 
   interface Props {

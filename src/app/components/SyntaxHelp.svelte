@@ -16,10 +16,10 @@
    * the app's own renderer, in the theme the drawing is using, and puts the
    * line that produces it underneath.
    */
-  import { render } from '../core/index'
-  import type { ThemeId } from '../core/render/theme'
-  import type { Droppable } from '../core/circuit/edit'
-  import { GATE_GALLERY, type Swatch } from '../core/gates'
+  import { render } from '../../core/index'
+  import type { ThemeId } from '../../core/render/theme'
+  import type { Droppable } from '../../core/circuit/edit'
+  import { GATE_GALLERY, type Swatch } from '../../core/gates'
 
   const {
     theme = 'solid',

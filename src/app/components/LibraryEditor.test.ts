@@ -11,7 +11,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { flushSync, mount, unmount } from 'svelte'
 import LibraryEditor from './LibraryEditor.svelte'
-import { libraryStore, replaceLibrary, resetLibrary } from '../lib/library-store.svelte'
+import { libraryStore, replaceLibrary, resetLibrary } from '../library-store.svelte'
 
 vi.mock('virtual:misty-library', () => ({ LIBRARY_YAML: null, LIBRARY_STAMP: null }))
 

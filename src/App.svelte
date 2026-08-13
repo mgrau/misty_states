@@ -6,23 +6,23 @@
   import { EXAMPLES, DEFAULT_EXAMPLE } from './core/examples'
   import {
     libraryStore, findByTitle, findEntry, saveEntry, seedFromProject,
-  } from './lib/library-store.svelte'
-  import LibraryEditor from './components/LibraryEditor.svelte'
+  } from './app/library-store.svelte'
+  import LibraryEditor from './app/components/LibraryEditor.svelte'
   import {
     canCopyImages, copyPNG, copySVGImage, copyText, downloadPDF, downloadPNG,
     downloadSVG, pdfDataUrl, pngDataUrl, readSourceFile, svgDataUrl, triggerDownload,
-  } from './lib/export'
+  } from './app/export'
   import { embedSvgMeta } from './core/metadata'
-  import { canMakeMp4, toGif, toMp4 } from './lib/movie'
-  import Icon from './components/Icon.svelte'
+  import { canMakeMp4, toGif, toMp4 } from './app/movie'
+  import Icon from './app/components/Icon.svelte'
   import { editorUrl, fromSearchParams, imageUrl, type DiagramParams } from './core/url'
-  import SyntaxHelp from './components/SyntaxHelp.svelte'
-  import SettingsPanel from './components/SettingsPanel.svelte'
-  import SidePanel from './components/SidePanel.svelte'
-  import GatePalette from './components/GatePalette.svelte'
-  import MenuButton from './components/MenuButton.svelte'
-  import MenuItems from './components/MenuItems.svelte'
-  import type { MenuItem } from './components/menu'
+  import SyntaxHelp from './app/components/SyntaxHelp.svelte'
+  import SettingsPanel from './app/components/SettingsPanel.svelte'
+  import SidePanel from './app/components/SidePanel.svelte'
+  import GatePalette from './app/components/GatePalette.svelte'
+  import MenuButton from './app/components/MenuButton.svelte'
+  import MenuItems from './app/components/MenuItems.svelte'
+  import type { MenuItem } from './app/components/menu'
   import {
     asDroppable, cycleTarget, dropTarget, gateAt, insertGate, moveGate, removeGate, setAngle,
     type Droppable, type Edit,

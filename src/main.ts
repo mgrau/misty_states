@@ -2,7 +2,7 @@ import { mount } from 'svelte'
 import './app.css'
 import App from './App.svelte'
 import Viewer from './Viewer.svelte'
-import { routeFor } from './lib/route'
+import { routeFor } from './app/route'
 import { MistyStates } from './core/api'
 
 // Expose the API for scripts on the page, e.g. window.MistyStates.svg('0|1').

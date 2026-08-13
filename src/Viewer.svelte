@@ -11,7 +11,7 @@
    */
   import { onMount } from 'svelte'
   import { render } from './core/index'
-  import { downloadPDF, downloadPNG, downloadSVG, pngDataUrl, svgToPdfBlob } from './lib/export'
+  import { downloadPDF, downloadPNG, downloadSVG, pngDataUrl, svgToPdfBlob } from './app/export'
   import { renderOptionsFrom, type DiagramParams } from './core/url'
 
   const { params }: { params: DiagramParams } = $props()

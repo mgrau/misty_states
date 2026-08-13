@@ -15,7 +15,7 @@
    * would feed back into the very measurement driving it.
    */
   import { flip } from 'svelte/animate'
-  import { shapePath, type ShapeName } from '../core/shapes'
+  import { shapePath, type ShapeName } from '../../core/shapes'
 
   const {
     order,
