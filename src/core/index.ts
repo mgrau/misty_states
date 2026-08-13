@@ -8,6 +8,8 @@ import { productWidth } from './state/ast'
 import { isGateRun, parseCircuit } from './circuit/parse'
 import { diracLines, diracOf, resolveCalculations, sideAmplitudes } from './circuit/simulate'
 import { checkCircuit, checkState, type Check } from './check'
+import type { QubitSpot } from './circuit/edit'
+export type { QubitSpot } from './circuit/edit'
 import { conceal, concealState, hasAnswer } from './conceal'
 import {
   bandHeight, buildTermTimeline, buildTimeline,
@@ -132,6 +134,13 @@ export interface RenderResult {
    * layers to aim at.
    */
   geometry?: CircuitGeometry
+  /**
+   * Every qubit in the drawing that leads back to a character in the source.
+   *
+   * What makes a qubit something to click rather than only to look at: each one
+   * says where it is on the page and which letter of the source drew it.
+   */
+  qubitSpots?: QubitSpot[]
   /**
    * The state the drawing ends on, written in Dirac notation.
    *
@@ -317,7 +326,9 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
 
   const build = (kind: 'state' | 'circuit') => {
     if (kind === 'state') {
-      const doc = parseState(source)
+      // A state document is the whole source, so every qubit in it is at the
+      // offset it says it is.
+      const doc = parseState(source, 0)
       return {
         doc: undefined,
         layers: undefined,
@@ -389,6 +400,21 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
   const { doc, layout, check, answered, layers, qubits, dirac } = built
   const geometry = 'geometry' in layout ? layout.geometry : undefined
 
+  /**
+   * The qubits that can be pointed at, where they ended up.
+   *
+   * Taken off the finished drawing rather than off the document, so they are in
+   * the coordinates the drawing is in and have been through every translation
+   * the layout applied. A qubit whose position the parser could not state
+   * honestly is not here at all — better to be unclickable than to be clickable
+   * and wrong.
+   */
+  const spots: QubitSpot[] = layout.prims.flatMap((p) =>
+    p.t === 'qubit' && p.at !== undefined
+      ? [{ at: p.at, value: p.value, cx: p.cx, cy: p.cy, size: p.size }]
+      : [],
+  )
+
   // An animation is a different document, not a different drawing: the still
   // path cannot produce it, and the moving one has no use for the still box.
   if (doc?.animate && 'geometry' in layout) {
@@ -458,6 +484,9 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     qubits,
     dirac,
     geometry,
+    // Only where there are any: an empty list would read as "this drawing has
+    // no qubits", which is a different claim.
+    qubitSpots: spots.length ? spots : undefined,
   }
 }
 

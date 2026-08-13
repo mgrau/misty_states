@@ -16,6 +16,15 @@ export interface QubitPrim {
   cx: number
   cy: number
   size: number
+  /**
+   * Where in the source the character that drew this was written.
+   *
+   * Carried all the way from the parser so that pointing at a qubit on screen
+   * leads back to the one letter that says what it is. Absent where the parser
+   * could not say honestly, and then this qubit is simply not one you can
+   * point at.
+   */
+  at?: number
 }
 
 /** The bumpy outline enclosing a superposition. */

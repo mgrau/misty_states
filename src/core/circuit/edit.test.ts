@@ -15,7 +15,7 @@ import { detectMode, render } from '../index'
 import { GATE_GALLERY } from '../gates'
 import {
   asDroppable, cycleTarget, dropTarget, gateAt, gateLine, insertGate, moveGate, removeGate,
-  setAngle,
+  nextQubit, qubitAt, setAngle, setQubit,
   type Droppable, type DropTarget,
 } from './edit'
 import { DEFAULT_METRICS } from '../render/primitives'
@@ -590,5 +590,75 @@ describe('a rotation keeps its angle while it is dragged about', () => {
     }
     expect(set('RY 1')).toBe('RY(45) 1')
     expect(set('RY(90) 1')).toBe('RY(45) 1')
+  })
+})
+
+describe('changing a qubit by pointing at it', () => {
+  const spotsOf = (source: string) => render(source, { check: false }).qubitSpots ?? []
+
+  it('leads every drawn qubit back to the character that drew it', () => {
+    for (const source of [
+      '0|1', '00|11', ' ?0|1? ', 'a: 0|1', '0(0|1)', '01 # a note',
+      'in 00\nH 1', 'qubits 2\nin 01\nH 1\nout 10', 'in 0\nH 1\nwindow 0|1\nX 1',
+    ]) {
+      const spots = spotsOf(source)
+      expect(spots.length).toBeGreaterThan(0)
+      for (const spot of spots) {
+        expect(source[spot.at]).toBe({ 0: '0', 1: '1', unknown: '?' }[spot.value])
+      }
+    }
+  })
+
+  it('is found by pointing at where it was drawn', () => {
+    const spots = spotsOf('00|11')
+    for (const spot of spots) expect(qubitAt(spots, { x: spot.cx, y: spot.cy })).toBe(spot)
+    // Well clear of any of them.
+    expect(qubitAt(spots, { x: -500, y: -500 })).toBeUndefined()
+  })
+
+  it('rewrites one character and leaves the rest of the source alone', () => {
+    const source = 'qubits 2\nin 01\nH 1\nout 10'
+    for (const spot of spotsOf(source)) {
+      const edit = setQubit(source, spot.at, nextQubit(spot.value))!
+      expect(edit.source).toHaveLength(source.length)
+      const moved = [...source].filter((ch, i) => ch !== edit.source[i])
+      expect(moved).toHaveLength(1)
+      // And the drawing agrees afterwards: the qubit there now says the new thing.
+      const after = render(edit.source, { check: false }).qubitSpots ?? []
+      expect(after.find((a) => a.at === spot.at)?.value).toBe(nextQubit(spot.value))
+    }
+  })
+
+  it('swaps 0 and 1, and brings an unknown into that pair', () => {
+    expect(nextQubit(0)).toBe(1)
+    expect(nextQubit(1)).toBe(0)
+    expect(nextQubit('unknown')).toBe(0)
+  })
+
+  it('writes nothing where the source has moved on', () => {
+    // A stale offset from a drawing made before the text was edited. Landing on
+    // some other character, it must decline rather than corrupt the line.
+    expect(setQubit('in 00\nH 1', 0, 1)).toBeNull()
+    expect(setQubit('0|1', 1, 1)).toBeNull()
+    expect(setQubit('0|1', 99, 1)).toBeNull()
+    // Nothing to do is not an edit either.
+    expect(setQubit('0|1', 0, 0)).toBeNull()
+  })
+
+  it('offers nothing to click where it cannot say honestly where a qubit was', () => {
+    // Rebuilt from tokens rather than sliced out of the line, so this view's
+    // qubits have no position — and are better unclickable than wrong.
+    const spots = spotsOf('qubits 3\nH 2\nview 2-3 00|11; I 1 0\nmeasure 1 Z')
+    for (const spot of spots) {
+      expect('01?').toContain('qubits 3\nH 2\nview 2-3 00|11; I 1 0\nmeasure 1 Z'[spot.at])
+    }
+  })
+
+  it('keeps a concealed answer out of reach', () => {
+    // The drawing shows `?` where the answer is hidden; those are not the
+    // author's characters and clicking one would rewrite the answer unseen.
+    const spots = spotsOf('in 0\nanswer 0|1')
+    expect(spots).toHaveLength(1)
+    expect(spots[0].at).toBe(3)
   })
 })

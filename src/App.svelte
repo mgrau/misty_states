@@ -571,7 +571,9 @@
     preview: () => previewEl,
     anchor: () => anchorEl,
     view: () =>
-      result.ok ? { source, geometry: result.geometry, qubits: result.qubits } : null,
+      result.ok
+        ? { source, geometry: result.geometry, qubits: result.qubits, spots: result.qubitSpots }
+        : null,
     onpreview: (edit) => (dragPreview = edit),
     oncommit: (edit) => (source = edit.source),
     onchange: (state) => (carry = state),

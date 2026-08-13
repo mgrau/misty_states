@@ -42,7 +42,14 @@ const RELATIONS: [string, string][] = [
 
 class Cursor {
   i = 0
-  constructor(readonly src: string, readonly line: number) {}
+  /**
+   * `base` is where `src[0]` sits in the whole document, so `base + i` is an
+   * offset anything holding the source can act on. Every string this parser is
+   * handed is a slice of that document and keeps its positions, which is why
+   * the one place that used to rewrite a line — dropping an `answer` keyword —
+   * now blanks it instead.
+   */
+  constructor(readonly src: string, readonly line: number, readonly base?: number) {}
 
   get done(): boolean {
     this.ws()
@@ -119,14 +126,16 @@ function parseFactor(c: Cursor): Factor | null {
   // which also allows any other caption inside one.
   if (ch === '?') {
     c.ws()
+    const at = c.base === undefined ? undefined : c.base + c.i
     c.i++
-    return withShape(c, { kind: 'qubit', value: 'unknown' })
+    return withShape(c, { kind: 'qubit', value: 'unknown', at })
   }
 
   if (ch === '0' || ch === '1') {
     c.ws()
+    const at = c.base === undefined ? undefined : c.base + c.i
     c.i++
-    return withShape(c, { kind: 'qubit', value: ch === '0' ? 0 : 1 })
+    return withShape(c, { kind: 'qubit', value: ch === '0' ? 0 : 1, at })
   }
 
   return null
@@ -256,9 +265,11 @@ function splitCaption(src: string): { caption?: string; rest: string } {
   return { caption: head.trim(), rest: src.slice(at + 1) }
 }
 
-function parseRow(src: string, lineNo: number): StateRow {
+function parseRow(src: string, lineNo: number, base?: number): StateRow {
   const { caption, rest } = splitCaption(src)
-  const c = new Cursor(rest, lineNo)
+  // `splitCaption` takes the caption off the front, so what is left starts that
+  // much further into the document.
+  const c = new Cursor(rest, lineNo, base === undefined ? undefined : base + (src.length - rest.length))
 
   const sides: Product[] = []
   const relations: string[] = []
@@ -288,13 +299,35 @@ function parseRow(src: string, lineNo: number): StateRow {
   return { sides, relations }
 }
 
-export function parseState(text: string): StateDoc {
+/**
+ * `base` is where `text` starts in the document the caller is holding.
+ *
+ * Left `undefined` where a caller cannot say — a statement rebuilt from tokens
+ * has no honest position — and then no qubit in it records one, so nothing
+ * downstream will offer to edit a character it cannot actually find. Absent is
+ * the safe answer; approximately right is not.
+ *
+ * Deliberately without a default. A default would turn "I do not know" into
+ * "offset zero" for any caller that passed the uncertainty along, which is how
+ * a qubit came to report the `q` of `qubits` as its own character.
+ */
+export function parseState(text: string, base?: number): StateDoc {
   const rows: StateRow[] = []
   let shapePicks: ShapePick[] | undefined
   const lines = text.split('\n')
+  // Where each line begins in `text`, so a qubit can say where it was written.
+  // `base` carries the same fact one level up: a circuit hands over a slice of
+  // itself, and the offsets it gets back have to mean something in the whole.
+  let lineStart = base ?? 0
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].replace(/(^|\s)#.*$/, '').trim()
+    const start = lineStart
+    lineStart += lines[i].length + 1
+    const bare = lines[i].replace(/(^|\s)#.*$/, '')
+    const line = bare.trim()
     if (!line) continue
+    // A comment is only ever cut from the end, so the trim is what moves the
+    // start, and only by the whitespace it took off the front.
+    const lineBase = base === undefined ? undefined : start + (bare.length - bare.trimStart().length)
 
     // The one thing in a state document that is not a state: which shape each
     // position draws with. It reads the same here as it does in a circuit.
@@ -311,21 +344,28 @@ export function parseState(text: string): StateDoc {
 
     // `answer` marks a row as what the question asks for; what follows reads
     // exactly as it would without it, caption and all.
-    const ANSWER = /^answers?\s+(.*\S)\s*$/i
+    //
+    // The keyword is blanked rather than cut out, so that what is parsed lines
+    // up character for character with what is on the page. Every qubit then
+    // reports where it really was, and `answer 0|1` can be clicked exactly like
+    // `0|1`.
+    const ANSWER = /^(answers?\s+)(.*\S)\s*$/i
+    const blank = (m: string) => ' '.repeat(m.length)
     const direct = ANSWER.exec(line)
     let asked = !!direct
-    let text = direct ? direct[1] : line
+    let text = direct ? blank(direct[1]) + direct[2] + line.slice(direct[1].length + direct[2].length) : line
 
     if (!direct) {
       const colon = line.indexOf(':')
-      const inner = colon > 0 ? ANSWER.exec(line.slice(colon + 1).trim()) : null
+      const after = colon > 0 ? line.slice(colon + 1) : ''
+      const inner = colon > 0 ? ANSWER.exec(after.trim()) : null
       if (inner) {
         asked = true
-        text = `${line.slice(0, colon)}: ${inner[1]}`
+        text = line.slice(0, colon + 1) + after.replace(/^(\s*)(answers?\s+)/i, blank)
       }
     }
 
-    const row = parseRow(text, i + 1)
+    const row = parseRow(text, i + 1, lineBase)
     if (asked) row.answer = true
     rows.push(row)
   }

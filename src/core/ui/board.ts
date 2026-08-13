@@ -36,8 +36,10 @@
 
 import type { CircuitDoc, Gate } from '../circuit/ast'
 import type { CircuitGeometry } from '../circuit/layout'
-import { dropTarget, gateAt, insertGate, moveGate, removeGate, cycleTarget } from '../circuit/edit'
-import type { DropTarget, Droppable, Edit } from '../circuit/edit'
+import {
+  cycleTarget, dropTarget, gateAt, insertGate, moveGate, nextQubit, qubitAt, removeGate, setQubit,
+} from '../circuit/edit'
+import type { DropTarget, Droppable, Edit, QubitSpot } from '../circuit/edit'
 import { parseCircuit } from '../circuit/parse'
 
 /**
@@ -67,6 +69,13 @@ export interface BoardView {
   geometry?: CircuitGeometry
   /** How many wires, for a state that has not been laid out as a circuit. */
   qubits?: number
+  /**
+   * The qubits that can be pointed at, in the drawing's own coordinates.
+   *
+   * Every one of them leads back to a single character of the source, so
+   * clicking one is an edit rather than a selection.
+   */
+  spots?: QubitSpot[]
 }
 
 export interface BoardHost {
@@ -142,7 +151,14 @@ export function createBoard(host: BoardHost): Board {
     anchor: { x: number; y: number }
   } | null = null
 
-  let pending: { gate: Gate; x: number; y: number } | null = null
+  /**
+   * What is under a press that has not yet become anything.
+   *
+   * A gate can be picked up and carried; a qubit cannot — there is nowhere to
+   * carry it to — so it waits here only to find out whether the press was a
+   * click.
+   */
+  let pending: { gate?: Gate; spot?: QubitSpot; x: number; y: number } | null = null
   let flipFrom: Map<string, DOMRect> | null = null
 
   /**
@@ -237,24 +253,40 @@ export function createBoard(host: BoardHost): Board {
 
   function press(event: PointerEvent) {
     if (event.button !== 0 || carrying || !hold() || !held) return
-    const geometry = host.view()?.geometry
-    const gate = geometry ? gateAt(held.doc, geometry, toDiagram(event)) : undefined
-    if (!gate) {
+    const view = host.view()
+    const at = toDiagram(event)
+    const gate = view?.geometry ? gateAt(held.doc, view.geometry, at) : undefined
+    // Both, where both are there. Inside a window the two overlap by
+    // construction — its qubits are drawn within it — and which one was meant
+    // is decided by what the press turns into rather than by where it landed:
+    // moved, it carries the window; released where it began, it flips the qubit
+    // under it, that being the smaller and more particular of the two.
+    const spot = qubitAt(view?.spots ?? [], at)
+    if (!gate && !spot) {
       held = null
       return
     }
-    pending = { gate, x: event.clientX, y: event.clientY }
+    pending = { gate, spot, x: event.clientX, y: event.clientY }
     window.addEventListener('pointermove', onPendingMove)
     window.addEventListener('pointerup', clickGate, { once: true })
   }
 
   function onPendingMove(event: PointerEvent) {
     if (!pending) return
+    // A qubit has nowhere to be carried to, so moving off one is simply not a
+    // click rather than the start of a drag.
+    if (!pending.gate) {
+      const strayed =
+        Math.abs(event.clientX - pending.x) > PICK_UP_AFTER ||
+        Math.abs(event.clientY - pending.y) > PICK_UP_AFTER
+      if (strayed) dropPending()
+      return
+    }
     const far =
       Math.abs(event.clientX - pending.x) > PICK_UP_AFTER ||
       Math.abs(event.clientY - pending.y) > PICK_UP_AFTER
     if (!far) return
-    const gate = pending.gate
+    const gate = pending.gate!
     // The carry starts before the pending state is cleared, because clearing it
     // lets go of the frozen document — and `gate` is a value *from* that
     // document. Handed a gate from a different parse, the patch would find
@@ -282,15 +314,21 @@ export function createBoard(host: BoardHost): Board {
     const tapped = pending
     forgetPending()
     if (tapped && held && !carrying) {
-      const spun = cycleTarget(held.source, held.doc, tapped.gate)
-      if (spun) host.oncommit(spun)
-      else {
-        host.ontap?.({
-          gate: tapped.gate,
-          doc: held.doc,
-          source: held.source,
-          at: { x: tapped.x, y: tapped.y },
-        })
+      if (tapped.spot) {
+        // The one edit that needs nothing but the character it is written as.
+        const written = setQubit(held.source, tapped.spot.at, nextQubit(tapped.spot.value))
+        if (written) host.oncommit(written)
+      } else if (tapped.gate) {
+        const spun = cycleTarget(held.source, held.doc, tapped.gate)
+        if (spun) host.oncommit(spun)
+        else {
+          host.ontap?.({
+            gate: tapped.gate,
+            doc: held.doc,
+            source: held.source,
+            at: { x: tapped.x, y: tapped.y },
+          })
+        }
       }
     }
     if (!carrying) held = null

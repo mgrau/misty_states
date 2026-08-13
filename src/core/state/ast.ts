@@ -16,6 +16,16 @@ export interface QubitNode {
   value: QubitValue
   /** Explicit shape override from `0@3` syntax; otherwise position decides. */
   shapeIndex?: number
+  /**
+   * Where in the source the `0`, `1` or `?` was written.
+   *
+   * An index into the whole document, so that a qubit pointed at in the drawing
+   * can be changed by rewriting the one character it came from. Counting them
+   * afterwards would not do: plenty of `0`s and `1`s in a source are not
+   * qubits — a coefficient of 10, a wire number, an angle of 180 — and only
+   * the parser knows which is which, because only the parser read them as one.
+   */
+  at?: number
 }
 
 export interface CloudNode {

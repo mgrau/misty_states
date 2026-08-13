@@ -567,7 +567,7 @@ export function isGateRun(token: string): boolean {
  * The range is only taken as a range when something follows it, which is what
  * keeps `view 10` (the state `10`) apart from `view 1 0` (qubit 1, state `0`).
  */
-function parseView(arg: string, lineNo: number, boxed = false): ViewGate {
+function parseView(arg: string, lineNo: number, boxed = false, base?: number): ViewGate {
   // Pulled out by hand rather than through `tokenize`, which drops commas and
   // eats quotes — both of which are state syntax the rest of this line needs.
   let text = arg
@@ -600,11 +600,30 @@ function parseView(arg: string, lineNo: number, boxed = false): ViewGate {
     stateText = text.slice(text.indexOf(tokens[0]) + tokens[0].length)
   }
 
-  return { ...viewOf(stateText, qubits, lineNo), boxed: boxed || undefined, fill }
+  return {
+    ...viewOf(stateText, qubits, lineNo, offsetOf(arg, stateText, base)),
+    boxed: boxed || undefined,
+    fill,
+  }
 }
 
 /** Build a view, checking that the state is as wide as the span it claims. */
-function viewOf(stateText: string, qubits: number[], lineNo: number): ViewGate {
+/**
+ * Where a slice starts, given where the string it came out of starts.
+ *
+ * The slices this parser takes are always a suffix with some of the front
+ * trimmed off, so the difference in length is the distance moved. Anything
+ * rebuilt rather than sliced has no base to give and says so.
+ */
+const offsetOf = (whole: string, part: string, base?: number): number | undefined =>
+  base === undefined ? undefined : base + whole.length - part.length
+
+function viewOf(
+  stateText: string,
+  qubits: number[],
+  lineNo: number,
+  base?: number,
+): ViewGate {
   // `calculate` has no width of its own: it covers the register, whatever the
   // register turns out to be, so the span is filled in once that is known. Its
   // caption is held here too, there being no state yet to hang it on.
@@ -620,7 +639,7 @@ function viewOf(stateText: string, qubits: number[], lineNo: number): ViewGate {
     return { kind: 'view', qubits: [], calculate: true, caption: calc.caption, note: calc.note }
   }
 
-  const row = parseState(stateText).rows[0]
+  const row = parseState(stateText, base).rows[0]
   const width = stateWidth(row)
   if (!qubits.length) {
     // No span given: the state covers as many qubits as it is wide, starting at
@@ -662,6 +681,7 @@ function parseGate(src: string, line: number): Gate {
     // "look at these, hold those" expressible alongside a partial view.
     if (rest.length > 1) {
       const qs = parseQubits([rest[0]], line)
+      // Rebuilt from tokens rather than sliced, so there is no offset to report.
       return viewOf(rest.slice(1).map((t) => t.text).join(' '), qs, line)
     }
     return { kind: 'identity', qubit: oneQubit() }
@@ -786,7 +806,7 @@ function looksLikeGateName(src: string): boolean {
  * looks like rather than which wires they are on — which is how these circuits
  * are usually described out loud.
  */
-function parseStatements(src: string, line: number): Gate[] {
+function parseStatements(src: string, line: number, base?: number): Gate[] {
   const token = src.trim()
   // Tagged in one place rather than at every `return` inside `parseGate`: what
   // a gate is stays that function's business, and where it was written is not.
@@ -795,20 +815,21 @@ function parseStatements(src: string, line: number): Gate[] {
   if (/^[A-Za-z]+$/.test(token) && isGateRun(token)) {
     return from([...token.toUpperCase()].map((letter, i) => parseGate(`${letter} ${i + 1}`, line)))
   }
-  return from([parseStatement(src, line)])
+  return from([parseStatement(src, line, base)])
 }
 
 /** One statement: a gate, a view, or a bare state that is therefore a view. */
-function parseStatement(src: string, line: number): Gate {
+function parseStatement(src: string, line: number, base?: number): Gate {
   const kw = src.split(/\s+/)[0].toLowerCase()
   if (kw === 'view' || kw === 'show' || kw === 'window') {
-    return parseView(src.slice(kw.length).trim(), line, kw === 'window')
+    const arg = src.slice(kw.length).trim()
+    return parseView(arg, line, kw === 'window', offsetOf(src, arg, base))
   }
   if (KEYWORDS.has(kw) || isTurn(kw)) return parseGate(src, line)
   if (looksLikeGateName(src)) {
     throw new ParseError(`unknown gate "${src.split(/\s+/)[0]}"`, 0, line)
   }
-  return viewOf(src, [], line)
+  return viewOf(src, [], line, base)
 }
 
 /** True when two gates would overlap if placed in the same layer. */
@@ -928,11 +949,40 @@ export function parseCircuit(text: string): CircuitDoc {
   }
 
   const lines = text.split('\n')
+  // Where each line begins in `text`, so that a state written on one can say
+  // where each of its qubits was — which is what lets one be clicked and
+  // changed rather than only read.
+  let lineStart = 0
   for (let i = 0; i < lines.length; i++) {
     const lineNo = i + 1
+    const start = lineStart
+    lineStart += lines[i].length + 1
 
-    let line = lines[i].replace(/(^|\s)#.*$/, '').trim()
+    const bare = lines[i].replace(/(^|\s)#.*$/, '')
+    let line = bare.trim()
     if (!line) continue
+
+    /**
+     * Where a piece of this line sits in the whole document.
+     *
+     * By looking for it rather than by counting: a line is trimmed, stripped of
+     * comments and stripped again of the annotations either side of it before
+     * anything gets to read it, and arithmetic across all of that is arithmetic
+     * nobody can check. The text itself survives every one of those steps, so
+     * it is found. Scanning forward from the last hit keeps two identical
+     * statements on one line apart.
+     *
+     * Undefined where it is not found — a statement rebuilt from tokens is not
+     * in the line verbatim — and then nothing records a position at all, which
+     * is the safe answer.
+     */
+    let scan = 0
+    const placeOf = (part: string): number | undefined => {
+      const found = part ? lines[i].indexOf(part, scan) : -1
+      if (found < 0) return undefined
+      scan = found + part.length
+      return start + found
+    }
 
     // A table or a chart is worked out from the whole circuit, so there is no
     // position after it for anything to occupy.
@@ -1026,13 +1076,13 @@ export function parseCircuit(text: string): CircuitDoc {
         throw new ParseError(`unknown gate "${line.split(/\s+/)[0]}"`, 0, lineNo)
       }
       if (!sawGate && !input && !pendingTail) {
-        input = parseState(line).rows[0]
+        input = parseState(line, placeOf(line)).rows[0]
         inputLine = lineNo
         if (asked) answerInput = true
       } else {
         flushTail()
         pendingTailLine = lineNo
-        pendingTail = viewOf(line, [], lineNo)
+        pendingTail = viewOf(line, [], lineNo, placeOf(line))
         if (asked) pendingTail.answer = true
       }
       continue
@@ -1100,7 +1150,7 @@ export function parseCircuit(text: string): CircuitDoc {
         }
         continue
       }
-      const doc = parseState(arg)
+      const doc = parseState(arg, placeOf(arg))
       if (kw === 'in') {
         input = doc.rows[0]
         inputLine = lineNo
@@ -1115,7 +1165,7 @@ export function parseCircuit(text: string): CircuitDoc {
     // Everything else is one or more statements; ';' pins them to a single
     // layer — which is how a view of some qubits sits beside a held identity,
     // or beside a view of the others.
-    const gates = parts.flatMap((s) => parseStatements(s, lineNo))
+    const gates = parts.flatMap((s) => parseStatements(s, lineNo, placeOf(s)))
     for (let a = 0; a < gates.length; a++) {
       for (let b = a + 1; b < gates.length; b++) {
         if (conflicts(gates[a], gates[b])) {

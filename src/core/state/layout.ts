@@ -62,7 +62,7 @@ function layoutFactors(
       const h = shapeHeight(shape, ctx.m.qubit)
       // Every glyph is centred on its bounding box, so all shapes in a row
       // share the centre line regardless of their outline.
-      prims.push({ t: 'qubit', shape, value: f.value, cx: cursor + w / 2, cy, size: ctx.m.qubit })
+      prims.push({ t: 'qubit', shape, value: f.value, cx: cursor + w / 2, cy, size: ctx.m.qubit, at: f.at })
       boxes.push({ x: cursor, y: cy - h / 2, w, h })
       cursor += w
       index += 1

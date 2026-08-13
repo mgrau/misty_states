@@ -20,6 +20,7 @@ import { gateSpan } from './ast'
 import { liftGateAnnotations, parseCircuit } from './parse'
 import { resolveCalculations } from './simulate'
 import type { CircuitGeometry } from './layout'
+import type { QubitValue } from '../state/ast'
 
 /** Where on the drawing a pointer is, in the diagram's own coordinates. */
 export interface Point {
@@ -594,5 +595,69 @@ export function asDroppable(gate: Gate): Droppable {
     }
     default:
       return { head: 'I', wires: 1 }
+  }
+}
+
+/* -- Changing a qubit ----------------------------------------------------- */
+
+/** One qubit in the drawing, and the character of the source it came from. */
+export interface QubitSpot {
+  /** The index in the source of the `0`, `1` or `?` that drew it. */
+  at: number
+  value: QubitValue
+  /** Where it sits in the diagram's own coordinates. */
+  cx: number
+  cy: number
+  /** Across, which for every shape in use is also how tall it is drawn. */
+  size: number
+}
+
+/**
+ * The qubit drawn at this point, if any.
+ *
+ * Boxed rather than shaped to the glyph: the shapes differ — a circle, a
+ * square, a diamond — and a target that changed with the drawing would mean a
+ * click near the corner of one working and near the corner of another not.
+ */
+export function qubitAt(spots: QubitSpot[], at: Point): QubitSpot | undefined {
+  return spots.find(
+    (spot) =>
+      Math.abs(at.x - spot.cx) <= spot.size / 2 && Math.abs(at.y - spot.cy) <= spot.size / 2,
+  )
+}
+
+/**
+ * What clicking a qubit turns it into.
+ *
+ * 0 and 1 swap, which keeps the edit anyone actually makes to one click in
+ * either direction. An unknown joins that pair rather than sitting in a cycle
+ * with it: a three-way rotation would put `?` between 1 and 0 and make going
+ * back a two-click job, for the sake of a value written once in a hundred
+ * figures and easily typed.
+ */
+export const nextQubit = (value: QubitValue): QubitValue => (value === 0 ? 1 : 0)
+
+const QUBIT_CHAR: Record<QubitValue, string> = { 0: '0', 1: '1', unknown: '?' }
+
+/**
+ * Write a qubit as something else, in place.
+ *
+ * One character for one character, which is why this needs no parsing to be
+ * safe: the parser is what said this offset holds a qubit, and every value a
+ * qubit can take is a single character of the same kind. Swapping one for
+ * another cannot change how anything around it reads.
+ *
+ * What is checked is that the source really does still say what the drawing
+ * said it did. A stale offset — text edited since the diagram was drawn — lands
+ * on some other character, and then nothing is written at all.
+ */
+export function setQubit(source: string, at: number, value: QubitValue): Edit | null {
+  const was = source[at]
+  if (was === undefined || !'01?'.includes(was)) return null
+  const now = QUBIT_CHAR[value]
+  if (now === was) return null
+  return {
+    source: source.slice(0, at) + now + source.slice(at + 1),
+    line: source.slice(0, at).split('\n').length,
   }
 }

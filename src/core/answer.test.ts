@@ -47,8 +47,12 @@ describe('writing it', () => {
   it('reads the rest of the line exactly as it would without it', () => {
     const plain = parseCircuit('in 001\nSWAP 2 3\nout 010')
     const marked = parseCircuit('in 001\nSWAP 2 3\nanswer out 010')
-    expect(marked.output).toEqual(plain.output)
-    expect(marked.layers).toEqual(plain.layers)
+    // Where each qubit was written is the one thing that legitimately differs:
+    // `answer` is seven characters, so everything after it really is seven
+    // further along. What it must not change is what the line *says*.
+    const said = (x: unknown) => JSON.parse(JSON.stringify(x, (k, v) => (k === 'at' ? undefined : v)))
+    expect(said(marked.output)).toEqual(said(plain.output))
+    expect(said(marked.layers)).toEqual(said(plain.layers))
   })
 
   it('takes a caption either side of it', () => {
