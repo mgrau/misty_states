@@ -15,7 +15,7 @@
  */
 
 import { render, detectMode, type RenderOptions, type RenderResult } from './index'
-import { pngDataUrl as encodePngDataUrl, svgDataUrl as encodeSvgDataUrl, svgToPngBlob } from './export'
+import { pngDataUrl as encodePngDataUrl, svgDataUrl as encodeSvgDataUrl, svgToPngBlob } from './render/encode'
 import {
   editorUrl as buildEditorUrl,
   imageUrl as buildImageUrl,
