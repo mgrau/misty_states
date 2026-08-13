@@ -480,3 +480,20 @@ describe('it is still a circuit, and still tells you what went wrong', () => {
     expect(() => doc('H 1\n0((0|1)\nH 1')).toThrow(/unclosed/)
   })
 })
+
+describe('a calculated window will not share its layer', () => {
+  it('refuses a gate joined to it by ";"', () => {
+    // Its wires are filled in after the overlap check, so its span was empty
+    // and it read as conflicting with nothing — while in fact covering
+    // everything. Dragging a CNOT into its layer drew the two on top of
+    // each other.
+    expect(() => parseCircuit('qubits 2\nwindow calculate; CNOT 1 -> 2'))
+      .toThrow(/overlap/)
+    expect(() => parseCircuit('qubits 2\nH 1; window calculate')).toThrow(/overlap/)
+  })
+
+  it('still lets a view of some qubits sit beside what holds the rest', () => {
+    const doc = parseCircuit('qubits 3\nview 2-3 00|11; I 1 0')
+    expect(doc.layers.some((l) => l.gates.length === 2)).toBe(true)
+  })
+})

@@ -219,8 +219,11 @@ const KEYWORDS = new Set([
  *
  * Recognised here as well as parsed later, because a line takes its meaning
  * from its first word and nothing splits that word on a bracket.
+ *
+ * The angle is optional, so `RY` on its own is still a rotation — one that has
+ * not been given its angle yet. It reads as a turn by nothing.
  */
-const TURN = /^(rx|ry|rz|p)\(\s*-?[\d.]+\s*\)$/i
+const TURN = /^(rx|ry|rz|p)(?:\(\s*-?[\d.]*\s*\))?$/i
 const isTurn = (word: string) => TURN.test(word)
 
 /** `2-3`, or a single `2` — the span prefix `view` accepts. */
@@ -672,9 +675,15 @@ function parseGate(src: string, line: number): Gate {
 
   // `RZ(45)` arrives as one token — nothing splits on a bracket — so the angle
   // comes off before the plain-letter gates are looked up.
-  const turn = /^(RX|RY|RZ|P)\(\s*(-?[\d.]+)\s*\)$/i.exec(head)
+  //
+  // The brackets are optional, and a bare `RY` turns by nothing. A rotation
+  // with no angle is a rotation that has not been set yet rather than a typing
+  // mistake, and answering it with "unknown gate" helps nobody — least of all
+  // someone who has just dragged one and is looking at a drawing that has
+  // vanished. Written out, it draws `R_Y(0°)`, which says plainly what it is.
+  const turn = /^(RX|RY|RZ|P)(?:\(\s*(-?[\d.]*)\s*\))?$/i.exec(head)
   if (turn) {
-    const angle = Number(turn[2])
+    const angle = turn[2] === undefined || turn[2] === '' ? 0 : Number(turn[2])
     if (!Number.isFinite(angle)) {
       throw new ParseError(`${turn[1]} needs an angle in degrees, e.g. ${turn[1]}(90)`, 0, line)
     }
@@ -803,7 +812,18 @@ function parseStatement(src: string, line: number): Gate {
 }
 
 /** True when two gates would overlap if placed in the same layer. */
+/**
+ * A view waiting to be calculated has no wires yet.
+ *
+ * It is given the whole register further down, once the width is known, so at
+ * this point its span is empty and comparing it against anything says they do
+ * not overlap — when in truth it is about to cover everything. Nothing may sit
+ * beside it.
+ */
+const takesEveryWire = (gate: Gate): boolean => gate.kind === 'view' && !!gate.calculate
+
 function conflicts(a: Gate, b: Gate): boolean {
+  if (takesEveryWire(a) || takesEveryWire(b)) return true
   const [a0, a1] = gateSpan(a)
   const [b0, b1] = gateSpan(b)
   return a0 <= b1 && b0 <= a1
