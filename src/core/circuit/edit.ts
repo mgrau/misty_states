@@ -337,7 +337,6 @@ export function gateAt(doc: CircuitDoc, geometry: CircuitGeometry, at: Point): G
   // something you were not pointing at is worse than picking up nothing.
   if (!layer || at.y < layer.y || at.y > layer.y + layer.h) return undefined
   return doc.layers[target.layer]?.gates.find((gate) => {
-    if (gate.kind === 'view') return false
     const [q0, q1] = gateSpan(gate)
     return target.wire >= q0 && target.wire <= q1
   })
@@ -532,8 +531,15 @@ export function moveGate(
     return null
   }
   const moved = asDroppable(gate)
+  // A window is put back exactly as it was written. Everything it shows lives
+  // in its text — rows spelled out, `answer`, a range of wires — and none of
+  // that survives a round trip through the drawing, so the statement travels
+  // rather than being composed again from what it drew.
+  const shows =
+    gate.kind === 'view' && written ? written.replace(/^\s*\S+\s*/, '') || undefined : undefined
   return insertGate(cut.source, reduced, afterRemoval(target, cut.layerRemoved), {
     ...moved,
+    ...(gate.kind === 'view' ? { shows } : {}),
     arrow: written?.includes('->') || undefined,
   })
 }
@@ -551,6 +557,11 @@ export function asDroppable(gate: Gate): Droppable {
       return { head: 'SWAP', wires: 2 }
     case 'measure':
       return { head: 'measure', wires: 1, tail: gate.basis }
+    case 'view':
+      // What a window shows cannot be rebuilt from the drawing — written-out
+      // rows, an answer, a range of wires are all in the text and nowhere else.
+      // This is the label and the fallback; a move takes the statement itself.
+      return { head: 'window', wires, shows: gate.calculate ? 'calculate' : undefined }
     case 'box':
       return {
         head: gate.blank ? 'blank' : 'box',

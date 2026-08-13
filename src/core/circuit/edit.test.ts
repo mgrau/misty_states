@@ -510,3 +510,53 @@ describe('turning a rotation by a different angle', () => {
     expect(codes).toEqual(expect.arrayContaining(['RX(90) 1', 'RY(90) 1', 'RZ(90) 1', 'P(90) 1']))
   })
 })
+
+describe('dragging a window that is already in the drawing', () => {
+  const src = 'in 0\nH 1\nwindow calculate\nX 1\nZ 1'
+  const doc = parseCircuit(src)
+  const view = doc.layers.flatMap((l) => l.gates).find((g) => g.kind === 'view')!
+  const lines = (edit: { source: string } | null) => edit?.source.split('\n').slice(1).join(' / ')
+
+  it('can be picked up at all', () => {
+    // It could not, and that was the bug: a window could be dropped in from the
+    // palette and then never moved or removed again.
+    //
+    // Spelled out rather than calculated, because only a resolved view can be
+    // laid out and it is the layout the pointer is matched against.
+    const text = 'in 0\nH 1\nwindow 0|1\nX 1'
+    const spelt = parseCircuit(text)
+    const shown = spelt.layers.flatMap((l) => l.gates).find((g) => g.kind === 'view')!
+    const geometry = geometryOf(text)
+    const band = geometry.layers[1]
+    const found = gateAt(spelt, geometry, { x: geometry.columns[0], y: band.y + band.h / 2 })
+    expect(found).toBe(shown)
+  })
+
+  it('moves between layers like anything else', () => {
+    expect(lines(moveGate(src, doc, view, { wire: 1, layer: 0, where: 'before' })))
+      .toBe('window calculate / H 1 / X 1 / Z 1')
+    expect(lines(moveGate(src, doc, view, { wire: 1, layer: 2, where: 'after' })))
+      .toBe('H 1 / X 1 / window calculate / Z 1')
+    expect(lines(moveGate(src, doc, view, { wire: 1, layer: 3, where: 'after' })))
+      .toBe('H 1 / X 1 / Z 1 / window calculate')
+  })
+
+  it('can be thrown away', () => {
+    expect(lines(removeGate(src, doc, view))).toBe('H 1 / X 1 / Z 1')
+  })
+
+  it('takes its own text with it rather than being written again', () => {
+    // What a window shows lives in the text and nowhere else. Composed back
+    // from the drawing, a state written out by hand would come back as
+    // `calculate` — a different figure, silently.
+    const spelt = 'in 0\nH 1\nwindow 0|1\nX 1'
+    const doc2 = parseCircuit(spelt)
+    const view2 = doc2.layers.flatMap((l) => l.gates).find((g) => g.kind === 'view')!
+    expect(lines(moveGate(spelt, doc2, view2, { wire: 1, layer: 2, where: 'after' })))
+      .toBe('H 1 / X 1 / window 0|1')
+  })
+
+  it('says what it is while it is in the air', () => {
+    expect(asDroppable(view).head).toBe('window')
+  })
+})

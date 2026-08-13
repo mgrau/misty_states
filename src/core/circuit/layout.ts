@@ -619,10 +619,15 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
 
   const emitView = (item: { gate: ViewGate; prims: Prim[]; box: Box }) => {
     const { gate, prims, box } = item
+    // Keyed like any other gate, so that when a window is dragged the drawing
+    // slides it along with everything else instead of leaving it to jump. A
+    // view is one name over a dozen primitives — a whole state, frame and all —
+    // which is exactly the case the key counter was built to pair up.
+    const key = gateKey(gate, keys)
     if (gate.boxed) {
       // Frame first, in the stack where the pipes meet it — it is built like
       // any other gate, so it is shaded and projected like one.
-      bodies.push({ t: 'gatebox', box, label: '', labelSize: m.fontSize })
+      bodies.push({ t: 'gatebox', box, label: '', labelSize: m.fontSize, key })
       // Then the glazing, on the frame's front face. It goes with the glyphs
       // rather than the bodies so it stays immediately behind its own contents;
       // the painter's sort would otherwise separate the two.
@@ -635,12 +640,13 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
           h: box.h - 2 * PANE_INSET,
         },
         fill: gate.fill,
+        key,
       })
     }
     // Contents go on after the stack: the pipes underneath are already cut
     // away, and a cloud wide enough to overhang a neighbouring column should
     // pass in front of it.
-    glyphs.push(...prims)
+    glyphs.push(...keyed(prims, key))
     boxes.push(box)
 
     // A frame is joined to its pipes; a bare state is not. It stands clear of
