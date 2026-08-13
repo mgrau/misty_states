@@ -39,9 +39,25 @@ for (const path of files) {
     })
 }
 
+// The other half of the promise: the library is meant to be installable with
+// nothing behind it. All five of this repo's third-party packages belong to
+// the editor, which bundles them at build time, so none of them is a runtime
+// dependency of anything a consumer imports.
+const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+const deps = Object.keys(pkg.dependencies ?? {})
+if (deps.length) {
+  found.push(
+    `package.json declares ${deps.length} runtime dependenc${deps.length === 1 ? 'y' : 'ies'}` +
+      ` — ${deps.join(', ')}\n    a consumer installing this package would inherit them`,
+  )
+}
+
 if (found.length) {
-  console.error(`src/core must not depend on src/app. ${found.length} crossing(s):\n`)
+  console.error(`the library boundary is broken. ${found.length} crossing(s):\n`)
   console.error(found.join('\n'))
   process.exit(1)
 }
-console.log(`boundary holds: ${files.length} files in src/core, none reach outside it`)
+console.log(
+  `boundary holds: ${files.length} files in src/core, none reach outside it,` +
+    ' and nothing a consumer installs brings a dependency with it',
+)

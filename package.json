@@ -22,19 +22,17 @@
     "@tailwindcss/vite": "^4.1.14",
     "@testing-library/svelte": "^5.4.2",
     "@types/js-yaml": "^4.0.9",
+    "gifenc": "^1.0.3",
+    "js-yaml": "^5.2.3",
     "jsdom": "^30.0.1",
+    "jspdf": "^4.2.1",
+    "mp4-muxer": "^5.2.2",
     "svelte": "^5.39.5",
     "svelte-check": "^4.3.2",
+    "svg2pdf.js": "^2.7.0",
     "tailwindcss": "^4.1.14",
     "typescript": "^5.9.3",
     "vite": "^7.1.9",
     "vitest": "^3.2.4"
-  },
-  "dependencies": {
-    "gifenc": "^1.0.3",
-    "js-yaml": "^5.2.3",
-    "jspdf": "^4.2.1",
-    "mp4-muxer": "^5.2.2",
-    "svg2pdf.js": "^2.7.0"
   }
 }
