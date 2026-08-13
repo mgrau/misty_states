@@ -392,3 +392,49 @@ describe('starting a circuit from a state', () => {
     expect(render('in 00\nH 1').qubits).toBe(2)
   })
 })
+
+describe('moving a gate keeps it the gate it was', () => {
+  const moved = (source: string, target: DropTarget) => {
+    const doc = parseCircuit(source)
+    const out = moveGate(source, doc, doc.layers[0].gates[0], target)?.source ?? ''
+    return out.split('\n').find((l) => /CNOT|TOFFOLI|CZ/.test(l))
+  }
+  const down = at(1, 1, 'after')
+
+  it('keeps the target on the wire it was on', () => {
+    // The whole point of a controlled gate is which wire takes the ⊕. Picking
+    // one up and putting it down must not quietly turn it round.
+    expect(moved('in 000\nCNOT 2 -> 1\nH 3', down)).toBe('CNOT 2 -> 1')
+    expect(moved('in 0000\nTOFFOLI 1 3 -> 2\nH 4', at(2, 1, 'after')))
+      .toBe('TOFFOLI 2 4 -> 3')
+  })
+
+  it('points at the target where the bare form cannot', () => {
+    // `CNOT 2 1` means the last wire is the target, so a target that is *not*
+    // last has to be written with the arrow whatever the original used.
+    expect(moved('in 000\nCNOT 2 1\nH 3', down)).toBe('CNOT 2 -> 1')
+  })
+
+  it('keeps the arrow where there was one, and leaves it off where there was not', () => {
+    expect(moved('in 000\nCNOT 1 -> 2\nH 3', down)).toBe('CNOT 1 -> 2')
+    expect(moved('in 000\nCNOT 1 2\nH 3', down)).toBe('CNOT 1 2')
+  })
+
+  it('keeps a name on the side that decides what kind of name it is', () => {
+    // Before the wires it stands on the target; after them it labels the link.
+    expect(moved('in 000\nCNOT 2 -> 1 "Tiger?"\nH 3', at(2, 1, 'after')))
+      .toBe('CNOT 3 -> 2 "Tiger?"')
+    expect(moved('in 000\nCNOT "Oracle" 2 -> 1\nH 3', at(2, 1, 'after')))
+      .toBe('CNOT "Oracle" 3 -> 2')
+  })
+
+  it('leaves a symmetric gate alone', () => {
+    expect(moved('in 000\nCZ 1 2\nH 3', at(2, 1, 'after'))).toBe('CZ 2 3')
+  })
+
+  it('drops a fresh one from the palette with its target last, as ever', () => {
+    const source = 'in 000\nH 1'
+    const doc = parseCircuit(source)
+    expect(insertGate(source, doc, at(1, 0, 'after'), CNOT).source).toContain('CNOT 1 2')
+  })
+})

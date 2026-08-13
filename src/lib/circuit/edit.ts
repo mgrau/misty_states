@@ -94,6 +94,19 @@ export interface Droppable {
   tail?: string
   /** Wires written as a range, `1-2`, which is what a box spans. */
   range?: boolean
+  /**
+   * Which wire of the span carries the ⊕, counted from the top of it.
+   *
+   * Only a controlled gate has one, and only a gate already in the drawing
+   * knows it: dropping a fresh one from the palette puts the target on the
+   * last wire, which is what the arrowless form means. Carried here so that
+   * *moving* a gate whose target is not last keeps it there — otherwise a
+   * `CNOT 2 -> 1` picked up and put down again quietly becomes `CNOT 1 -> 2`,
+   * which is a different gate.
+   */
+  targetAt?: number
+  /** Written with an arrow, because that is how it was written before. */
+  arrow?: boolean
 }
 
 /**
@@ -109,7 +122,20 @@ export function gateLine(gate: Droppable, wire: number, qubits: number): string 
   let start = Math.max(1, Math.min(wire, room))
   if (start + gate.wires - 1 > room) start = Math.max(1, room - gate.wires + 1)
   const wires = Array.from({ length: gate.wires }, (_, i) => start + i)
-  const span = gate.range ? `${wires[0]}-${wires[wires.length - 1]}` : wires.join(' ')
+  if (gate.range) {
+    return [gate.head, gate.label, `${wires[0]}-${wires[wires.length - 1]}`, gate.tail]
+      .filter(Boolean)
+      .join(' ')
+  }
+
+  // The bare form means "the last wire is the target", so a target anywhere
+  // else has to be pointed at. Where it *is* last, the arrow is written only if
+  // it was written before.
+  const at = gate.targetAt ?? gate.wires - 1
+  const target = wires[Math.max(0, Math.min(at, gate.wires - 1))]
+  const controls = wires.filter((w) => w !== target)
+  const arrow = gate.arrow || (controls.length > 0 && at !== gate.wires - 1)
+  const span = arrow ? [...controls, '->', target].join(' ') : wires.join(' ')
   return [gate.head, gate.label, span, gate.tail].filter(Boolean).join(' ')
 }
 
@@ -421,6 +447,9 @@ export function moveGate(
   gate: Gate,
   target: DropTarget,
 ): Edit | null {
+  // Read before the cut, while the line it was written on still exists: a gate
+  // put down again should read the way it read before, arrow and all.
+  const written = locate(source, doc, gate)?.parts[locate(source, doc, gate)!.which]
   const cut = removeGate(source, doc, gate)
   if (!cut) return null
   let reduced: CircuitDoc
@@ -429,7 +458,11 @@ export function moveGate(
   } catch {
     return null
   }
-  return insertGate(cut.source, reduced, afterRemoval(target, cut.layerRemoved), asDroppable(gate))
+  const moved = asDroppable(gate)
+  return insertGate(cut.source, reduced, afterRemoval(target, cut.layerRemoved), {
+    ...moved,
+    arrow: written?.includes('->') || undefined,
+  })
 }
 
 /** How to write a gate that is already in the document back out again. */
@@ -456,7 +489,18 @@ export function asDroppable(gate: Gate): Droppable {
       if (!gate.controls.length) return { head: 'X', wires: 1 }
       const head =
         gate.targetGlyph === 'z' ? 'CZ' : gate.controls.length > 1 ? 'TOFFOLI' : 'CNOT'
-      return { head, wires, label: gate.label ? `"${gate.label}"` : undefined }
+      // Which side the name goes on is which name it is: before the wires it
+      // stands on the target, after them it labels the link. Writing it back on
+      // the wrong side would silently make it the other kind.
+      const name = gate.label ? `"${gate.label}"` : undefined
+      return {
+        head,
+        wires,
+        label: gate.labelOnLink ? undefined : name,
+        tail: gate.labelOnLink ? name : undefined,
+        // Where the ⊕ sits within the span, so a move carries it along.
+        targetAt: gate.target - q0,
+      }
     }
     default:
       return { head: 'I', wires: 1 }
