@@ -1206,11 +1206,11 @@ describe('the gate gallery', () => {
     expect(codes).toContain('measure 1 Z')
   })
 
-  it('groups by how many wires a gate takes', () => {
+  it('groups by what a thing is, not by when it was added', () => {
     boot()
     open()
     const headings = [...gallery()!.querySelectorAll('h3')].map((h) => h.textContent!.trim())
-    expect(headings).toEqual(['One wire', 'Two or more wires', 'Boxes'])
+    expect(headings).toEqual(['One wire', 'Two or more wires', 'Views', 'Boxes'])
   })
 
   it('draws in the theme the diagram is using', () => {

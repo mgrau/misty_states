@@ -18,6 +18,7 @@
 import type { CircuitDoc, Gate } from './ast'
 import { gateSpan } from './ast'
 import { liftGateAnnotations, parseCircuit } from './parse'
+import { resolveCalculations } from './simulate'
 import type { CircuitGeometry } from './layout'
 
 /** Where on the drawing a pointer is, in the diagram's own coordinates. */
@@ -107,6 +108,16 @@ export interface Droppable {
   targetAt?: number
   /** Written with an arrow, because that is how it was written before. */
   arrow?: boolean
+  /**
+   * What a view shows, written in place of the wires.
+   *
+   * A gate is named and then told which wires it sits on; a view is named and
+   * then told what to display. `calculate` is the useful default — dropping a
+   * window into a circuit to see what the state is there is the whole reason to
+   * drop one — and it takes the register as a whole, so there is no span to
+   * write either.
+   */
+  shows?: string
 }
 
 /**
@@ -118,6 +129,9 @@ export interface Droppable {
  * on the last wire reaches one wire further rather than jumping back to the top.
  */
 export function gateLine(gate: Droppable, wire: number, qubits: number): string {
+  // A view is not on a wire; it is a break across all of them.
+  if (gate.shows) return `${gate.head} ${gate.shows}`
+
   const room = qubits + 1
   let start = Math.max(1, Math.min(wire, room))
   if (start + gate.wires - 1 > room) start = Math.max(1, room - gate.wires + 1)
@@ -246,20 +260,50 @@ export interface Edit {
  * the drawing is rendered from this same string, so whatever the packer decides
  * is on screen before anything is committed.
  */
+/**
+ * What this drop could be written as, best first.
+ *
+ * Usually one thing. A view that calculates is the exception: the arithmetic
+ * cannot follow every circuit — a custom box does not say what it does, and a
+ * T turns by an eighth — so a window dropped into one of those falls back to
+ * showing unknowns, which is a question rather than a failure.
+ */
+function bodies(gate: Droppable, target: DropTarget, qubits: number): string[] {
+  const first = gateLine(gate, target.wire, qubits)
+  if (gate.shows !== 'calculate') return [first]
+  return [first, `${gate.head} ${'?'.repeat(Math.max(1, qubits))}`]
+}
+
+/** Whether the arithmetic can follow this document, which `calculate` needs. */
+function resolves(doc: CircuitDoc): boolean {
+  try {
+    resolveCalculations(doc)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function insertGate(
   source: string,
   doc: CircuitDoc,
   target: DropTarget,
   gate: Droppable,
 ): Edit {
-  const text = gateLine(gate, target.wire, doc.qubits)
-  const tries = candidates(source, doc, target, text)
-  const want = aimedAt(target)
+  // A view takes a layer to itself, so there is no sharing one with a gate.
+  const where = gate.shows && target.where === 'in' ? 'after' : target.where
+  const aim = { ...target, where } as DropTarget
+  const want = aimedAt(aim)
+  const tries = bodies(gate, aim, doc.qubits).flatMap((text) =>
+    candidates(source, doc, aim, text),
+  )
 
   for (const candidate of tries) {
     try {
       const parsed = parseCircuit(candidate.source)
-      if (parsed.layers[want]?.lines.includes(candidate.line)) return candidate
+      if (parsed.layers[want]?.lines.includes(candidate.line) && resolves(parsed)) {
+        return candidate
+      }
     } catch {
       // A candidate that will not parse is simply not the one.
     }

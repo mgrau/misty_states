@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
 import { layoutCircuit } from './layout'
 import { detectMode, render } from '../index'
+import { GATE_GALLERY } from '../gates'
 import {
   asDroppable, cycleTarget, dropTarget, gateAt, gateLine, insertGate, moveGate, removeGate,
   type Droppable, type DropTarget,
@@ -436,5 +437,47 @@ describe('moving a gate keeps it the gate it was', () => {
     const source = 'in 000\nH 1'
     const doc = parseCircuit(source)
     expect(insertGate(source, doc, at(1, 0, 'after'), CNOT).source).toContain('CNOT 1 2')
+  })
+})
+
+/**
+ * Dropping a window.
+ *
+ * A view is not a gate: it does not sit on a wire, it breaks across all of
+ * them, and what it holds is worked out rather than chosen. So the thing being
+ * dropped says what it *shows* instead of how many wires it takes.
+ */
+describe('dropping a view into a circuit', () => {
+  const WINDOW: Droppable = { head: 'window', wires: 1, shows: 'calculate' }
+  const put = (source: string, target: DropTarget) =>
+    insertGate(source, parseCircuit(source), target, WINDOW).source
+
+  it('shows the state at that point, worked out', () => {
+    expect(put('in 00\nH 1\nCNOT 1 2', at(1, 0, 'after')))
+      .toBe('in 00\nH 1\nwindow calculate\nCNOT 1 2')
+  })
+
+  it('takes a layer of its own, never a share of one', () => {
+    // A view fences its layer at both ends, so `;` onto a gate line is not a
+    // placement it has — aiming at one is read as aiming just below it.
+    expect(put('in 00\nH 1\nCNOT 1 2', at(1, 0, 'in'))).not.toContain(';')
+    expect(put('in 00\nH 1\nCNOT 1 2', at(1, 0, 'in')))
+      .toBe('in 00\nH 1\nwindow calculate\nCNOT 1 2')
+  })
+
+  it('asks the question instead where the arithmetic cannot follow', () => {
+    // A custom box does not say what it does, so there is nothing to calculate
+    // — and a window of unknowns is a question rather than a failure.
+    expect(put('in 000\nH 1\nbox "U" 1-3\nCNOT 1 2', at(1, 1, 'after')))
+      .toContain('window ???')
+  })
+
+  it('starts a circuit from a state, like any other drop', () => {
+    expect(put('00|11', at(1, 0, 'after'))).toBe('00|11\nwindow calculate')
+  })
+
+  it('is offered by the palette', () => {
+    const droppable = GATE_GALLERY.flatMap((g) => g.items).filter((i) => i.drop)
+    expect(droppable.map((i) => i.code)).toContain('window calculate')
   })
 })

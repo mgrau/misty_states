@@ -66,6 +66,20 @@ export const GATE_GALLERY: GateGroup[] = [
     ],
   },
   {
+    heading: 'Views',
+    items: [
+      {
+        code: 'window calculate',
+        name: 'Window',
+        text: 'The state at this point, framed and plumbed into the circuit',
+        source: 'qubits 2\nwindow ??',
+        // Not on a wire: a view is a break across all of them, and what it
+        // shows is worked out from the gates above it.
+        drop: { head: 'window', wires: 1, shows: 'calculate' },
+      },
+    ],
+  },
+  {
     heading: 'Boxes',
     items: [
       { code: 'box "U" 1-2', name: 'Custom box', source: 'qubits 2\nbox "U" 1-2', drop: { head: 'box', wires: 2, label: '"U"', range: true } },
