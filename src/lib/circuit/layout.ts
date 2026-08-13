@@ -991,12 +991,18 @@ function emitGate(
       return
 
     case 'single': {
-      // `90°` under `RZ`, so the letters keep their size and the angle reads as
-      // a setting on the gate rather than part of its name.
-      const sub = gate.angle === undefined ? undefined : `${gate.angle}°`
+      // `90°` under `R`, so the letters keep their size and the angle reads as
+      // a setting on the gate rather than part of its name. And the axis is a
+      // subscript, because `RX` is one letter saying *rotation* and a small one
+      // saying *about which axis* — not two letters of equal weight.
+      const turning = gate.angle !== undefined
+      const axis = turning && /^R[XYZ]$/.test(gate.label) ? gate.label[1] : undefined
+      const label = axis ? 'R' : gate.label
+      const sub = turning ? `${gate.angle}°` : undefined
       bodies.push({
-        t: 'gatebox', box, label: gate.label, accent: gate.accent, sub,
-        labelSize: fitLabel(gate.label, box.w, m) * (sub ? 0.82 : 1),
+        t: 'gatebox', box, label, subscript: axis, accent: gate.accent, sub,
+        // Sized on the pair, so a subscript cannot push the letter out of its box.
+        labelSize: fitLabel(label + (axis ?? ''), box.w, m) * (sub ? 0.82 : 1),
       })
       return
     }

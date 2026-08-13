@@ -115,10 +115,20 @@ describe('writing one', () => {
     expect(render('in 0\nRZ(45) 1').kind).toBe('circuit')
   })
 
-  it('draws the angle under the letters rather than beside them', () => {
+  it('draws R with its axis below the line, and the angle under both', () => {
+    // `RX` reads as two letters of equal weight; what is meant is one letter
+    // saying rotation and a small one saying about which axis.
     const svg = render('RZ(90) 1').svg
-    expect(svg).toContain('>RZ<')
+    expect(svg).not.toContain('>RZ<')
+    expect(svg).toContain('>R<')
+    expect(svg).toContain('>Z<')
     expect(svg).toContain('>90°<')
+  })
+
+  it('keeps a colour per axis, though the letter is the same', () => {
+    const chips = (src: string) =>
+      [...render(src).svg.matchAll(/rx="2" fill="(#[0-9a-f]{6})"/g)].map((m) => m[1])
+    expect(new Set(chips('qubits 3\nRX(90) 1; RY(45) 2; RZ(180) 3')).size).toBe(3)
   })
 
   it('refuses an angle it cannot read', () => {

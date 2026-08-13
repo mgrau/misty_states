@@ -24,7 +24,7 @@
   import MenuItems from './components/MenuItems.svelte'
   import type { MenuItem } from './components/menu'
   import {
-    asDroppable, cycleTarget, dropTarget, gateAt, insertGate, moveGate, removeGate,
+    asDroppable, cycleTarget, dropTarget, gateAt, insertGate, moveGate, removeGate, setAngle,
     type Droppable, type Edit,
   } from './lib/circuit/edit'
   import { parseCircuit } from './lib/circuit/parse'
@@ -1201,11 +1201,46 @@
   ])
 
   /** Right-click menu over the preview: the copy and save actions together. */
-  const contextItems = $derived<MenuItem[]>([...copyItems, ...saveItems.map((i) => ({
-    ...i,
-    key: `save-${i.key}`,
-    label: `Save as ${i.label}`,
-  }))])
+  /**
+   * The angles a rotation is offered, and the one it already has.
+   *
+   * A short list of the ones anybody actually writes. The rest of the circle is
+   * still available by typing, which is what the source box is for.
+   */
+  const ANGLES = [30, 45, 60, 90, 120, 180, 270, 360]
+
+  /**
+   * The rotation the menu was opened on, with the document it came from.
+   *
+   * Both, and `$state.raw`, for the same reason a drag freezes what it holds: a
+   * gate is identified by *being* one of a document's gates, so it has to be
+   * kept beside the parse it came out of — and plain `$state` would hand back a
+   * proxy of it, which is not one of them.
+   */
+  let turning = $state.raw<{ doc: CircuitDoc; gate: Gate; angle: number } | null>(null)
+
+  const contextItems = $derived<MenuItem[]>(
+    turning
+      ? ANGLES.map((angle) => ({
+          key: `angle-${angle}`,
+          label: `${angle}°`,
+          hint:
+            angle === turning!.angle
+              ? 'the angle it has now'
+              : angle % 90 === 0
+                ? 'a right angle, so every amplitude stays whole'
+                : 'leaves cosines, which a state cannot be drawn with',
+          run: () => {
+            const held = turning!
+            const edit = setAngle(source, held.doc, held.gate, angle)
+            if (edit) source = edit.source
+          },
+        }))
+      : [
+          ...copyItems,
+          ...saveItems.map((i) => ({ ...i, key: `save-${i.key}`, label: `Save as ${i.label}` })),
+        ],
+  )
 
   /* -- Reopening a saved figure ------------------------------------------ */
 
@@ -1298,6 +1333,25 @@
 
   function openContextMenu(event: MouseEvent) {
     event.preventDefault()
+
+    // A right-click on a rotation is about that rotation; anywhere else it is
+    // about the drawing as a whole.
+    turning = null
+    const svg = previewEl?.querySelector('svg') as SVGSVGElement | null
+    const screen = svg?.getScreenCTM()
+    if (svg && screen && result.ok && result.geometry) {
+      try {
+        const doc = parseCircuit(source)
+        const at = new DOMPoint(event.clientX, event.clientY).matrixTransform(screen.inverse())
+        const gate = gateAt(doc, result.geometry, at)
+        if (gate?.kind === 'single' && gate.angle !== undefined) {
+          turning = { doc, gate, angle: gate.angle }
+        }
+      } catch {
+        // An unparseable source has no gate to have clicked on.
+      }
+    }
+
     // Keep the menu inside the viewport when right-clicking near an edge.
     menu = {
       x: Math.min(event.clientX, window.innerWidth - 260),

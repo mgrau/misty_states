@@ -418,6 +418,35 @@ export function cycleTarget(source: string, doc: CircuitDoc, gate: Gate): Edit |
 }
 
 /**
+ * The same rotation, turned by a different angle.
+ *
+ * The angle is the one thing about a rotation that is not visible in its shape,
+ * and typing it is the one edit dragging cannot do — so it wants a way in that
+ * does not mean finding the line. Everything else about the line is left
+ * exactly as written, keyword and wires and annotations alike.
+ */
+export function setAngle(
+  source: string,
+  doc: CircuitDoc,
+  gate: Gate,
+  angle: number,
+): Edit | null {
+  if (gate.kind !== 'single' || gate.angle === undefined) return null
+  const found = locate(source, doc, gate)
+  if (!found) return null
+
+  const was = found.parts[found.which]
+  const turned = was.replace(/^(\s*[A-Za-z]+)\([^)]*\)/, `$1(${angle})`)
+  if (turned === was) return null
+
+  const parts = [...found.parts]
+  parts[found.which] = turned
+  const lines = [...found.lines]
+  lines[found.at] = rewrite(lines[found.at], parts.join('; '))
+  return { source: lines.join('\n'), line: gate.line! }
+}
+
+/**
  * The source with one gate taken out of it.
  *
  * A line holding nothing else goes entirely; a line sharing gates with `;`

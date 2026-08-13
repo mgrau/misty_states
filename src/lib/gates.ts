@@ -66,6 +66,25 @@ export const GATE_GALLERY: GateGroup[] = [
     ],
   },
   {
+    heading: 'Rotations',
+    items: [
+      {
+        code: 'RX(90) 1',
+        name: 'Rotation about X',
+        text: 'Degrees. A right angle keeps every amplitude whole',
+        drop: { head: 'RX(90)', wires: 1 },
+      },
+      { code: 'RY(90) 1', name: 'Rotation about Y', drop: { head: 'RY(90)', wires: 1 } },
+      { code: 'RZ(90) 1', name: 'Rotation about Z', drop: { head: 'RZ(90)', wires: 1 } },
+      {
+        code: 'P(90) 1',
+        name: 'Phase',
+        text: 'A turn of the black half alone',
+        drop: { head: 'P(90)', wires: 1 },
+      },
+    ],
+  },
+  {
     heading: 'Views',
     items: [
       {

@@ -1,6 +1,7 @@
 import { Path, el, esc, g, n } from '../svg'
 import { inscribedMark, shapePath } from '../shapes'
 import type { Metrics, Prim, QubitPrim, TextPrim } from './primitives'
+import { textWidth } from './primitives'
 import { cloudPath } from './cloud'
 
 export type ThemeId = 'solid' | 'flat' | 'isometric'
@@ -416,15 +417,42 @@ export function labelChip(
   size: number,
   accent: string | undefined,
   pal: Palette,
+  /**
+   * A smaller letter set below the line after the label, as `R` takes an axis.
+   *
+   * Drawn rather than folded into the label because it is not part of the
+   * name: `RX` reads as two letters of equal weight, where the thing meant is
+   * one letter saying *rotation* and a small one saying *about which axis*.
+   */
+  subscript?: string,
 ): string {
   if (!text) return ''
-  if (!accent) {
-    return drawText(
-      { t: 'text', x: cx, cy, text, size, anchor: 'middle', weight: 600 },
-      pal,
-    )
-  }
-  const w = Math.max(size * 1.25, text.length * size * 0.66)
+  const subSize = size * 0.66
+  const subW = subscript ? textWidth(subscript, subSize, true) : 0
+  const mainW = textWidth(text, size, true)
+  // The pair is centred as a whole, so the label sits left of centre by half
+  // of whatever the subscript takes.
+  const mainX = cx - subW / 2
+  const runs = (color: string, weight: number) =>
+    drawText({ t: 'text', x: mainX, cy, text, size, anchor: 'middle', weight, color }, pal) +
+    (subscript
+      ? drawText(
+          {
+            t: 'text',
+            x: mainX + mainW / 2,
+            cy: cy + size * 0.28,
+            text: subscript,
+            size: subSize,
+            anchor: 'start',
+            weight,
+            color,
+          },
+          pal,
+        )
+      : '')
+
+  if (!accent) return runs(pal.ink, 600)
+  const w = Math.max(size * 1.25, (mainW + subW) * 1.18)
   const h = size * 1.3
   return (
     el('rect', {
@@ -434,10 +462,6 @@ export function labelChip(
       height: h,
       rx: 2,
       fill: accent,
-    }) +
-    drawText(
-      { t: 'text', x: cx, cy, text, size, anchor: 'middle', weight: 700, color: '#ffffff' },
-      pal,
-    )
+    }) + runs('#ffffff', 700)
   )
 }

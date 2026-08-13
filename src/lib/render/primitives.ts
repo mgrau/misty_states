@@ -101,6 +101,8 @@ export interface GateBoxPrim {
    * are what the gate is called.
    */
   sub?: string
+  /** A smaller letter set below the line after the label: `R` and its axis. */
+  subscript?: string
 }
 
 /**

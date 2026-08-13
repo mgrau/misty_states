@@ -15,6 +15,7 @@ import { detectMode, render } from '../index'
 import { GATE_GALLERY } from '../gates'
 import {
   asDroppable, cycleTarget, dropTarget, gateAt, gateLine, insertGate, moveGate, removeGate,
+  setAngle,
   type Droppable, type DropTarget,
 } from './edit'
 import { DEFAULT_METRICS } from '../render/primitives'
@@ -479,5 +480,33 @@ describe('dropping a view into a circuit', () => {
   it('is offered by the palette', () => {
     const droppable = GATE_GALLERY.flatMap((g) => g.items).filter((i) => i.drop)
     expect(droppable.map((i) => i.code)).toContain('window calculate')
+  })
+})
+
+describe('turning a rotation by a different angle', () => {
+  const turned = (source: string, angle: number) => {
+    const doc = parseCircuit(source)
+    const gate = doc.layers.flatMap((l) => l.gates)
+      .find((g) => g.kind === 'single' && g.angle !== undefined)
+    return gate ? setAngle(source, doc, gate, angle)?.source.split('\n')[1] : 'no rotation'
+  }
+
+  it('changes the angle and nothing else', () => {
+    expect(turned('in 0\nRX(90) 1', 45)).toBe('RX(45) 1')
+    expect(turned('in 00\nH 1; RZ(30) 2', 180)).toBe('H 1; RZ(180) 2')
+  })
+
+  it('keeps the annotations either side of the line', () => {
+    expect(turned('in 0\nturn: RY(-90) 1 : note', 60)).toBe('turn: RY(60) 1 : note')
+  })
+
+  it('has nothing to say about a gate that does not turn', () => {
+    const doc = parseCircuit('in 0\nH 1')
+    expect(setAngle('in 0\nH 1', doc, doc.layers[0].gates[0], 45)).toBeNull()
+  })
+
+  it('offers every axis in the palette', () => {
+    const codes = GATE_GALLERY.flatMap((g) => g.items).filter((i) => i.drop).map((i) => i.code)
+    expect(codes).toEqual(expect.arrayContaining(['RX(90) 1', 'RY(90) 1', 'RZ(90) 1', 'P(90) 1']))
   })
 })
