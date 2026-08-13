@@ -91,6 +91,17 @@ export interface BoardHost {
   oncommit: (edit: Edit) => void
   /** The carry changed. Hosts redraw the floating gate from this. */
   onchange?: (state: CarryState) => void
+  /**
+   * A gate was tapped and the board had nothing to do about it.
+   *
+   * A press that goes nowhere is a click, and the one click the board answers
+   * itself is on a controlled gate, whose target it walks to the next wire it
+   * covers. Everything else is the host's: a rotation might want a dial, a box
+   * might want to be renamed. The document and the source it came from travel
+   * with the gate, because a gate is only identifiable against the parse it
+   * belongs to and the host must not go looking for it in a fresher one.
+   */
+  ontap?: (tap: { gate: Gate; doc: CircuitDoc; source: string; at: { x: number; y: number } }) => void
   /** How long a slide takes. Zero turns the animation off. */
   flipMs?: number
 }
@@ -268,11 +279,19 @@ export function createBoard(host: BoardHost): Board {
    * that dragging left undone.
    */
   function clickGate() {
-    const gate = pending?.gate
+    const tapped = pending
     forgetPending()
-    if (gate && held && !carrying) {
-      const spun = cycleTarget(held.source, held.doc, gate)
+    if (tapped && held && !carrying) {
+      const spun = cycleTarget(held.source, held.doc, tapped.gate)
       if (spun) host.oncommit(spun)
+      else {
+        host.ontap?.({
+          gate: tapped.gate,
+          doc: held.doc,
+          source: held.source,
+          at: { x: tapped.x, y: tapped.y },
+        })
+      }
     }
     if (!carrying) held = null
   }

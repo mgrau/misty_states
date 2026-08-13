@@ -23,9 +23,9 @@
   import MenuButton from './app/components/MenuButton.svelte'
   import MenuItems from './app/components/MenuItems.svelte'
   import type { MenuItem } from './app/components/menu'
-  import { asDroppable, gateAt, setAngle, type Edit } from './core/circuit/edit'
-  import { parseCircuit } from './core/circuit/parse'
+  import { asDroppable, setAngle, type Edit } from './core/circuit/edit'
   import { createBoard, type CarryState } from './core/ui/board'
+  import AngleDial from './app/components/AngleDial.svelte'
   import type { CircuitDoc, Gate } from './core/circuit/ast'
 
   const STORE = 'misty.v1'
@@ -575,6 +575,12 @@
     onpreview: (edit) => (dragPreview = edit),
     oncommit: (edit) => (source = edit.source),
     onchange: (state) => (carry = state),
+    ontap: (tap) => {
+      dial =
+        tap.gate.kind === 'single' && tap.gate.angle !== undefined
+          ? { doc: tap.doc, gate: tap.gate, source: tap.source, angle: tap.gate.angle, at: tap.at }
+          : null
+    },
   })
 
   // The board has to be told when the drawing is about to be replaced and when
@@ -881,47 +887,27 @@
     ),
   ])
 
-  /** Right-click menu over the preview: the copy and save actions together. */
   /**
-   * The angles a rotation is offered, and the one it already has.
-   *
-   * A short list of the ones anybody actually writes. The rest of the circle is
-   * still available by typing, which is what the source box is for.
-   */
-  const ANGLES = [30, 45, 60, 90, 120, 180, 270, 360]
-
-  /**
-   * The rotation the menu was opened on, with the document it came from.
+   * The rotation a dial is open on, with the document it came out of.
    *
    * Both, and `$state.raw`, for the same reason a drag freezes what it holds: a
    * gate is identified by *being* one of a document's gates, so it has to be
-   * kept beside the parse it came out of — and plain `$state` would hand back a
+   * kept beside the parse it came from — and plain `$state` would hand back a
    * proxy of it, which is not one of them.
    */
-  let turning = $state.raw<{ doc: CircuitDoc; gate: Gate; angle: number } | null>(null)
+  let dial = $state.raw<{
+    doc: CircuitDoc
+    gate: Gate
+    source: string
+    angle: number
+    at: { x: number; y: number }
+  } | null>(null)
 
-  const contextItems = $derived<MenuItem[]>(
-    turning
-      ? ANGLES.map((angle) => ({
-          key: `angle-${angle}`,
-          label: `${angle}°`,
-          hint:
-            angle === turning!.angle
-              ? 'the angle it has now'
-              : angle % 90 === 0
-                ? 'a right angle, so every amplitude stays whole'
-                : 'leaves cosines, which a state cannot be drawn with',
-          run: () => {
-            const held = turning!
-            const edit = setAngle(source, held.doc, held.gate, angle)
-            if (edit) source = edit.source
-          },
-        }))
-      : [
-          ...copyItems,
-          ...saveItems.map((i) => ({ ...i, key: `save-${i.key}`, label: `Save as ${i.label}` })),
-        ],
-  )
+  /** Right-click menu over the preview: the copy and save actions together. */
+  const contextItems = $derived<MenuItem[]>([
+    ...copyItems,
+    ...saveItems.map((i) => ({ ...i, key: `save-${i.key}`, label: `Save as ${i.label}` })),
+  ])
 
   /* -- Reopening a saved figure ------------------------------------------ */
 
@@ -1013,24 +999,6 @@
 
   function openContextMenu(event: MouseEvent) {
     event.preventDefault()
-
-    // A right-click on a rotation is about that rotation; anywhere else it is
-    // about the drawing as a whole.
-    turning = null
-    const svg = previewEl?.querySelector('svg') as SVGSVGElement | null
-    const screen = svg?.getScreenCTM()
-    if (svg && screen && result.ok && result.geometry) {
-      try {
-        const doc = parseCircuit(source)
-        const at = new DOMPoint(event.clientX, event.clientY).matrixTransform(screen.inverse())
-        const gate = gateAt(doc, result.geometry, at)
-        if (gate?.kind === 'single' && gate.angle !== undefined) {
-          turning = { doc, gate, angle: gate.angle }
-        }
-      } catch {
-        // An unparseable source has no gate to have clicked on.
-      }
-    }
 
     // Keep the menu inside the viewport when right-clicking near an edge.
     menu = {
@@ -1713,7 +1681,33 @@
     <LibraryEditor onclose={() => (libraryOpen = false)} />
   {/if}
 
-  {#if carry.carrying && carry.at}
+  {#if dial}
+  {#key dial.gate}
+  <!--
+    Turning previews the way a drag does — drawn from what the source *would*
+    be, written only when the dial is let go — so one turn is one edit.
+  -->
+  <AngleDial
+    angle={dial.angle}
+    at={dial.at}
+    onpreview={(deg) => {
+      const edit = setAngle(dial!.source, dial!.doc, dial!.gate, deg)
+      dragPreview = edit ? { source: edit.source, line: edit.line } : null
+    }}
+    oncommit={(deg) => {
+      const edit = setAngle(dial!.source, dial!.doc, dial!.gate, deg)
+      dragPreview = null
+      if (edit) source = edit.source
+    }}
+    onclose={() => {
+      dragPreview = null
+      dial = null
+    }}
+  />
+  {/key}
+{/if}
+
+{#if carry.carrying && carry.at}
     <!--
       What you are holding, drawn under the pointer. Transparent to the pointer
       itself, or it would be the thing every move landed on.
