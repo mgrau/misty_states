@@ -435,7 +435,10 @@ export function setAngle(
   if (!found) return null
 
   const was = found.parts[found.which]
-  const turned = was.replace(/^(\s*[A-Za-z]+)\([^)]*\)/, `$1(${angle})`)
+  // The brackets are optional in the source, so a rotation that has never been
+  // given an angle has none to replace — the head alone is matched, and gains
+  // them.
+  const turned = was.replace(/^(\s*[A-Za-z]+)(?:\([^)]*\))?/, `$1(${angle})`)
   if (turned === was) return null
 
   const parts = [...found.parts]
@@ -550,7 +553,10 @@ export function asDroppable(gate: Gate): Droppable {
   const wires = q1 - q0 + 1
   switch (gate.kind) {
     case 'single':
-      return { head: gate.label, wires: 1 }
+      // A rotation's angle is the gate, not a decoration on it. Left off, the
+      // line says `RY 1`, which used to mean nothing at all and now means a
+      // turn by nothing — either way not the gate that was picked up.
+      return { head: gate.angle === undefined ? gate.label : `${gate.label}(${gate.angle})`, wires: 1 }
     case 'identity':
       return { head: 'I', wires: 1 }
     case 'swap':

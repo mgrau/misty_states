@@ -135,3 +135,28 @@ describe('writing one', () => {
     expect(() => parseCircuit('in 0\nRZ(x) 1')).toThrow()
   })
 })
+
+describe('a rotation with no angle', () => {
+  const gateOf = (line: string) => parseCircuit(`qubits 2\n${line}`).layers[0].gates[0]
+
+  it('turns by nothing, rather than being an unknown gate', () => {
+    for (const head of ['RX', 'RY', 'RZ', 'P']) {
+      const gate = gateOf(`${head} 1`)
+      expect(gate).toMatchObject({ kind: 'single', label: head, angle: 0 })
+    }
+    expect(gateOf('RY() 1')).toMatchObject({ label: 'RY', angle: 0 })
+  })
+
+  it('still reads an angle when it is given one', () => {
+    expect(gateOf('RY(45) 1')).toMatchObject({ label: 'RY', angle: 45 })
+    expect(gateOf('RY(-90) 2')).toMatchObject({ label: 'RY', angle: -90, qubit: 2 })
+  })
+
+  it('has not made every word a gate', () => {
+    for (const line of ['Q 1', 'R 1', 'RQ 1', 'PP', 'RY(x) 1']) {
+      expect(() => parseCircuit(`qubits 2\n${line}`)).toThrow()
+    }
+    // A run of one-letter gates is still a run.
+    expect(parseCircuit('qubits 2\nHH').layers[0].gates).toHaveLength(2)
+  })
+})

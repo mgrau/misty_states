@@ -560,3 +560,35 @@ describe('dragging a window that is already in the drawing', () => {
     expect(asDroppable(view).head).toBe('window')
   })
 })
+
+describe('a rotation keeps its angle while it is dragged about', () => {
+  const moved = (line: string) => {
+    const src = `qubits 1\nH 1\n${line}\nZ 1`
+    const doc = parseCircuit(src)
+    return moveGate(src, doc, doc.layers[1].gates[0], { wire: 1, layer: 2, where: 'after' })
+      ?.source.split('\n').slice(1).join(' / ')
+  }
+
+  it('writes the angle back out, rather than only the axis', () => {
+    // It did not, and the line it wrote — `RY 1` — used to be an unknown gate.
+    // The drawing vanished mid-drag and took the angle with it.
+    expect(moved('RY(45) 1')).toBe('H 1 / Z 1 / RY(45) 1')
+    expect(moved('RX(-90) 1')).toBe('H 1 / Z 1 / RX(-90) 1')
+    expect(moved('P(30) 1')).toBe('H 1 / Z 1 / P(30) 1')
+    expect(moved('RZ(0) 1')).toBe('H 1 / Z 1 / RZ(0) 1')
+  })
+
+  it('leaves a gate that does not turn exactly as it was', () => {
+    expect(moved('H 1')).toBe('H 1 / Z 1 / H 1')
+  })
+
+  it('can be given an angle whether or not it has brackets yet', () => {
+    const set = (line: string) => {
+      const src = `qubits 1\n${line}`
+      const doc = parseCircuit(src)
+      return setAngle(src, doc, doc.layers[0].gates[0], 45)?.source.split('\n')[1]
+    }
+    expect(set('RY 1')).toBe('RY(45) 1')
+    expect(set('RY(90) 1')).toBe('RY(45) 1')
+  })
+})
