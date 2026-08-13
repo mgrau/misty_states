@@ -12,7 +12,7 @@ export default defineConfig({
     outDir: 'dist/lib',
     emptyOutDir: true,
     lib: {
-      entry: resolve(import.meta.dirname, 'src/lib/global.ts'),
+      entry: resolve(import.meta.dirname, 'src/core/global.ts'),
       name: 'MistyStates',
       formats: ['umd', 'es'],
       fileName: (format) => (format === 'es' ? 'misty-states.mjs' : 'misty-states.js'),

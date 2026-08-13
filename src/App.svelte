@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { render } from './lib/index'
-  import type { ThemeId } from './lib/render/theme'
-  import { DEFAULT_SHAPE_ORDER, SHAPE_NAMES, type ShapeName } from './lib/shapes'
-  import { EXAMPLES, DEFAULT_EXAMPLE } from './lib/examples'
+  import { render } from './core/index'
+  import type { ThemeId } from './core/render/theme'
+  import { DEFAULT_SHAPE_ORDER, SHAPE_NAMES, type ShapeName } from './core/shapes'
+  import { EXAMPLES, DEFAULT_EXAMPLE } from './core/examples'
   import {
     libraryStore, findByTitle, findEntry, saveEntry, seedFromProject,
   } from './lib/library-store.svelte'
@@ -12,10 +12,10 @@
     canCopyImages, copyPNG, copySVGImage, copyText, downloadPDF, downloadPNG,
     downloadSVG, pdfDataUrl, pngDataUrl, readSourceFile, svgDataUrl, triggerDownload,
   } from './lib/export'
-  import { embedSvgMeta } from './lib/metadata'
+  import { embedSvgMeta } from './core/metadata'
   import { canMakeMp4, toGif, toMp4 } from './lib/movie'
   import Icon from './components/Icon.svelte'
-  import { editorUrl, fromSearchParams, imageUrl, type DiagramParams } from './lib/url'
+  import { editorUrl, fromSearchParams, imageUrl, type DiagramParams } from './core/url'
   import SyntaxHelp from './components/SyntaxHelp.svelte'
   import SettingsPanel from './components/SettingsPanel.svelte'
   import SidePanel from './components/SidePanel.svelte'
@@ -26,10 +26,10 @@
   import {
     asDroppable, cycleTarget, dropTarget, gateAt, insertGate, moveGate, removeGate, setAngle,
     type Droppable, type Edit,
-  } from './lib/circuit/edit'
-  import { parseCircuit } from './lib/circuit/parse'
-  import type { CircuitDoc, Gate } from './lib/circuit/ast'
-  import type { DropTarget } from './lib/circuit/edit'
+  } from './core/circuit/edit'
+  import { parseCircuit } from './core/circuit/parse'
+  import type { CircuitDoc, Gate } from './core/circuit/ast'
+  import type { DropTarget } from './core/circuit/edit'
 
   const STORE = 'misty.v1'
 

@@ -8,11 +8,11 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { render, renderFrames } from './index'
+import { render, renderFrames } from '../core/index'
 import { canMakeMp4 } from './movie'
-import { parseCircuit } from './circuit/parse'
-import { layoutCircuit } from './circuit/layout'
-import { buildTimeline, positionAt } from './circuit/animate'
+import { parseCircuit } from '../core/circuit/parse'
+import { layoutCircuit } from '../core/circuit/layout'
+import { buildTimeline, positionAt } from '../core/circuit/animate'
 
 const SRC = 'in 11\nCNOT 1 -> 2\nanimate'
 

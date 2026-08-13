@@ -10,7 +10,7 @@
 
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { copySVGImage } from './export'
-import { render } from './index'
+import { render } from '../core/index'
 
 interface Written {
   types: string[]

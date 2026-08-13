@@ -15,7 +15,7 @@
 
 import { GIFEncoder, quantize, applyPalette } from 'gifenc'
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer'
-import { renderFrames, type RenderOptions } from './index'
+import { renderFrames, type RenderOptions } from '../core/index'
 
 export interface MovieOptions extends RenderOptions {
   /** Frames a second. More is smoother and bigger; 30 reads well. */

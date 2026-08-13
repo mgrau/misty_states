@@ -11,10 +11,10 @@
    * Drawn by the real renderer in the theme in use, so what you pick up is what
    * you will get.
    */
-  import { render } from '../lib/index'
-  import type { ThemeId } from '../lib/render/theme'
-  import type { Droppable } from '../lib/circuit/edit'
-  import { GATE_GALLERY, type Swatch } from '../lib/gates'
+  import { render } from '../core/index'
+  import type { ThemeId } from '../core/render/theme'
+  import type { Droppable } from '../core/circuit/edit'
+  import { GATE_GALLERY, type Swatch } from '../core/gates'
 
   const {
     theme = 'solid',

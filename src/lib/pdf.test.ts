@@ -10,8 +10,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { svgToPdfBlob, pdfDataUrl } from './export'
-import { embedSvgMeta, readPdfMeta } from './metadata'
-import { render } from './index'
+import { embedSvgMeta, readPdfMeta } from '../core/metadata'
+import { render } from '../core/index'
 
 const head = async (blob: Blob) =>
   new TextDecoder().decode(new Uint8Array(await blob.arrayBuffer()).subarray(0, 8))

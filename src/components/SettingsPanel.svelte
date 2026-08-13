@@ -6,10 +6,10 @@
    * is kept out of the editing column entirely. It shares the drawer with the
    * syntax reference — see `SidePanel` — so only one ever covers the drawing.
    */
-  import { render } from '../lib/index'
-  import { THEMES, THEME_IDS } from '../lib/render/themes'
-  import type { ThemeId } from '../lib/render/theme'
-  import { DEFAULT_SHAPE_ORDER, type ShapeName } from '../lib/shapes'
+  import { render } from '../core/index'
+  import { THEMES, THEME_IDS } from '../core/render/themes'
+  import type { ThemeId } from '../core/render/theme'
+  import { DEFAULT_SHAPE_ORDER, type ShapeName } from '../core/shapes'
   import ShapeOrderList from './ShapeOrderList.svelte'
   import { libraryStore, entryCount, replaceLibrary, resetLibrary } from '../lib/library-store.svelte'
   import { fromYaml, toYaml, LibraryFormatError } from '../lib/library-yaml'

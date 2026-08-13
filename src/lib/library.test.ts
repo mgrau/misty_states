@@ -14,8 +14,8 @@ import { describe, expect, it } from 'vitest'
 import { LIBRARY_YAML } from 'virtual:misty-library'
 import { fromYaml, type LibraryDocument } from './library-yaml'
 import { LIBRARY } from './library'
-import { render } from './index'
-import { EXAMPLES } from './examples'
+import { render } from '../core/index'
+import { EXAMPLES } from '../core/examples'
 
 // The same module the app seeds from, so this checks the real path rather than
 // a second reading of the file.

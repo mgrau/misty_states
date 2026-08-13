@@ -12,12 +12,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { Cx } from './complex'
+import type { Cx } from '../core/circuit/complex'
 import { LIBRARY_YAML } from 'virtual:misty-library'
-import { fromYaml } from '../library-yaml'
-import { parseCircuit } from './parse'
-import { amplitudesOf, canonical, simulate, SimulationError } from './simulate'
-import { detectMode } from '../index'
+import { fromYaml } from './library-yaml'
+import { parseCircuit } from '../core/circuit/parse'
+import { amplitudesOf, canonical, simulate, SimulationError } from '../core/circuit/simulate'
+import { detectMode } from '../core/index'
 
 const present = LIBRARY_YAML !== null
 

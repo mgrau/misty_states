@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { fromYaml, toYaml, LibraryFormatError } from './library-yaml'
-import { render } from './index'
+import { render } from '../core/index'
 
 /**
  * A fixture rather than the app's library, which is empty by design — the

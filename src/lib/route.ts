@@ -5,7 +5,7 @@
  * re-implemented by the tests.
  */
 
-import { fromSearchParams, type DiagramParams } from './url'
+import { fromSearchParams, type DiagramParams } from '../core/url'
 
 export type Route =
   | { view: 'viewer'; params: DiagramParams }

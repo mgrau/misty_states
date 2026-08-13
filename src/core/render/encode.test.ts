@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { svgDataUrl } from './export'
-import { render } from './index'
+import { svgDataUrl } from './encode'
+import { render } from '../index'
 
 const decode = (url: string) => {
   const [head, payload] = url.split(',')

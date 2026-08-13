@@ -10,13 +10,13 @@
 import {
   PDF_PREFIX, encodeSource, readFileMeta, readSvgMeta, stripSvgMeta,
   type DiagramMeta,
-} from './metadata'
-import { blobToDataUrl, svgBlob, svgToPngBlob } from './render/encode'
+} from '../core/metadata'
+import { blobToDataUrl, svgBlob, svgToPngBlob } from '../core/render/encode'
 
 // Re-exported because they were here first and half the app imports them from
 // here; where they live now is a fact about the library boundary, not about
 // what an exporter is called.
-export { pngDataUrl, svgDataUrl, svgToPngBlob } from './render/encode'
+export { pngDataUrl, svgDataUrl, svgToPngBlob } from '../core/render/encode'
 
 /** Recover a diagram from a file the user picked or dropped. */
 export async function readSourceFile(file: File): Promise<DiagramMeta> {

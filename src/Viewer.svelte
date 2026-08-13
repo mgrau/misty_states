@@ -10,9 +10,9 @@
    * by an external tool — the first response is still HTML.
    */
   import { onMount } from 'svelte'
-  import { render } from './lib/index'
+  import { render } from './core/index'
   import { downloadPDF, downloadPNG, downloadSVG, pngDataUrl, svgToPdfBlob } from './lib/export'
-  import { renderOptionsFrom, type DiagramParams } from './lib/url'
+  import { renderOptionsFrom, type DiagramParams } from './core/url'
 
   const { params }: { params: DiagramParams } = $props()
 
