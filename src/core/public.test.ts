@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest'
 import * as index from './index'
 import * as api from './api'
 import * as kernel from './kernel'
+import * as ui from './ui/board'
 
 const names = (m: object) => Object.keys(m).sort()
 
@@ -76,6 +77,12 @@ describe('the published surfaces', () => {
       'tabulate',
       'traceGate',
     ])
+  })
+
+  it('puts a circuit board on screen, from the ui entry', () => {
+    // Deliberately small. A host supplies four callbacks and gets four methods;
+    // everything else the drag layer knows stays behind the boundary.
+    expect(names(ui)).toEqual(['createBoard'])
   })
 
   it('means the same thing through the kernel as through the modules', async () => {

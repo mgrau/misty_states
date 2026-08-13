@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/core/api.ts",
     "./render": "./src/core/index.ts",
-    "./kernel": "./src/core/kernel.ts"
+    "./kernel": "./src/core/kernel.ts",
+    "./ui": "./src/core/ui/board.ts"
   },
   "scripts": {
     "dev": "vite",

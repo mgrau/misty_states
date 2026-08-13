@@ -23,13 +23,10 @@
   import MenuButton from './app/components/MenuButton.svelte'
   import MenuItems from './app/components/MenuItems.svelte'
   import type { MenuItem } from './app/components/menu'
-  import {
-    asDroppable, cycleTarget, dropTarget, gateAt, insertGate, moveGate, removeGate, setAngle,
-    type Droppable, type Edit,
-  } from './core/circuit/edit'
+  import { asDroppable, gateAt, setAngle, type Edit } from './core/circuit/edit'
   import { parseCircuit } from './core/circuit/parse'
+  import { createBoard, type CarryState } from './core/ui/board'
   import type { CircuitDoc, Gate } from './core/circuit/ast'
-  import type { DropTarget } from './core/circuit/edit'
 
   const STORE = 'misty.v1'
 
@@ -188,7 +185,6 @@
    * drawing that is being moved. The difference is only which patch is used —
    * both preview the same way and commit the same way.
    */
-  type Carried = { from: 'palette'; gate: Droppable } | { from: 'diagram'; gate: Gate }
   /**
    * `$state.raw`, and it matters. Plain `$state` hands back a deep proxy of
    * whatever is assigned to it, and a gate taken out of the frozen document
@@ -196,22 +192,8 @@
    * look for it, fail to find it, and quietly do nothing. Nothing here is
    * mutated in place, so there is nothing to gain by proxying it.
    */
-  let dragging = $state.raw<Carried | null>(null)
+  let carry = $state.raw<CarryState>({ carrying: null, at: null, removing: false })
   let dragPreview = $state.raw<Edit | null>(null)
-  /** Where the pointer is, so the gate being carried can follow it. */
-  let carriedAt = $state<{ x: number; y: number } | null>(null)
-  /** True while letting go would throw the carried gate away. */
-  let removing = $state(false)
-  let held: {
-    source: string
-    doc: CircuitDoc
-    /** Where a pointer lands, worked out the way this document needs. */
-    aim: (event: PointerEvent) => DropTarget
-    /** Screen to diagram, for reading the pointer. */
-    screen: DOMMatrix
-    /** Where the diagram's origin sat on screen, for keeping it there. */
-    anchor: { x: number; y: number }
-  } | null = null
   /** The element the anchor compensation is applied to. */
   let anchorEl = $state<HTMLElement | undefined>()
   let previewEl = $state<HTMLElement | undefined>()
@@ -576,337 +558,36 @@
   const showCheck = $derived(!!check && dismissed !== source && !dragPreview)
 
   /**
-   * Take hold of what the drag will be measured against.
+   * The drag layer, which is no longer here.
    *
-   * Called on the first move over the drawing, while what is on screen is still
-   * the committed diagram: its geometry and its screen mapping are what every
-   * subsequent move is read against, and neither is looked at again.
+   * Everything between a finger and an edit — the press that becomes a drag,
+   * the document frozen at pick-up, the slide of the gates that moved, the
+   * figure held still while it grows — lives in `core/ui/board` now, so that
+   * something other than this editor can put a circuit board on screen. What
+   * is left is the four sentences it needs from a host: what is on screen,
+   * where to draw a preview, what to write, and that the carry changed.
    */
-  function hold(): boolean {
-    if (held) return true
-    const el = previewEl?.querySelector('svg') as SVGSVGElement | null
-    const screen = el?.getScreenCTM()
-    if (!el || !screen || !result.ok) return false
+  const board = createBoard({
+    preview: () => previewEl,
+    anchor: () => anchorEl,
+    view: () =>
+      result.ok ? { source, geometry: result.geometry, qubits: result.qubits } : null,
+    onpreview: (edit) => (dragPreview = edit),
+    oncommit: (edit) => (source = edit.source),
+    onchange: (state) => (carry = state),
+  })
 
-    let doc: CircuitDoc
-    try {
-      // A state parses as a circuit too — one with an input and nothing done to
-      // it yet — which is what lets a gate be dropped onto one.
-      doc = parseCircuit(source)
-    } catch {
-      return false
-    }
-
-    /**
-     * How a point on the drawing becomes a place to put a gate.
-     *
-     * Decided once, here, because the two cases read the drawing differently.
-     * A circuit has wires and layers laid out, and the pointer is matched
-     * against them. A state has neither — it is a register nothing has been
-     * done to — so the wire is taken from how far across the drawing the
-     * pointer is, and there is only ever one place for the gate to go: after
-     * the state, which is what turns it into a circuit.
-     */
-    const geometry = result.geometry
-    const wires = result.qubits ?? 1
-    const rect = el.getBoundingClientRect()
-    const inverse = screen.inverse()
-    const aim: (event: PointerEvent) => DropTarget = geometry
-      ? (event) =>
-          dropTarget(
-            geometry,
-            new DOMPoint(event.clientX, event.clientY).matrixTransform(inverse),
-          )
-      : (event) => ({
-          wire: Math.min(
-            wires,
-            Math.max(1, Math.floor(((event.clientX - rect.left) / rect.width) * wires) + 1),
-          ),
-          layer: 0,
-          where: 'after',
-        })
-
-    held = { source, doc, aim, screen: inverse, anchor: { x: screen.e, y: screen.f } }
-    return true
-  }
-
-  /**
-   * Slide the gates that moved, rather than letting them jump.
-   *
-   * The drawing arrives as one string of markup, so every element is replaced
-   * on every render and Svelte's own `animate:flip` has nothing to hold on to.
-   * The `data-key` each gate carries is that handle: measure where the keys were
-   * before the swap, work out where they landed after, and put each one back
-   * where it started for an instant before letting it travel.
-   *
-   * Only while a gate is being carried. Everything else that redraws — a
-   * keystroke, a theme, a zoom — is a different drawing rather than the same one
-   * rearranged, and sliding between two of those would be nonsense.
-   */
-  const FLIP_MS = 150
-  let flipFrom: Map<string, DOMRect> | null = null
-
-  /**
-   * Every keyed element's box, indexed by key *and* by its place among its
-   * namesakes.
-   *
-   * One name covers several pieces — a drawn state is a dozen primitives, all
-   * moving together — and the emitter wraps each on its own. Counting within a
-   * name pairs each piece with the one it was, which a bare key could not: the
-   * map would keep only the last and every piece would be told it used to be
-   * somewhere it never was.
-   */
-  function boxesByKey(root: HTMLElement): Map<string, DOMRect> {
-    const seen = new Map<string, number>()
-    const out = new Map<string, DOMRect>()
-    for (const el of root.querySelectorAll<SVGGraphicsElement>('[data-key]')) {
-      const key = el.dataset.key!
-      const nth = seen.get(key) ?? 0
-      seen.set(key, nth + 1)
-      out.set(`${key}|${nth}`, el.getBoundingClientRect())
-    }
-    return out
-  }
-
+  // The board has to be told when the drawing is about to be replaced and when
+  // it has been, because it measures both sides of the swap. Svelte says so
+  // precisely; another host would say it its own way.
   $effect.pre(() => {
     svg
-    flipFrom = dragging && previewEl ? boxesByKey(previewEl) : null
+    board.beforeRender()
   })
-
-  /**
-   * Hold the drawing still while a gate is being placed.
-   *
-   * The preview is centred in its pane, so a circuit that grows by a layer
-   * shifts bodily — measured at 32px for one inserted gate. Every part of the
-   * figure moves, including the parts the edit did not touch, which reads as
-   * the whole diagram flinching rather than as one gate arriving. Undoing that
-   * translation leaves only the motion the edit actually caused.
-   *
-   * Set on the element rather than through the template, because Svelte
-   * rewrites the wrapper's `style` on every render and would wipe it.
-   */
-  function keepStill() {
-    if (!anchorEl) return
-    if (!dragging || !held) {
-      if (anchorEl.style.transform) {
-        anchorEl.style.transition = `transform ${FLIP_MS}ms ease-out`
-        anchorEl.style.transform = ''
-      }
-      return
-    }
-    const now = (previewEl?.querySelector('svg') as SVGSVGElement | null)?.getScreenCTM()
-    if (!now) return
-    // Inside the preview's own `scale`, so the correction is in pre-scale units.
-    const per = now.a || 1
-    const current = new DOMMatrix(getComputedStyle(anchorEl).transform)
-    anchorEl.style.transition = 'none'
-    anchorEl.style.transform =
-      `translate(${current.e + (held.anchor.x - now.e) / per}px, ` +
-      `${current.f + (held.anchor.y - now.f) / per}px)`
-  }
-
   $effect(() => {
     svg
-    const from = flipFrom
-    flipFrom = null
-    // Before anything is measured: this moves things, and the slide should be
-    // of where they ended up, not of where they briefly were.
-    keepStill()
-    if (!from || !previewEl) return
-    if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
-      return
-
-    // A CSS transform on an SVG element is in user units, and the drawing is
-    // scaled twice over — by its own `scale` and by the preview's zoom — so the
-    // screen-space delta has to be divided back down.
-    const per = (previewEl.querySelector('svg') as SVGSVGElement | null)?.getScreenCTM()?.a || 1
-    const moved: SVGGraphicsElement[] = []
-    const seen = new Map<string, number>()
-
-    for (const el of previewEl.querySelectorAll<SVGGraphicsElement>('[data-key]')) {
-      const key = el.dataset.key!
-      const nth = seen.get(key) ?? 0
-      seen.set(key, nth + 1)
-      const was = from.get(`${key}|${nth}`)
-      if (!was) continue
-      const now = el.getBoundingClientRect()
-      // Measured from the top and the centre rather than from a corner,
-      // because that is the point a stretch is taken about.
-      const dx = (was.left + was.width / 2 - (now.left + now.width / 2)) / per
-      const dy = (was.top - now.top) / per
-      // A pipe between two gates does not move so much as change length: a
-      // layer dropped in below lengthens it, and a translate cannot say that.
-      // Scaled from its top, a pipe grows the way it actually grew — and its
-      // fill is a gradient across the pipe, not along it, so stretching it
-      // downwards distorts nothing.
-      const grow = now.height > 0.5 ? was.height / now.height : 1
-      const stretched = Math.abs(grow - 1) > 0.01
-      if (Math.abs(dx) < 0.4 && Math.abs(dy) < 0.4 && !stretched) continue
-      el.style.transition = 'none'
-      el.style.transformBox = 'fill-box'
-      el.style.transformOrigin = 'top center'
-      el.style.transform =
-        `translate(${dx}px, ${dy}px)` + (stretched ? ` scaleY(${grow})` : '')
-      moved.push(el)
-    }
-    if (!moved.length) return
-
-    // One reflow for the lot, so every gate starts travelling together.
-    void previewEl.getBoundingClientRect()
-    for (const el of moved) {
-      el.style.transition = `transform ${FLIP_MS}ms ease-out`
-      el.style.transform = ''
-    }
+    board.afterRender()
   })
-
-  /** Where a pointer is in the diagram's own coordinates, through the frozen map. */
-  const toDiagram = (event: PointerEvent) =>
-    new DOMPoint(event.clientX, event.clientY).matrixTransform(held!.screen)
-
-  function carry(what: Carried, event: PointerEvent) {
-    dragging = what
-    carriedAt = { x: event.clientX, y: event.clientY }
-    window.addEventListener('pointermove', onCarryMove)
-    window.addEventListener('pointerup', onCarryUp)
-    window.addEventListener('keydown', onCarryKey)
-  }
-
-  /** Pick a gate up off the palette. */
-  const carryNew = (gate: Droppable, event: PointerEvent) =>
-    carry({ from: 'palette', gate }, event)
-
-  /**
-   * Press on a gate in the drawing to move it.
-   *
-   * Not until the pointer has actually travelled: a press that goes nowhere is
-   * a click, and clicking a diagram should not rearrange it.
-   */
-  const PICK_UP_AFTER = 4
-  let pending: { gate: Gate; x: number; y: number } | null = null
-
-  function onPreviewDown(event: PointerEvent) {
-    if (event.button !== 0 || dragging || !hold() || !held) return
-    const gate = result.ok && result.geometry
-      ? gateAt(held.doc, result.geometry, toDiagram(event))
-      : undefined
-    if (!gate) {
-      held = null
-      return
-    }
-    pending = { gate, x: event.clientX, y: event.clientY }
-    window.addEventListener('pointermove', onPendingMove)
-    window.addEventListener('pointerup', clickGate, { once: true })
-  }
-
-  function onPendingMove(event: PointerEvent) {
-    if (!pending) return
-    const far =
-      Math.abs(event.clientX - pending.x) > PICK_UP_AFTER ||
-      Math.abs(event.clientY - pending.y) > PICK_UP_AFTER
-    if (!far) return
-    const gate = pending.gate
-    // The carry starts before the pending state is cleared, because clearing it
-    // lets go of the frozen document — and `gate` is a value *from* that
-    // document. Handed a gate from a different parse, the patch would find
-    // nothing to remove.
-    carry({ from: 'diagram', gate }, event)
-    forgetPending()
-    onCarryMove(event)
-  }
-
-  /** Stop watching for a press to become a drag. */
-  function forgetPending() {
-    pending = null
-    window.removeEventListener('pointermove', onPendingMove)
-  }
-
-  /**
-   * A press that went nowhere is a click, and a click on a controlled gate
-   * moves its target to the next wire it covers.
-   *
-   * The wires are obvious from where the gate was dropped; which of them takes
-   * the ⊕ is not, and rewriting the line by hand to find out is the one edit
-   * that dragging left undone.
-   */
-  function clickGate() {
-    const gate = pending?.gate
-    forgetPending()
-    if (gate && held && !dragging) {
-      const spun = cycleTarget(held.source, held.doc, gate)
-      if (spun) source = spun.source
-    }
-    if (!dragging) held = null
-  }
-
-  /** Give up on a press without acting on it. */
-  function dropPending() {
-    forgetPending()
-    if (!dragging) held = null
-  }
-
-  /** Work out what dropping here would produce, and draw that. */
-  function onCarryMove(event: PointerEvent) {
-    if (!dragging) return
-    carriedAt = { x: event.clientX, y: event.clientY }
-
-    const over = previewEl?.getBoundingClientRect()
-    const inside =
-      over &&
-      event.clientX >= over.left && event.clientX <= over.right &&
-      event.clientY >= over.top && event.clientY <= over.bottom
-
-    // Off to the left with a gate out of the drawing: that is a deletion. To
-    // the left specifically, because that is away from the figure and towards
-    // the text — a pointer straying above or below is a slip, not an intent.
-    removing =
-      !inside && dragging.from === 'diagram' && !!over && event.clientX < over.left && !!held
-    if (removing && held && dragging.from === 'diagram') {
-      const cut = removeGate(held.source, held.doc, dragging.gate)
-      // Line 0 highlights nothing: what is being pointed at is no longer there.
-      dragPreview = cut ? { source: cut.source, line: 0 } : null
-      return
-    }
-
-    if (!inside || !hold() || !held) {
-      dragPreview = null
-      return
-    }
-
-    // Through the mapping taken at pick-up, so the aim does not chase the
-    // drawing as the drawing moves under it.
-    const target = held.aim(event)
-    dragPreview =
-      dragging.from === 'palette'
-        ? insertGate(held.source, held.doc, target, dragging.gate)
-        : moveGate(held.source, held.doc, dragging.gate, target)
-  }
-
-  /** Commit, as a single edit rather than the hundred the drag drew. */
-  function onCarryUp() {
-    if (dragPreview) source = dragPreview.source
-    endDrag()
-  }
-
-  function onCarryKey(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      dragPreview = null
-      endDrag()
-    }
-  }
-
-  function endDrag() {
-    dropPending()
-    // Released, so the drawing settles back to the middle of its pane.
-    queueMicrotask(keepStill)
-    dragging = null
-    dragPreview = null
-    carriedAt = null
-    removing = false
-    held = null
-    window.removeEventListener('pointermove', onCarryMove)
-    window.removeEventListener('pointerup', onCarryUp)
-    window.removeEventListener('keydown', onCarryKey)
-  }
 
   function flash(message: string) {
     toast = message
@@ -1310,8 +991,7 @@
     touching.set(event.pointerId, { x: event.clientX, y: event.clientY })
     if (touching.size === 2) {
       // A second finger turns a drag into a zoom: nobody places a gate with two.
-      if (dragging) endDrag()
-      dropPending()
+      board.destroy()
       pinch = { apart: apart(), zoom }
     }
   }
@@ -1575,7 +1255,7 @@
         instead.
       -->
       <div class="hidden min-h-32 flex-1 flex-col px-3 pb-3 sm:px-4 sm:pb-4 lg:flex">
-        <GatePalette {theme} {dark} onpick={carryNew} />
+        <GatePalette {theme} {dark} onpick={board.carryNew} />
       </div>
     </section>
 
@@ -1916,7 +1596,7 @@
         bind:this={previewEl}
         onpointerdown={(e) => {
           trackTouch(e)
-          if (!pinch) onPreviewDown(e)
+          if (!pinch) board.press(e)
         }}
         onpointermove={onPinchMove}
         onpointerup={endTouch}
@@ -1925,7 +1605,7 @@
         style="touch-action: pan-x pan-y;"
         class="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8
                {dark ? 'checkerboard-dark' : 'checkerboard'}
-               {dragging ? 'ring-2 ring-slate-400 ring-inset' : ''}"
+               {carry.carrying ? 'ring-2 ring-slate-400 ring-inset' : ''}"
       >
         <div
           data-preview
@@ -1992,7 +1672,7 @@
 
   {#if panel === 'syntax'}
     <SidePanel title="Syntax" onclose={() => (panel = null)}>
-      <SyntaxHelp {theme} {dark} onpick={carryNew} />
+      <SyntaxHelp {theme} {dark} onpick={board.carryNew} />
     </SidePanel>
   {/if}
   </div>
@@ -2033,7 +1713,7 @@
     <LibraryEditor onclose={() => (libraryOpen = false)} />
   {/if}
 
-  {#if dragging && carriedAt}
+  {#if carry.carrying && carry.at}
     <!--
       What you are holding, drawn under the pointer. Transparent to the pointer
       itself, or it would be the thing every move landed on.
@@ -2041,12 +1721,14 @@
     <div
       class="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded border
              px-2 py-1 font-mono text-xs shadow-lg
-             {removing
+             {carry.removing
         ? 'border-red-400 bg-red-50/95 text-red-700 line-through'
         : 'border-slate-400 bg-white/90 text-slate-700'}"
-      style="left: {carriedAt.x}px; top: {carriedAt.y}px;"
+      style="left: {carry.at.x}px; top: {carry.at.y}px;"
     >
-      {dragging.from === 'palette' ? dragging.gate.head : asDroppable(dragging.gate).head}
+      {carry.carrying.from === 'palette'
+        ? carry.carrying.gate.head
+        : asDroppable(carry.carrying.gate).head}
     </div>
   {/if}
 
