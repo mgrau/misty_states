@@ -182,7 +182,16 @@ export function baselineOffset(size: number, baseline: 'cap' | 'math' = 'cap'): 
 export interface QubitStyle {
   /** Paint layered over the glyph to model it as a solid body. */
   overlay?: string
-  filter?: string
+  /**
+   * Paint for a copy of the glyph dropped behind it, and how far to drop it.
+   *
+   * A shadow rather than a filter. `feDropShadow` is a raster operation, and
+   * everything that consumes an SVG as vector art — a PDF, an illustrator, the
+   * app's own print export — either ignores it or rasterises the page to honour
+   * it. An offset copy under a fading gradient is ordinary geometry, so it
+   * survives wherever the drawing goes.
+   */
+  shadow?: { paint: string; dy: number }
 }
 
 export function drawQubit(
@@ -194,6 +203,11 @@ export function drawQubit(
   const unknown = p.value === 'unknown'
   const fill = p.value === 1 ? pal.one : pal.zero
   const d = shapePath(p.shape, p.size)
+  // Behind everything, and only where the glyph is opaque enough to cast one.
+  const cast = style.shadow
+    ? el('g', { transform: `translate(0 ${style.shadow.dy})` },
+        el('path', { d, fill: style.shadow.paint, stroke: 'none' }))
+    : ''
   const body = el('path', {
     d,
     fill,
@@ -202,7 +216,6 @@ export function drawQubit(
     stroke: unknown ? pal.uncertain : pal.ink,
     'stroke-width': m.stroke,
     'stroke-linejoin': 'round',
-    filter: style.filter,
   })
   // Painted with the same path, so the shading is clipped to the glyph without
   // needing a clipPath per shape.
@@ -226,7 +239,7 @@ export function drawQubit(
           '?',
         )
       : ''
-  return g({ transform: `translate(${n(p.cx)} ${n(p.cy)})` }, body + shading + mark)
+  return g({ transform: `translate(${n(p.cx)} ${n(p.cy)})` }, cast + body + shading + mark)
 }
 
 /** Blend two hex colours, `t` of the way from `a` to `b`. */
@@ -265,16 +278,19 @@ export function drawCloud(
   seed: string,
   pal: Palette,
   m: Metrics,
-  filter?: string,
+  /** Paint for a copy of the outline dropped behind it; see `QubitStyle`. */
+  shadow?: string,
 ): string {
   const { d } = cloudPath(content, seed, m.cloudPadX, m.cloudPadY, m.cloudFluff)
-  return el('path', {
+  const cast = shadow
+    ? el('g', { transform: 'translate(0 2)' }, el('path', { d, fill: shadow, stroke: 'none' }))
+    : ''
+  return cast + el('path', {
     d,
     fill: pal.paper,
     stroke: pal.ink,
     'stroke-width': m.cloudStroke,
     'stroke-linejoin': 'round',
-    filter,
   })
 }
 

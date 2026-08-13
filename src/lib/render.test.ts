@@ -1124,3 +1124,46 @@ describe('drawing an animation still', () => {
     expect(render(src, { still: true }).svg).toBe(render(src).svg)
   })
 })
+
+/**
+ * Depth without a filter.
+ *
+ * `feDropShadow` is a raster operation. Anything that treats an SVG as vector
+ * art — an illustrator, a PDF writer, the app's own print export — either drops
+ * it or rasterises the whole drawing to honour it, and a figure bound for a
+ * course handout goes through exactly those.
+ */
+describe('what gives the solid theme its depth', () => {
+  const SRC = 'qubits 2\nin 01\nH 1\nCNOT 1 2\nout calculate'
+
+  it('uses no filters at all, in any theme', () => {
+    for (const theme of THEME_IDS) {
+      const svg = render(SRC, { theme }).svg
+      expect(svg, theme).not.toContain('feDropShadow')
+      expect(svg, theme).not.toContain('<filter')
+      expect(svg, theme).not.toContain('filter=')
+    }
+  })
+
+  it('still casts one, out of ordinary geometry', () => {
+    const svg = render(SRC, { theme: 'solid' }).svg
+    // A gradient that fades upwards, and shapes painted with it.
+    expect(svg).toContain('id="ms-shadow"')
+    expect(svg).toContain('url(#ms-shadow)')
+    expect(svg).toContain('id="ms-qubit-shadow"')
+    expect(svg).toContain('url(#ms-qubit-shadow)')
+  })
+
+  it('leaves the flat theme flat', () => {
+    // It never had depth to give, and should not have gained any.
+    const svg = render(SRC, { theme: 'flat' }).svg
+    expect(svg).not.toContain('ms-shadow')
+  })
+
+  it('survives being renamed along with everything else it defines', () => {
+    const svg = render(SRC, { theme: 'solid', idPrefix: 'pal' }).svg
+    expect(svg).toContain('id="pal-shadow"')
+    expect(svg).toContain('url(#pal-qubit-shadow)')
+    expect(svg).not.toContain('ms-shadow')
+  })
+})

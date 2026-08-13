@@ -100,20 +100,32 @@ const solidSurface: Surface = {
         el('stop', { offset: '100%', 'stop-color': shade(pal.gate, -0.1) }),
       ].join(''),
     )
-    const shadow = el(
-      'filter',
-      { id: 'ms-shadow', x: '-20%', y: '-20%', width: '140%', height: '150%' },
-      el('feDropShadow', {
-        dx: 0, dy: 1.6, stdDeviation: 1.3, 'flood-color': '#000000', 'flood-opacity': 0.3,
-      }),
-    )
-    const qubitShadow = el(
-      'filter',
-      { id: 'ms-qubit-shadow', x: '-25%', y: '-25%', width: '150%', height: '155%' },
-      el('feDropShadow', {
-        dx: 0, dy: 1.1, stdDeviation: 0.9, 'flood-color': '#000000', 'flood-opacity': 0.26,
-      }),
-    )
+    /**
+     * What a shadow is painted with, in place of a blur.
+     *
+     * `feDropShadow` is a raster operation: an illustrator, a PDF writer, or
+     * anything else treating an SVG as vector art either drops it or rasterises
+     * the whole drawing to honour it. A copy of the shape dropped behind the
+     * real one and painted with a gradient that fades upwards is ordinary
+     * geometry — it says the same thing about where the light is, and it
+     * survives being exported.
+     *
+     * Clear at the top because that part is hidden behind the shape anyway;
+     * what shows is the sliver below it and the sides near the bottom, which is
+     * exactly where a shadow belongs with the light overhead.
+     */
+    const fall = (id: string, alpha: number) =>
+      el(
+        'linearGradient',
+        { id, x1: '0', y1: '0', x2: '0', y2: '1' },
+        [
+          el('stop', { offset: '0%', 'stop-color': '#000000', 'stop-opacity': 0 }),
+          el('stop', { offset: '55%', 'stop-color': '#000000', 'stop-opacity': alpha * 0.35 }),
+          el('stop', { offset: '100%', 'stop-color': '#000000', 'stop-opacity': alpha }),
+        ].join(''),
+      )
+    const shadow = fall('ms-shadow', 0.34)
+    const qubitShadow = fall('ms-qubit-shadow', 0.3)
     // A light source up and to the left: pale glyphs darken toward the far
     // edge, dark glyphs pick up a specular highlight near the light.
     const lit = el(
@@ -138,7 +150,7 @@ const solidSurface: Surface = {
   },
   qubitStyle: (value) => ({
     overlay: value === 1 ? 'url(#ms-qubit-lit)' : 'url(#ms-qubit-dim)',
-    filter: 'url(#ms-qubit-shadow)',
+    shadow: { paint: 'url(#ms-qubit-shadow)', dy: 1.6 },
   }),
   pipe: (cx, y0, y1, w, pal, m) =>
     el('rect', {
@@ -146,10 +158,16 @@ const solidSurface: Surface = {
       fill: 'url(#ms-pipe)', stroke: pal.pipeEdge, 'stroke-width': m.stroke * 0.5,
     }),
   body: (box, fill, pal, m) =>
+    // The same box dropped behind itself, spread a little so the shadow shows
+    // at the sides as well as under the foot.
+    el('rect', {
+      x: box.x - 0.8, y: box.y + 2.2, width: box.w + 1.6, height: box.h, rx: 3.5,
+      fill: SHADOW, stroke: 'none',
+    }) +
     el('rect', {
       x: box.x, y: box.y, width: box.w, height: box.h, rx: 3,
       fill: fill === pal.gate ? 'url(#ms-gate)' : fill,
-      stroke: pal.gateEdge, 'stroke-width': m.stroke * 0.8, filter: SHADOW,
+      stroke: pal.gateEdge, 'stroke-width': m.stroke * 0.8,
     }),
 }
 
