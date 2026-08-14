@@ -22,6 +22,7 @@ import { layoutState } from './state/layout'
 import { layoutCircuit, type CircuitGeometry, type CircuitLayout } from './circuit/layout'
 import { DEFAULT_METRICS, type Metrics } from './render/primitives'
 import { THEMES, renderPrims } from './render/themes'
+import { bandGradients } from './render/band'
 import { LIGHT_PALETTE, DARK_PALETTE, type Palette, type Theme, type ThemeId } from './render/theme'
 import type { Box } from './svg'
 import type { CircuitDoc, ViewGate } from './circuit/ast'
@@ -106,6 +107,16 @@ export interface RenderOptions {
    * simulation of a diagram already being drawn.
    */
   check?: boolean
+  /**
+   * Redraw gradient-filled rectangles as stacks of solid-colour bands.
+   *
+   * For embedding in a PDF read in Apple's Preview, which does not render a
+   * gradient shading once the drawing is placed inside another document. The
+   * bands look the same but are plain solid fills, so the depth on the pipes and
+   * gate boxes survives while the figure stays vector. Off by default; the
+   * smooth gradients are better wherever the reader supports them.
+   */
+  bandedGradients?: boolean
 }
 
 export interface RenderResult {
@@ -324,6 +335,17 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
 
   const wantCheck = opts.check ?? true
 
+  // Rename this drawing's ids, then optionally band its gradients for Preview.
+  // Banding is for still figures only: a moving drawing keeps its gradients so
+  // the CSS animation is unaffected, and it is never a PDF anyway.
+  const finish = (svg: string): string => {
+    const prefix = opts.idPrefix ?? 'ms'
+    const named = renamed(svg, prefix)
+    // The prefix is handed on: banding invents clip paths of its own, and it
+    // runs after the renaming that would otherwise have namespaced them.
+    return opts.bandedGradients ? bandGradients(named, undefined, prefix) : named
+  }
+
   const build = (kind: 'state' | 'circuit') => {
     if (kind === 'state') {
       // A state document is the whole source, so every qubit in it is at the
@@ -427,12 +449,11 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
         ? termFrameAt(run.layout, run.timeline, 0, metrics)
         : frameAt(run.layout, run.timeline, 0, metrics)
       return {
-        svg: renamed(
+        svg: finish(
           renderPrims(prims, run.box, theme, palette, metrics, {
             scale: opts.scale,
             background: opts.background,
           }),
-          opts.idPrefix ?? 'ms',
         ),
         kind,
         width: run.box.w + theme.bleed.left + theme.bleed.right,
@@ -473,7 +494,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
   })
 
   return {
-    svg: renamed(svg, opts.idPrefix ?? 'ms'),
+    svg: finish(svg),
     kind,
     width: layout.box.w + theme.bleed.left + theme.bleed.right,
     height: layout.box.h + theme.bleed.top + theme.bleed.bottom,
