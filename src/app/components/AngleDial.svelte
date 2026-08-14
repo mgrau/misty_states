@@ -26,6 +26,7 @@
   const {
     angle,
     at,
+    avoid,
     onpreview,
     oncommit,
     onclose,
@@ -34,6 +35,8 @@
     angle: number
     /** Where on screen the gate was tapped. */
     at: { x: number; y: number }
+    /** The drawing itself, which the dial should not sit on top of. */
+    avoid?: { left: number; right: number; top: number; bottom: number }
     /** Turning, but not finished: draw this without writing it. */
     onpreview: (angle: number) => void
     /** Let go: write it. */
@@ -156,10 +159,30 @@
   const exact = $derived(turning % 90 === 0)
   const hand = $derived(pointAt(turning, R - 8))
 
-  // Kept clear of the edges, since a gate near the bottom of the pane would
-  // otherwise open the dial off the screen.
-  const left = $derived(Math.min(Math.max(8, at.x - SIZE / 2), window.innerWidth - SIZE - 8))
-  const top = $derived(Math.min(Math.max(8, at.y + 18), window.innerHeight - SIZE - 74))
+  /*
+   * Beside the drawing, not on it.
+   *
+   * What a turn of the dial is for is watching the state below the circuit
+   * change, and the obvious place to put a panel — under the thing you clicked
+   * — is exactly on top of that. So it goes clear of the whole figure: to its
+   * right where there is room, to its left where there is not, and only as a
+   * last resort back over it. Held level with the gate either way, so the hand
+   * stays near the pointer that opened it.
+   */
+  const PANEL = SIZE + 16
+  const TALL = SIZE + 74
+  const GAP = 14
+  const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi)
+
+  const left = $derived.by(() => {
+    const wide = window.innerWidth
+    if (avoid) {
+      if (avoid.right + GAP + PANEL <= wide - 8) return avoid.right + GAP
+      if (avoid.left - GAP - PANEL >= 8) return avoid.left - GAP - PANEL
+    }
+    return clamp(at.x - PANEL / 2, 8, wide - PANEL - 8)
+  })
+  const top = $derived(clamp(at.y - TALL / 2, 8, window.innerHeight - TALL - 8))
 </script>
 
 <!-- Anything outside closes it, the way the menus behave. -->

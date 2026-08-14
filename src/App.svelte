@@ -578,10 +578,21 @@
     oncommit: (edit) => (source = edit.source),
     onchange: (state) => (carry = state),
     ontap: (tap) => {
-      dial =
-        tap.gate.kind === 'single' && tap.gate.angle !== undefined
-          ? { doc: tap.doc, gate: tap.gate, source: tap.source, angle: tap.gate.angle, at: tap.at }
-          : null
+      if (tap.gate.kind !== 'single' || tap.gate.angle === undefined) {
+        dial = null
+        return
+      }
+      // Measured now rather than by the dial itself: what it has to keep clear
+      // of is the drawing, and only this side knows where that is.
+      const drawn = (previewEl?.querySelector('svg') as SVGSVGElement | null)?.getBoundingClientRect()
+      dial = {
+        doc: tap.doc,
+        gate: tap.gate,
+        source: tap.source,
+        angle: tap.gate.angle,
+        at: tap.at,
+        avoid: drawn && { left: drawn.left, right: drawn.right, top: drawn.top, bottom: drawn.bottom },
+      }
     },
   })
 
@@ -903,6 +914,7 @@
     source: string
     angle: number
     at: { x: number; y: number }
+    avoid?: { left: number; right: number; top: number; bottom: number }
   } | null>(null)
 
   /** Right-click menu over the preview: the copy and save actions together. */
@@ -1577,8 +1589,19 @@
                {dark ? 'checkerboard-dark' : 'checkerboard'}
                {carry.carrying ? 'ring-2 ring-slate-400 ring-inset' : ''}"
       >
+        <!--
+          Faded while the source will not parse.
+
+          What is on screen then is the last drawing that worked, kept so the
+          pane does not go blank mid-keystroke — but it is no longer of the text
+          in the box, and nothing can be dragged onto it, because a drop would
+          be worked out against a source the author has since changed and would
+          throw their edit away. Saying that with the message alone left the
+          picture looking live and the pointer looking broken.
+        -->
         <div
           data-preview
+          class="transition-opacity {result.ok ? '' : 'opacity-40 grayscale'}"
           style="transform: scale({zoom}); transform-origin: center;
                  --misty-play: paused; --misty-at: -{at}s;"
         >
@@ -1692,6 +1715,7 @@
   <AngleDial
     angle={dial.angle}
     at={dial.at}
+    avoid={dial.avoid}
     onpreview={(deg) => {
       const edit = setAngle(dial!.source, dial!.doc, dial!.gate, deg)
       dragPreview = edit ? { source: edit.source, line: edit.line } : null

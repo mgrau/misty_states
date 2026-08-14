@@ -90,9 +90,31 @@ describe('what an odd angle does', () => {
     }
   })
 
-  it('has nothing to draw, and says which view does', () => {
-    expect(() => render('in 0\nRX(30) 1\nout calculate')).toThrow(/not a whole number/)
-    expect(() => render('in 0\nRX(30) 1\nout calculate')).toThrow(/chart the probabilities/)
+  it('is drawn approximately rather than not at all', () => {
+    // It used to refuse: a coefficient is a whole number and a cosine is not.
+    // But the figure the refusal replaced was the one thing that would have
+    // shown what the rotation did, so the state is drawn to two places and
+    // marked as approximate.
+    const drawn = (src: string) =>
+      [...render(src).svg.matchAll(/>([^<>]+)</g)].map((m) => m[1])
+    // A turn about X puts a quarter turn into the amplitude, so the small part
+    // is imaginary and is written as such.
+    expect(drawn('in 0\nRX(30) 1\nout calculate')).toEqual(
+      expect.arrayContaining(['≈', '0.97', '0.26i']),
+    )
+    // About Y it is real, and reads as the plain pair of numbers it is.
+    expect(drawn('in 0\nRY(30) 1\nout calculate')).toEqual(
+      expect.arrayContaining(['≈', '0.97', '0.26']),
+    )
+  })
+
+  it('says nothing approximate about a state that is exact', () => {
+    const drawn = (src: string) =>
+      [...render(src).svg.matchAll(/>([^<>]+)</g)].map((m) => m[1])
+    // A right angle keeps every amplitude whole, so there is nothing to
+    // approximate and no mark to make.
+    expect(drawn('in 0\nRX(90) 1\nout calculate')).not.toContain('≈')
+    expect(drawn('in 0\nH 1\nout calculate')).not.toContain('≈')
   })
 
   it('charts and writes out perfectly well', () => {

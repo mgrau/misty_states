@@ -397,30 +397,49 @@ function blockFactor(amps: Amplitudes, keepSign = false): Factor[] {
   // A part each way where an amplitude has both: `2+3i` on one basis state is
   // two terms that add, which is what the notation already does for every
   // other sum, and keeps every term to one sign and one size.
-  // A coefficient is a whole number written in front of a term, and there is
-  // no mark for anything else — a rotation by an odd angle leaves cosines,
-  // which is a state to chart or write out rather than to draw.
-  const odd = terms.find(([, amp]) => !isWhole(amp))
-  if (odd) {
-    throw new SimulationError(
-      `an amplitude of ${show(odd[1])} is not a whole number, so there is no coefficient to draw` +
-        ' — chart the probabilities, or write the state out',
-    )
-  }
-  const written = (bits: string, size: number, imaginary: boolean): Term => ({
-    sign: size < 0 ? -1 : 1,
-    coeff: Math.abs(size) === 1 ? undefined : Math.abs(size),
+  /*
+   * A coefficient is ordinarily a whole number, and for everything the notation
+   * was built on it is one. A rotation by an odd angle leaves cosines, and this
+   * used to refuse to draw the state at all — which is correct about the
+   * notation and unhelpful about the circuit, since the figure the refusal
+   * replaces is the one thing that would show what the rotation did.
+   *
+   * So it is drawn approximately: every coefficient to two decimal places, and
+   * the whole state marked `≈` so nobody reads it as exact. Two places is what
+   * a figure can show and what a reader can hold; the arithmetic underneath is
+   * untouched, so the odds, the chart and the check all still work from the
+   * exact amplitudes.
+   */
+  const approximate = terms.some(([, amp]) => !isWhole(amp))
+  const round2 = (x: number) => Math.round(x * 100) / 100
+  const size = (x: number) => (approximate ? round2(x) : x)
+
+  const written = (bits: string, weight: number, imaginary: boolean): Term => ({
+    sign: weight < 0 ? -1 : 1,
+    coeff: Math.abs(weight) === 1 ? undefined : Math.abs(weight),
     imaginary: imaginary || undefined,
     factors: qubitsOf(bits),
   })
   const cloud: CloudNode = {
     kind: 'cloud',
-    terms: terms.flatMap(([bits, amp]): Term[] => [
-      ...(amp.re !== 0 || isZero(amp) ? [written(bits, amp.re, false)] : []),
-      ...(amp.im !== 0 ? [written(bits, amp.im, true)] : []),
-    ]),
+    terms: terms.flatMap(([bits, amp]): Term[] => {
+      const re = size(amp.re)
+      const im = size(amp.im)
+      return [
+        // A part that rounds away is left out rather than drawn as `0`: it is
+        // worth less than half of one part in a hundred, and a term written
+        // with no weight at all would read as a term that is not there.
+        ...(re !== 0 || isZero(amp) ? [written(bits, re, false)] : []),
+        ...(im !== 0 ? [written(bits, im, true)] : []),
+      ]
+    }),
   }
-  return [cloud]
+  // Nothing survived the rounding, which can only happen if everything in the
+  // state was vanishingly small. Better to say so than to draw an empty cloud.
+  if (!cloud.terms.length) {
+    throw new SimulationError('every amplitude here rounds away to nothing, so there is no state to draw')
+  }
+  return approximate ? [{ kind: 'label', text: '≈' }, cloud] : [cloud]
 }
 
 /** The sub-state on `width` leading wires, and on the rest, if it splits. */
