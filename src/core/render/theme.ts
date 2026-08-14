@@ -452,12 +452,44 @@ export function labelChip(
       : '')
 
   if (!accent) return runs(pal.ink, 600)
-  const w = Math.max(size * 1.25, (mainW + subW) * 1.18)
-  const h = size * 1.3
+
+  /*
+   * Padding stated outright rather than as a fraction of the text's own width.
+   *
+   * As a multiplier it shrank exactly where it was needed most: a label with an
+   * axis beside it is a wide run of two small glyphs, so a percentage of that
+   * width came to less than a percentage of a single wide letter, and `R` with
+   * its axis ended up with a third of the room `H` had — measured at 2.9px
+   * against 5.6px, with the axis letter itself hanging half a pixel outside its
+   * own chip at the bottom.
+   */
+  const PAD_X = size * 0.25
+  const PAD_Y = size * 0.15
+
+  // How far the drawn glyphs actually reach. A subscript hangs below the line,
+  // and the chip has to come down with it — it used to end above the axis
+  // letter, which then sat outside its own chip.
+  const top = cy - size * 0.5
+  const bottom = subscript ? cy + size * 0.28 + subSize * 0.5 : cy + size * 0.5
+
+  // The stated padding applies where the old proportional rule fell short,
+  // which is where there is a subscript: two small glyphs side by side make a
+  // wide run, and a percentage of that came to less than a percentage of one
+  // wide letter. A chip holding a single letter was never short of room and is
+  // left at exactly the width it has always had.
+  const w = Math.max(
+    size * 1.25,
+    (mainW + subW) * 1.18,
+    subscript ? mainW + subW + PAD_X * 2 : 0,
+  )
+  const h = bottom - top + PAD_Y * 2
   return (
     el('rect', {
       x: cx - w / 2,
-      y: cy - h / 2,
+      // Centred on what is drawn, not on the line: with a subscript the two
+      // differ, and centring on the line is what pushed the chip off its
+      // contents in the first place.
+      y: top - PAD_Y,
       width: w,
       height: h,
       rx: 2,
