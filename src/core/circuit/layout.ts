@@ -1035,27 +1035,50 @@ function emitGate(
 
     case 'controlled': {
       bodies.push({ t: 'gatebox', box, label: '', labelSize: m.fontSize })
+
+      /*
+       * A name on the target stands in place of the glyph, and stands in a box.
+       *
+       * What the gate does is the thing worth reading and `⊕` would only say it
+       * again less well — but bare words on a wire read as a caption about the
+       * circuit rather than as a thing the circuit does. A box says operation,
+       * which is what every other named gate here is drawn with, and the link
+       * then runs to that box rather than under the lettering.
+       */
+      const named = gate.targetGlyph === 'label' && gate.label ? gate.label : ''
+      // Sized to the name it holds, in the same proportions a gate's own body
+      // takes around its label.
+      const nameSize = named ? fitLabel(named, textWidth(named, m.fontSize, true) + 16, m) : 0
+      const nameBox: Box | null = named
+        ? {
+            x: gateX(gate.target) - (textWidth(named, nameSize, true) + nameSize * 1.1) / 2,
+            y: cy - nameSize * 0.95,
+            w: textWidth(named, nameSize, true) + nameSize * 1.1,
+            h: nameSize * 1.9,
+          }
+        : null
+
       // A bare NOT has no controls, so there is nothing to link it to.
       if (gate.controls.length) {
         const xs = [...gate.controls, gate.target].map(gateX)
-        glyphs.push({ t: 'link', x0: Math.min(...xs), x1: Math.max(...xs), cy })
+        let x0 = Math.min(...xs)
+        let x1 = Math.max(...xs)
+        // Stopped at the edge of the name's box rather than run to the column
+        // centre underneath it. Only where the target is an end of the run: a
+        // name in the middle has the link passing behind it either way, and the
+        // box is drawn over it.
+        if (nameBox) {
+          const tx = gateX(gate.target)
+          if (tx >= x1) x1 = Math.max(x0, nameBox.x)
+          else if (tx <= x0) x0 = Math.min(x1, nameBox.x + nameBox.w)
+        }
+        glyphs.push({ t: 'link', x0, x1, cy })
         for (const c of gate.controls) {
           glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R })
         }
       }
-      // A name on the target stands in place of the glyph: what the gate does
-      // is the thing worth reading, and ⊕ would only say it again less well.
-      if (gate.targetGlyph === 'label' && gate.label) {
-        glyphs.push({
-          t: 'text',
-          x: gateX(gate.target),
-          cy,
-          text: gate.label,
-          // The box was widened to hold it, so it only has to fit that.
-          size: fitLabel(gate.label, textWidth(gate.label, m.fontSize, true) + 16, m),
-          anchor: 'middle',
-          weight: 600,
-        })
+      if (nameBox) {
+        glyphs.push({ t: 'gatebox', box: nameBox, label: named, labelSize: nameSize })
       } else {
         // Controlled-Z is symmetric, so its "target" is just another control dot.
         const isZ = gate.targetGlyph === 'z'

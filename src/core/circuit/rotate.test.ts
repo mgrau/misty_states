@@ -100,21 +100,33 @@ describe('what an odd angle does', () => {
     // A turn about X puts a quarter turn into the amplitude, so the small part
     // is imaginary and is written as such.
     expect(drawn('in 0\nRX(30) 1\nout calculate')).toEqual(
-      expect.arrayContaining(['≈', '0.97', '0.26i']),
+      expect.arrayContaining(['0.97', '0.26i']),
     )
     // About Y it is real, and reads as the plain pair of numbers it is.
     expect(drawn('in 0\nRY(30) 1\nout calculate')).toEqual(
-      expect.arrayContaining(['≈', '0.97', '0.26']),
+      expect.arrayContaining(['0.97', '0.26']),
     )
   })
 
-  it('says nothing approximate about a state that is exact', () => {
+  it('leaves the qubits a rotation did not touch out of the cloud', () => {
     const drawn = (src: string) =>
       [...render(src).svg.matchAll(/>([^<>]+)</g)].map((m) => m[1])
-    // A right angle keeps every amplitude whole, so there is nothing to
-    // approximate and no mark to make.
-    expect(drawn('in 0\nRX(90) 1\nout calculate')).not.toContain('≈')
-    expect(drawn('in 0\nH 1\nout calculate')).not.toContain('≈')
+    // Splitting a state hands each factor the pivot's amplitude, which for
+    // whole numbers divides away and for a cosine does not — so an untouched
+    // qubit was being drawn in a cloud of its own, weighed at 0.92.
+    for (const width of ['00', '000', '0000']) {
+      const numbers = drawn(`in ${width}\nRY(45) 1\nout calculate`).filter((t) => /^[\d.]+$/.test(t))
+      expect(numbers).toEqual(['0.92', '0.38'])
+    }
+  })
+
+  it('says nothing at all about a state that is exact', () => {
+    const drawn = (src: string) =>
+      [...render(src).svg.matchAll(/>([^<>]+)</g)].map((m) => m[1])
+    // A right angle keeps every amplitude whole, so there is no coefficient to
+    // write and the state is the bare run of qubits it has always been.
+    expect(drawn('in 0\nRX(90) 1\nout calculate').filter((t) => /^[\d.]+$/.test(t))).toEqual([])
+    expect(drawn('in 00\nH 1\nout calculate').filter((t) => /^[\d.]+$/.test(t))).toEqual([])
   })
 
   it('charts and writes out perfectly well', () => {

@@ -389,9 +389,21 @@ const qubitsOf = (bits: string): QubitNode[] =>
 /** One block of wires as a drawable factor: a bare run, or a cloud of terms. */
 function blockFactor(amps: Amplitudes, keepSign = false): Factor[] {
   const terms = canonical(amps, { keepSign })
-  // A phase is not something the notation has a mark for, so a state carrying
-  // one cannot be drawn — said plainly rather than drawn wrongly.
-  if (terms.length === 1 && terms[0][1].re === 1 && terms[0][1].im === 0) {
+  /*
+   * One term on its own is a run of bare qubits, whatever its weight.
+   *
+   * A lone term in a product has no weight of its own to show: the size belongs
+   * to the whole product, which this notation leaves unnormalised anyway, and
+   * splitting a state hands each factor the pivot's amplitude rather than one.
+   * For whole numbers that came out as 1 regardless, since `canonical` divides
+   * the common factor away — but a cosine has no common factor to divide, so
+   * an untouched qubit beside a rotated one was being drawn in a cloud of its
+   * own with a coefficient on it, which is neither true nor useful.
+   *
+   * A sign or a quarter turn is not scale and is kept: those belong to the
+   * state and would be lost.
+   */
+  if (terms.length === 1 && terms[0][1].im === 0 && terms[0][1].re > 0) {
     return qubitsOf(terms[0][0])
   }
   // A part each way where an amplitude has both: `2+3i` on one basis state is
@@ -404,11 +416,11 @@ function blockFactor(amps: Amplitudes, keepSign = false): Factor[] {
    * notation and unhelpful about the circuit, since the figure the refusal
    * replaces is the one thing that would show what the rotation did.
    *
-   * So it is drawn approximately: every coefficient to two decimal places, and
-   * the whole state marked `≈` so nobody reads it as exact. Two places is what
-   * a figure can show and what a reader can hold; the arithmetic underneath is
-   * untouched, so the odds, the chart and the check all still work from the
-   * exact amplitudes.
+   * So it is drawn approximately: every coefficient to two decimal places. Two
+   * places is what a figure can show and what a reader can hold, and a decimal
+   * where the notation only ever writes whole numbers says plainly enough that
+   * it has been rounded. The arithmetic underneath is untouched, so the odds,
+   * the chart and the check all still work from the exact amplitudes.
    */
   const approximate = terms.some(([, amp]) => !isWhole(amp))
   const round2 = (x: number) => Math.round(x * 100) / 100
@@ -439,7 +451,7 @@ function blockFactor(amps: Amplitudes, keepSign = false): Factor[] {
   if (!cloud.terms.length) {
     throw new SimulationError('every amplitude here rounds away to nothing, so there is no state to draw')
   }
-  return approximate ? [{ kind: 'label', text: '≈' }, cloud] : [cloud]
+  return [cloud]
 }
 
 /** The sub-state on `width` leading wires, and on the rest, if it splits. */
