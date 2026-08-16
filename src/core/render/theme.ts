@@ -162,6 +162,30 @@ export interface Theme {
 export const FONT_STACK =
   "ui-sans-serif, system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif"
 
+/**
+ * The face the annotations are set in.
+ *
+ * An SVG names fonts; it does not carry them. So this asks for Computer Modern
+ * by each of the names it ships under — Latin Modern is its Unicode
+ * continuation, CMU Serif the free rebuild, and a machine with a TeX
+ * distribution on it has at least one — and falls back to Times, which is on
+ * everything and is the nearest ubiquitous thing to it.
+ *
+ * Deliberately short. Charter, Palatino and Georgia are all handsomer
+ * fallbacks and all of them are wider than Times: measured, an annotation set
+ * in Georgia ran forty pixels past the edge of its own drawing, because the
+ * gutter reserved for it is measured here against one table and there is only
+ * one table to measure against. A face that fits is worth more than a face
+ * that flatters.
+ *
+ * Embedding the real thing was the alternative and was not worth it: a subset
+ * of Computer Modern in every exported figure is tens of kilobytes on drawings
+ * that are currently three, for text that is a caption in the margin.
+ */
+export const SERIF_STACK =
+  "'Latin Modern Roman', 'CMU Serif', 'Computer Modern', 'Latin Modern Roman 10'," +
+  " 'Times New Roman', Times, serif"
+
 /* ------------------------------------------------------------------ *
  * Helpers shared by every theme. Only shading differs between them,
  * so glyph geometry lives here and is never duplicated.
@@ -260,7 +284,11 @@ export function drawText(p: TextPrim, pal: Palette): string {
       y,
       ...(p.rotate ? { transform: `rotate(${p.rotate} ${p.x} ${y})` } : {}),
       'text-anchor': p.anchor,
-      'font-family': p.mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : FONT_STACK,
+      'font-family': p.mono
+        ? 'ui-monospace, SFMono-Regular, Menlo, monospace'
+        : p.serif
+          ? SERIF_STACK
+          : FONT_STACK,
       'font-size': p.size,
       'font-weight': p.weight ?? 400,
       fill: p.color ?? pal.ink,

@@ -903,7 +903,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     captions.reduce((x, c) => Math.min(x, c.left), left) - CAPTION_GAP
 
   for (const caption of captions) {
-    const w = textWidth(caption.text, m.fontSize)
+    const w = textWidth(caption.text, m.fontSize, false, true)
     caps.push({
       t: 'text',
       x: gutterEdge,
@@ -911,6 +911,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       text: caption.text,
       size: m.fontSize,
       anchor: 'end',
+      serif: true,
     })
     boxes.push({ x: gutterEdge - w, y: caption.cy - m.fontSize / 2, w, h: m.fontSize })
   }
@@ -919,7 +920,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   const noteEdge = notes.reduce((x, n) => Math.max(x, n.right), right) + CAPTION_GAP
 
   for (const note of notes) {
-    const w = textWidth(note.text, m.fontSize)
+    const w = textWidth(note.text, m.fontSize, false, true)
     caps.push({
       t: 'text',
       x: noteEdge,
@@ -927,6 +928,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       text: note.text,
       size: m.fontSize,
       anchor: 'start',
+      serif: true,
     })
     boxes.push({ x: noteEdge, y: note.cy - m.fontSize / 2, w, h: m.fontSize })
   }

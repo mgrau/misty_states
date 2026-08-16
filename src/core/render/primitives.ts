@@ -54,6 +54,13 @@ export interface TextPrim {
   weight?: number
   color?: string
   mono?: boolean
+  /**
+   * Set in the serif face rather than the interface's sans one.
+   *
+   * For the annotations, which are prose about the figure rather than part of
+   * it — they read as a caption in a paper, and a paper is not set in Arial.
+   */
+  serif?: boolean
   /** Degrees clockwise about the run's own anchor. -90 reads bottom-to-top. */
   rotate?: number
   /**
@@ -295,15 +302,53 @@ const ADVANCE: Record<string, number> = {
   '≠': 549, '→': 987, '−': 584, '×': 584,
 }
 
+/**
+ * The same, for the serif face the annotations are set in.
+ *
+ * Adobe's Times-Roman widths, which is what a machine without a Computer
+ * Modern installed will fall back to and is close enough to one that has. A
+ * serif runs a good deal narrower than Helvetica — `e` is 444 against 556 —
+ * so measuring annotations against the sans table would reserve a gutter half
+ * a letter too wide on every line.
+ */
+const SERIF_ADVANCE: Record<string, number> = {
+  ' ': 250, '!': 333, '"': 408, '#': 500, $: 500, '%': 833, '&': 778, "'": 180,
+  '(': 333, ')': 333, '*': 500, '+': 564, ',': 250, '-': 333, '.': 250, '/': 278,
+  '0': 500, '1': 500, '2': 500, '3': 500, '4': 500, '5': 500, '6': 500, '7': 500,
+  '8': 500, '9': 500,
+  ':': 278, ';': 278, '<': 564, '=': 564, '>': 564, '?': 444, '@': 921,
+  A: 722, B: 667, C: 667, D: 722, E: 611, F: 556, G: 722, H: 722, I: 333, J: 389,
+  K: 722, L: 611, M: 889, N: 722, O: 722, P: 556, Q: 722, R: 667, S: 556, T: 611,
+  U: 722, V: 722, W: 944, X: 722, Y: 722, Z: 611,
+  '[': 333, '\\': 278, ']': 333, '^': 469, _: 500, '`': 333,
+  a: 444, b: 500, c: 444, d: 500, e: 444, f: 333, g: 500, h: 500, i: 278, j: 278,
+  k: 500, l: 278, m: 778, n: 500, o: 500, p: 500, q: 500, r: 333, s: 389, t: 278,
+  u: 500, v: 500, w: 722, x: 500, y: 500, z: 444,
+  '{': 480, '|': 200, '}': 480, '~': 541,
+  '≠': 549, '→': 987, '−': 564, '×': 564,
+}
+
 /** Fallback for anything outside the table — a touch generous, never short. */
 const DEFAULT_ADVANCE = 600
 
-/** Advance width of a text run, used for centring, gutters and label fitting. */
-export function textWidth(text: string, size: number, bold = false): number {
+/**
+ * Advance width of a text run, used for centring, gutters and label fitting.
+ *
+ * `serif` measures against the face the annotations are set in. Which one a
+ * reader actually has is not knowable from here — the stack asks for Computer
+ * Modern and takes what it can get — so the table is Times, the near-universal
+ * fallback, and the margin below covers the spread between the faces that
+ * stack can land on.
+ */
+export function textWidth(text: string, size: number, bold = false, serif = false): number {
+  const table = serif ? SERIF_ADVANCE : ADVANCE
   let units = 0
-  for (const ch of text) units += ADVANCE[ch] ?? DEFAULT_ADVANCE
-  // Bold faces run a few percent wider at the same nominal size.
-  return (units / 1000) * size * (bold ? 1.06 : 1)
+  for (const ch of text) units += table[ch] ?? DEFAULT_ADVANCE
+  // Bold faces run a few percent wider at the same nominal size. The serif
+  // stack gets a little more again, since a gutter measured short would let an
+  // annotation run past the edge of the drawing and off an exported figure,
+  // and one measured long only costs a few pixels of white.
+  return (units / 1000) * size * (bold ? 1.06 : 1) * (serif ? 1.06 : 1)
 }
 
 export interface Metrics {
