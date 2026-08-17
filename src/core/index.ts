@@ -18,7 +18,8 @@ import {
 import {
   animatedSvg, animatedTermSvg, animationBox, termAnimationBox,
 } from './circuit/animate-svg'
-import { layoutState } from './state/layout'
+import { layoutState, type DialMode } from './state/layout'
+export type { DialMode } from './state/layout'
 import { layoutCircuit, type CircuitGeometry, type CircuitLayout } from './circuit/layout'
 import { DEFAULT_METRICS, type Metrics } from './render/primitives'
 import { THEMES, renderPrims } from './render/themes'
@@ -107,6 +108,14 @@ export interface RenderOptions {
    * simulation of a diagram already being drawn.
    */
   check?: boolean
+  /**
+   * Draw a term's phase as an angle rather than spelling it as a sign.
+   *
+   * `auto` — the default — shows a dial only where a sign cannot say it, so a
+   * state whose terms are all real is drawn exactly as it always was. `always`
+   * puts one on every term; `never` restores the sign and the `i` everywhere.
+   */
+  dial?: DialMode
   /**
    * Redraw gradient-filled rectangles as stacks of solid-colour bands.
    *
@@ -362,7 +371,11 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
         // Checked before concealing: the claim is the answer the source holds,
         // whether or not the drawing is showing it.
         check: wantCheck ? checkState(doc) : undefined,
-        layout: layoutState(opts.answers ? doc : concealState(doc), { metrics, shapeOrder }),
+        layout: layoutState(opts.answers ? doc : concealState(doc), {
+        metrics,
+        shapeOrder,
+        dial: opts.dial,
+      }),
       }
     }
     // `calculate` is resolved between parsing and layout: it needs the whole
@@ -373,6 +386,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       factor: opts.factorCalculated ?? true,
       exactOdds: opts.exactOdds,
       keepSign: opts.keepSign,
+      dial: opts.dial,
     })
     // An animation draws its own ends: the qubits travelling *are* the input
     // and output, so leaving the written ones in would stand a copy at each.
@@ -391,6 +405,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       answered: hasAnswer(doc),
       check: wantCheck ? checkCircuit(doc) : undefined,
       layout: layoutCircuit(shown, {
+        dial: opts.dial,
         metrics,
         shapeOrder,
         attach: theme.attach,

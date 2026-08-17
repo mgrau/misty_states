@@ -1,6 +1,6 @@
 import { Path, el, esc, g, n } from '../svg'
 import { inscribedMark, shapePath } from '../shapes'
-import type { Metrics, Prim, QubitPrim, TextPrim } from './primitives'
+import type { DialPrim, Metrics, Prim, QubitPrim, TextPrim } from './primitives'
 import { chipWidth, textWidth } from './primitives'
 import { cloudPath } from './cloud'
 
@@ -440,6 +440,37 @@ export function swapGlyph(cx: number, cy: number, r: number, pal: Palette, m: Me
 }
 
 /** Label chip inside a gate box: accent-filled rounded rect with the letter. */
+/**
+ * A term's phase, as a hand on a small circle.
+ *
+ * In the ink colour and at the sign bar's weight, because this is notation
+ * rather than decoration — it stands in the slot a minus sign would have taken
+ * and should read with the same authority.
+ */
+export function drawDial(p: DialPrim, pal: Palette, m: Metrics): string {
+  const t = (p.angle * Math.PI) / 180
+  return (
+    el('circle', {
+      cx: p.x + p.r,
+      cy: p.cy,
+      r: p.r,
+      fill: 'none',
+      stroke: pal.ink,
+      'stroke-width': m.stroke * 0.55,
+    }) +
+    el('line', {
+      x1: p.x + p.r,
+      y1: p.cy,
+      // Screen y grows downwards, so anticlockwise on the page is a minus here.
+      x2: p.x + p.r + p.r * 0.82 * Math.cos(t),
+      y2: p.cy - p.r * 0.82 * Math.sin(t),
+      stroke: pal.ink,
+      'stroke-width': m.stroke * 1.5,
+      'stroke-linecap': 'round',
+    })
+  )
+}
+
 export function labelChip(
   cx: number,
   cy: number,

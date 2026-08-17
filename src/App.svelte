@@ -44,6 +44,7 @@
     factorCalculated: boolean
     exactOdds: boolean
     keepSign: boolean
+    phaseDial: 'auto' | 'always' | 'never'
     animateInside: boolean
     movieFps: number
     checking: boolean
@@ -64,6 +65,7 @@
       factorCalculated: true,
       exactOdds: false,
       keepSign: false,
+      phaseDial: 'auto' as const,
       animateInside: true,
       movieFps: 30,
       checking: true,
@@ -145,6 +147,7 @@
   let factorCalculated = $state(initial.factorCalculated)
   let exactOdds = $state(initial.exactOdds)
   let keepSign = $state(initial.keepSign)
+  let phaseDial = $state(initial.phaseDial)
   let animateInside = $state(initial.animateInside)
   let movieFps = $state(initial.movieFps)
   let checking = $state(initial.checking)
@@ -210,6 +213,7 @@
     factorCalculated,
     exactOdds,
     keepSign,
+    dial: phaseDial,
     animateInside,
     answers,
     metrics: {
@@ -250,7 +254,7 @@
   $effect(() => {
     const snapshot: Saved = {
       source, name, theme, dark, shapeOrder, qubitSize, paneWidth, separator, cloudFluff, cloudPad,
-      factorCalculated, exactOdds, keepSign, animateInside, movieFps, checking,
+      factorCalculated, exactOdds, keepSign, phaseDial, animateInside, movieFps, checking,
     }
     try {
       localStorage.setItem(STORE, JSON.stringify(snapshot))
@@ -1628,6 +1632,7 @@
     {factorCalculated}
     {exactOdds}
     {keepSign}
+    phaseDial={phaseDial}
     {animateInside}
     {movieFps}
     {checking}
@@ -1657,6 +1662,7 @@
     onfactorchange={(v) => (factorCalculated = v)}
     onexactoddschange={(v) => (exactOdds = v)}
     onkeepsignchange={(v) => (keepSign = v)}
+    ondialchange={(v) => (phaseDial = v)}
     oninsidechange={(v) => (animateInside = v)}
     onfpschange={(v) => (movieFps = v)}
     oncheckingchange={(v) => (checking = v)}

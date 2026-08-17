@@ -28,6 +28,7 @@
     factorCalculated: boolean
     exactOdds: boolean
     keepSign: boolean
+    phaseDial: 'auto' | 'always' | 'never'
     animateInside: boolean
     movieFps: number
     checking: boolean
@@ -44,6 +45,7 @@
     oneditlibrary: () => void
     onthemechange: (theme: ThemeId) => void
     ondarkchange: (dark: boolean) => void
+    ondialchange: (dial: 'auto' | 'always' | 'never') => void
     onpngscalechange: (scale: number) => void
     onseparatorchange: (separator: 'bar' | 'comma') => void
     oncloudfluffchange: (value: number) => void
@@ -73,6 +75,7 @@
     factorCalculated,
     exactOdds,
     keepSign,
+    phaseDial,
     animateInside,
     movieFps,
     checking,
@@ -88,6 +91,7 @@
     oneditlibrary,
     onthemechange,
     ondarkchange,
+    ondialchange,
     onpngscalechange,
     onseparatorchange,
     oncloudfluffchange,
@@ -405,6 +409,33 @@
             </button>
           {/each}
         </div>
+        <div class="flex rounded-md border border-slate-200 p-0.5">
+          {#each [{ id: 'auto', label: 'Auto' }, { id: 'never', label: 'Signs' }, { id: 'always', label: 'Dials' }] as const as opt (opt.id)}
+            <button
+              type="button"
+              onclick={() => ondialchange(opt.id)}
+              aria-pressed={phaseDial === opt.id}
+              class="flex-1 rounded px-2 py-1 text-xs transition-colors
+                     {phaseDial === opt.id
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-600 hover:text-slate-900'}"
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="text-[11px] text-slate-400">
+          Whether a term's phase is drawn as an angle.
+          <span class="font-mono">Auto</span> uses a dial only where the
+          notation has no other way to say it — a rotation by an odd angle
+          leaves an amplitude pointing between the quarters, which no sign or
+          <span class="font-mono">i</span> can write.
+          <span class="font-mono">Signs</span> never draws one, and writes such
+          an amplitude as a real term and an imaginary one that add.
+          <span class="font-mono">Dials</span> puts one on every term, a plain
+          positive included.
+        </p>
+
         <p class="text-[11px] text-slate-400">
           An overall minus sign is unobservable, so it is normally tidied away.
           Keep it when the figure exists to show a phase flip:

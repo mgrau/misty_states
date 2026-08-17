@@ -387,7 +387,7 @@ const qubitsOf = (bits: string): QubitNode[] =>
   [...bits].map((bit) => ({ kind: 'qubit', value: bit === '0' ? 0 : 1 }))
 
 /** One block of wires as a drawable factor: a bare run, or a cloud of terms. */
-function blockFactor(amps: Amplitudes, keepSign = false): Factor[] {
+function blockFactor(amps: Amplitudes, keepSign = false, dial: 'auto' | 'always' | 'never' = 'auto'): Factor[] {
   const terms = canonical(amps, { keepSign })
   /*
    * One term on its own is a run of bare qubits, whatever its weight.
@@ -425,6 +425,44 @@ function blockFactor(amps: Amplitudes, keepSign = false): Factor[] {
   const approximate = terms.some(([, amp]) => !isWhole(amp))
   const round2 = (x: number) => Math.round(x * 100) / 100
   const size = (x: number) => (approximate ? round2(x) : x)
+
+  /*
+   * One basis state, one term.
+   *
+   * A term carries either a real coefficient or an imaginary one and never
+   * both, so an amplitude with two parts has to be written as two terms that
+   * add. That was harmless while nothing produced one. A rotation does: `H`,
+   * `RZ(45)` and a `CNOT` put `0.71` and `0.71i` on the same basis state, and
+   * the drawing showed `11` twice and left the reader to add them as vectors.
+   *
+   * With a dial there is somewhere to put the angle, so the pair collapses back
+   * into the one amplitude it always was: a magnitude, and a direction.
+   */
+  // Both parts at once is the case with no spelling: one part alone is a sign
+  // or an `i`, and the notation writes those perfectly well.
+  const phased = terms.some(([, amp]) => amp.re !== 0 && amp.im !== 0)
+  const asAngles = dial === 'always' || (dial === 'auto' && phased)
+
+  if (asAngles) {
+    const turned: Term[] = []
+    for (const [bits, amp] of terms) {
+      const mag = Math.hypot(amp.re, amp.im)
+      const weight = isWhole(amp) && Number.isInteger(mag) ? mag : round2(mag)
+      if (weight === 0 && !isZero(amp)) continue
+      turned.push({
+        sign: 1,
+        coeff: weight === 1 ? undefined : weight,
+        // Degrees, and to the nearest one: a figure cannot show more and a
+        // reader cannot hold more.
+        turn: Math.round((Math.atan2(amp.im, amp.re) * 180) / Math.PI + 360) % 360,
+        factors: qubitsOf(bits),
+      })
+    }
+    if (!turned.length) {
+      throw new SimulationError('every amplitude here rounds away to nothing, so there is no state to draw')
+    }
+    return [{ kind: 'cloud', terms: turned }]
+  }
 
   const written = (bits: string, weight: number, imaginary: boolean): Term => ({
     sign: weight < 0 ? -1 : 1,
@@ -505,6 +543,15 @@ function factorise(amps: Amplitudes, width: number): Amplitudes[] {
 export interface PresentOptions {
   /** Draw the answer as a product where it separates, rather than one cloud. */
   factor?: boolean
+  /**
+   * Write each amplitude as one term with an angle, rather than as a real term
+   * and an imaginary one that add.
+   *
+   * `auto` does it only where some amplitude has both a real and an imaginary
+   * part, that being the case the notation has no spelling for. One part alone
+   * is a sign or an `i`, and those are left as they are.
+   */
+  dial?: 'auto' | 'always' | 'never'
   /**
    * Write a branch's likelihood exactly where a percentage would have to round
    * — `9/13` rather than `69%`. An even split still reads `50%`.
@@ -611,7 +658,9 @@ export function stateFrom(amps: Amplitudes, qubits: number, opts: PresentOptions
     )
   }
 
-  const factors = blocks.flatMap((block, i) => blockFactor(block, negative && i === 0))
+  const factors = blocks.flatMap((block, i) =>
+    blockFactor(block, negative && i === 0, opts.dial ?? 'auto'),
+  )
   return { sides: [{ factors }], relations: [] }
 }
 

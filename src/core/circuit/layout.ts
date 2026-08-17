@@ -17,7 +17,7 @@ import {
   type Layout, type Metrics, type Prim,
 } from '../render/primitives'
 import { FLAT_ATTACH, type Attach } from '../render/theme'
-import { layoutState } from '../state/layout'
+import { layoutState, type DialMode } from '../state/layout'
 import { layoutTable } from './table'
 import { layoutChart } from '../chart/layout'
 import type { CircuitDoc, Gate, Layer, ViewGate } from './ast'
@@ -29,6 +29,8 @@ export interface CircuitLayoutOptions {
   metrics?: Metrics
   shapeOrder?: ShapeName[]
   attach?: Attach
+  /** Passed through to every state this circuit draws. */
+  dial?: DialMode
   /**
    * Extra clear space on the pipes before each layer, and after the last.
    *
@@ -200,7 +202,11 @@ interface Interval {
 
 function stateLayoutOf(row: StateRow, opts: CircuitLayoutOptions): Layout {
   const doc: StateDoc = { kind: 'state', rows: [row] }
-  return layoutState(doc, { metrics: opts.metrics, shapeOrder: opts.shapeOrder })
+  return layoutState(doc, {
+    metrics: opts.metrics,
+    shapeOrder: opts.shapeOrder,
+    dial: opts.dial,
+  })
 }
 
 /**

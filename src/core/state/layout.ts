@@ -15,18 +15,35 @@ import {
   type Layout, type Metrics, type Prim,
 } from '../render/primitives'
 import type { CloudNode, Factor, Product, StateDoc, StateRow, Term } from './ast'
-import { qubitWidth } from './ast'
+import { qubitWidth, turnOf } from './ast'
 
 export interface StateLayoutOptions {
   metrics?: Metrics
   shapeOrder?: ShapeName[]
+  dial?: DialMode
 }
+
+/**
+ * Whether a term's phase is drawn as an angle or spelled as a sign.
+ *
+ * `auto` shows a dial only where the notation cannot say it another way. A sign
+ * says a half turn and an `i` says a quarter, so a state built out of those is
+ * drawn exactly as it always was — which is what keeps every figure already
+ * written where it is. It is the angles in between, which only a rotation
+ * produces and which nothing can be written as, that bring the dials out.
+ *
+ * And then *all* of that cloud's terms get one, the plain positives included:
+ * terms are read against each other, and a row where some carry dials and some
+ * do not cannot be read at all.
+ */
+export type DialMode = 'auto' | 'always' | 'never'
 
 interface Ctx {
   m: Metrics
   order: ShapeName[]
   /** Position to index in `order`, honouring a `shape` line. */
   pick: (slot: number) => number
+  dial: DialMode
 }
 
 /** Vertical gap between stacked rows. */
@@ -107,12 +124,28 @@ function layoutFactors(
 }
 
 /** One term of a cloud: optional sign/coefficient prefix, then its factors. */
-function layoutTerm(term: Term, x: number, cy: number, shapeStart: number, depth: number, ctx: Ctx): Layout {
+function layoutTerm(
+  term: Term,
+  x: number,
+  cy: number,
+  shapeStart: number,
+  depth: number,
+  ctx: Ctx,
+  dialled = false,
+): Layout {
   const prims: Prim[] = []
   const boxes: Box[] = []
   let cursor = x
 
-  if (term.sign === -1) {
+  if (dialled) {
+    // The dial takes the sign's slot, not the coefficient's: the magnitude is a
+    // number and the phase is an angle, and one glyph saying both would be a
+    // glyph saying neither.
+    const r = ctx.m.qubit * 0.36
+    prims.push({ t: 'dial', x: cursor, cy, r, angle: turnOf(term) })
+    boxes.push({ x: cursor, y: cy - r, w: r * 2, h: r * 2 })
+    cursor += r * 2 + ctx.m.signGap
+  } else if (term.sign === -1) {
     // Drawn as geometry, not a glyph, so it sits exactly on the centre line.
     const w = ctx.m.qubit * 0.3
     const h = ctx.m.stroke * 1.5
@@ -121,10 +154,11 @@ function layoutTerm(term: Term, x: number, cy: number, shapeStart: number, depth
     cursor += w + ctx.m.signGap
   }
 
-  if (term.coeff !== undefined || term.imaginary) {
+  if (term.coeff !== undefined || (term.imaginary && !dialled)) {
     const size = ctx.m.fontSize
-    // `i` on its own where the size is one: `1i` reads as a slip.
-    const text = `${term.coeff ?? ''}${term.imaginary ? 'i' : ''}`
+    // `i` on its own where the size is one: `1i` reads as a slip. With a dial
+    // beside it the `i` is the dial's to say, so the number stands alone.
+    const text = `${term.coeff ?? ''}${term.imaginary && !dialled ? 'i' : ''}`
     const w = textWidth(text, size, true)
     prims.push({ t: 'text', x: cursor, cy, text, size, anchor: 'start', weight: 700 })
     boxes.push({ x: cursor, y: cy - size / 2, w, h: size })
@@ -162,13 +196,19 @@ function layoutCloud(
   const comma = m.separator === 'comma'
   const sepWidth = comma ? textWidth(',', m.fontSize) : m.barWidth
 
+  // Decided once for the whole cloud, and passed down: a term cannot see its
+  // neighbours, and this is a question about all of them together.
+  const dialled =
+    ctx.dial === 'always' ||
+    (ctx.dial === 'auto' && cloud.terms.some((t) => turnOf(t) % 90 !== 0))
+
   cloud.terms.forEach((term, i) => {
     if (i > 0) {
       cursor += m.termGap
       barXs.push(cursor + sepWidth / 2)
       cursor += sepWidth + m.termGap
     }
-    const laid = layoutTerm(term, cursor, cy, shapeStart, depth + 1, ctx)
+    const laid = layoutTerm(term, cursor, cy, shapeStart, depth + 1, ctx, dialled)
     inner.push(...laid.prims)
     boxes.push(laid.box)
     cursor = laid.box.x + laid.box.w
@@ -245,6 +285,7 @@ export function layoutState(doc: StateDoc, opts: StateLayoutOptions = {}): Layou
     order,
     // A `shape` line pins shapes by name; everything downstream numbers them,
     // so a name is turned back into its position in the current order here.
+    dial: opts.dial ?? 'auto',
     pick: (slot) => {
       const p = doc.shapePicks?.[slot]
       if (p === undefined) return slot

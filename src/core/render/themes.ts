@@ -11,7 +11,7 @@
 import { Path, el, g, n } from '../svg'
 import type { Metrics, Prim } from './primitives'
 import {
-  FLAT_ATTACH, basisLabel, drawBar, drawCloud, drawQubit, drawSign, drawText, mix,
+  FLAT_ATTACH, basisLabel, drawBar, drawCloud, drawQubit, drawDial, drawSign, drawText, mix,
   labelChip, meterGlyph, notGlyph, swapGlyph,
   type Attach, type Palette, type QubitStyle, type Theme, type ThemeId,
 } from './theme'
@@ -274,6 +274,9 @@ function makeTheme(
 
         case 'sign':
           return drawSign(p.x, p.cy, p.w, p.h, pal)
+
+        case 'dial':
+          return drawDial(p, pal, m)
 
         case 'pipe':
           return s.pipe(p.cx, p.y0, p.y1, p.w, pal, m, p.openTop)

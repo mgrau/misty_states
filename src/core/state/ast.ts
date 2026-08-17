@@ -62,7 +62,29 @@ export interface Term {
    * the shape a reader expects: a sign, a size, and possibly an `i`.
    */
   imaginary?: boolean
+  /**
+   * The phase this term carries, in degrees, where it is drawn as an angle.
+   *
+   * Set only by a calculated state being written for the dial, which merges the
+   * two terms an amplitude with both parts would otherwise need into one. Left
+   * unset everywhere else, where `turnOf` reads the angle off the sign and the
+   * `i` — those being the only phases the notation can write.
+   */
+  turn?: number
   factors: Factor[]
+}
+
+/**
+ * The angle a term stands at, in degrees.
+ *
+ * Zero is the positive real axis and it counts anticlockwise, so a minus sign
+ * is a half turn and an `i` is a quarter. Nothing the notation can write lands
+ * anywhere else; a calculated state can, and says so with `turn`.
+ */
+export function turnOf(term: Term): number {
+  if (term.turn !== undefined) return ((term.turn % 360) + 360) % 360
+  const quarter = term.imaginary ? 90 : 0
+  return term.sign === -1 ? (quarter + 180) % 360 : quarter
 }
 
 /** One side of an `=` chain: a juxtaposed product of factors. */

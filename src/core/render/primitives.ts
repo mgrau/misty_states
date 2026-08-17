@@ -27,6 +27,21 @@ export interface QubitPrim {
   at?: number
 }
 
+/**
+ * A term's phase, drawn as an angle rather than spelled as a sign.
+ *
+ * Zero points right and the angle counts anticlockwise, the way an Argand
+ * diagram does. SVG's y runs downwards, so the hand lands at `(cos θ, −sin θ)`.
+ */
+export interface DialPrim {
+  t: 'dial'
+  x: number
+  cy: number
+  r: number
+  /** Degrees. */
+  angle: number
+}
+
 /** The bumpy outline enclosing a superposition. */
 export interface CloudPrim {
   t: 'cloud'
@@ -219,7 +234,7 @@ export interface LinkPrim {
  * still works through the intersection.
  */
 export type Prim = (
-  | QubitPrim | CloudPrim | BarPrim | TextPrim | SignPrim | PipePrim
+  | QubitPrim | CloudPrim | BarPrim | TextPrim | SignPrim | DialPrim | PipePrim
   | GateBoxPrim | PanePrim | MeasureBoxPrim | ControlPrim | TargetPrim | SwapPrim | LinkPrim
   | RulePrim
 ) & {
@@ -268,6 +283,7 @@ export function translatePrims(prims: Prim[], dx: number, dy: number): Prim[] {
         return { ...p, cx: p.cx + dx, cy: p.cy + dy }
       case 'cloud':
         return { ...p, content: { ...p.content, x: p.content.x + dx, y: p.content.y + dy } }
+      case 'dial':
       case 'bar':
       case 'text':
       case 'sign':
