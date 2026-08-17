@@ -12,6 +12,7 @@
 import { boxUnion, type Box } from '../svg'
 import { DEFAULT_SHAPE_ORDER, shapeAt, shapeHeight, type ShapeName } from '../shapes'
 import {
+  chipWidth,
   DEFAULT_METRICS, textWidth, translatePrims,
   type Layout, type Metrics, type Prim,
 } from '../render/primitives'
@@ -83,6 +84,19 @@ export interface CircuitLayout extends Layout {
 
 /** Horizontal padding between a gate's edge and the outermost pipe it covers. */
 const GATE_PAD_X = 12
+
+/**
+ * The chip a name standing on a target is drawn on, sized.
+ *
+ * Two places need this and neither can be told by the other: the box a gate
+ * draws has to be wide enough to hold the chip with the same clearance every
+ * other gate gets, and the glyph pass has to know where the chip's edge falls
+ * so the link can stop at it.
+ */
+function nameChip(label: string, m: Metrics): { size: number; w: number } {
+  const size = fitLabel(label, textWidth(label, m.fontSize, true) + 16, m)
+  return { size, w: chipWidth(label, size) }
+}
 
 /**
  * Pipe left protruding at the open ends of the circuit. Projections that
@@ -709,9 +723,12 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       const [q0, q1] = gateSpan(gate)
       // A name standing on the target needs room the span does not provide:
       // on an end wire it would otherwise hang off the side of its own box.
+      // Room for the whole chip, not just the lettering on it. Measured against
+      // the text alone, the chip's own padding ate the clearance the box leaves
+      // every other gate and the blue came right up to the edge.
       const named =
         gate.kind === 'controlled' && gate.targetGlyph === 'label' && gate.label
-          ? Math.max(0, textWidth(gate.label, m.fontSize, true) - m.pipeWidth) / 2
+          ? Math.max(0, nameChip(gate.label, m).w - m.pipeWidth) / 2
           : 0
       const h = bodyHeight(gate, m)
       const box: Box = {
@@ -1043,22 +1060,13 @@ function emitGate(
        *
        * What the gate does is the thing worth reading and `⊕` would only say it
        * again less well — but bare words on a wire read as a caption about the
-       * circuit rather than as a thing the circuit does. A box says operation,
-       * which is what every other named gate here is drawn with, and the link
-       * then runs to that box rather than under the lettering.
+       * circuit rather than as a thing the circuit does. So the name is set on
+       * the same blue chip the `⊕` is drawn in, lettered in white: it is that
+       * glyph written out, and reads as the same kind of thing. The link stops
+       * at the chip's edge rather than running under the lettering.
        */
       const named = gate.targetGlyph === 'label' && gate.label ? gate.label : ''
-      // Sized to the name it holds, in the same proportions a gate's own body
-      // takes around its label.
-      const nameSize = named ? fitLabel(named, textWidth(named, m.fontSize, true) + 16, m) : 0
-      const nameBox: Box | null = named
-        ? {
-            x: gateX(gate.target) - (textWidth(named, nameSize, true) + nameSize * 1.1) / 2,
-            y: cy - nameSize * 0.95,
-            w: textWidth(named, nameSize, true) + nameSize * 1.1,
-            h: nameSize * 1.9,
-          }
-        : null
+      const chip = named ? nameChip(named, m) : null
 
       // A bare NOT has no controls, so there is nothing to link it to.
       if (gate.controls.length) {
@@ -1069,18 +1077,27 @@ function emitGate(
         // centre underneath it. Only where the target is an end of the run: a
         // name in the middle has the link passing behind it either way, and the
         // box is drawn over it.
-        if (nameBox) {
+        if (chip) {
           const tx = gateX(gate.target)
-          if (tx >= x1) x1 = Math.max(x0, nameBox.x)
-          else if (tx <= x0) x0 = Math.min(x1, nameBox.x + nameBox.w)
+          if (tx >= x1) x1 = Math.max(x0, tx - chip.w / 2)
+          else if (tx <= x0) x0 = Math.min(x1, tx + chip.w / 2)
         }
         glyphs.push({ t: 'link', x0, x1, cy })
         for (const c of gate.controls) {
           glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R })
         }
       }
-      if (nameBox) {
-        glyphs.push({ t: 'gatebox', box: nameBox, label: named, labelSize: nameSize })
+      if (chip) {
+        glyphs.push({
+          t: 'text',
+          x: gateX(gate.target),
+          cy,
+          text: named,
+          size: chip.size,
+          anchor: 'middle',
+          weight: 700,
+          chip: true,
+        })
       } else {
         // Controlled-Z is symmetric, so its "target" is just another control dot.
         const isZ = gate.targetGlyph === 'z'

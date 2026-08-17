@@ -55,6 +55,15 @@ export interface TextPrim {
   color?: string
   mono?: boolean
   /**
+   * Drawn on a filled chip in the accent colour, lettered in white.
+   *
+   * What a name standing on a target is drawn as, so it reads the way the `⊕`
+   * it replaces reads: the same blue, the same white mark inside it. The colour
+   * is the palette's and not named here — a layout says what a thing *is*, and
+   * a theme says what colour that comes out.
+   */
+  chip?: boolean
+  /**
    * Set in the serif face rather than the interface's sans one.
    *
    * For the annotations, which are prose about the figure rather than part of
@@ -349,6 +358,23 @@ export function textWidth(text: string, size: number, bold = false, serif = fals
   // annotation run past the edge of the drawing and off an exported figure,
   // and one measured long only costs a few pixels of white.
   return (units / 1000) * size * (bold ? 1.06 : 1) * (serif ? 1.06 : 1)
+}
+
+/**
+ * How wide the chip behind a label is drawn.
+ *
+ * Shared, because two places need to agree on it and they are not near each
+ * other: the theme draws the chip, and the layout has to leave room for one
+ * and know where its edge falls so a link can stop there.
+ */
+export function chipWidth(text: string, size: number, subscript = ''): number {
+  const subW = subscript ? textWidth(subscript, size * 0.66, true) : 0
+  const mainW = textWidth(text, size, true)
+  return Math.max(
+    size * 1.25,
+    (mainW + subW) * 1.18,
+    subscript ? mainW + subW + size * 0.5 : 0,
+  )
 }
 
 export interface Metrics {

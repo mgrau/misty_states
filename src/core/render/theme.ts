@@ -1,7 +1,7 @@
 import { Path, el, esc, g, n } from '../svg'
 import { inscribedMark, shapePath } from '../shapes'
 import type { Metrics, Prim, QubitPrim, TextPrim } from './primitives'
-import { textWidth } from './primitives'
+import { chipWidth, textWidth } from './primitives'
 import { cloudPath } from './cloud'
 
 export type ThemeId = 'solid' | 'flat' | 'isometric'
@@ -276,6 +276,8 @@ export function mix(a: string, b: string, t: number): string {
 }
 
 export function drawText(p: TextPrim, pal: Palette): string {
+  // A name on a chip is the `⊕` written out: same blue, same white lettering.
+  if (p.chip) return labelChip(p.x, p.cy, p.text, p.size, pal.accent, pal)
   const y = p.cy + baselineOffset(p.size, p.baseline)
   return el(
     'text',
@@ -489,9 +491,9 @@ export function labelChip(
    * width came to less than a percentage of a single wide letter, and `R` with
    * its axis ended up with a third of the room `H` had — measured at 2.9px
    * against 5.6px, with the axis letter itself hanging half a pixel outside its
-   * own chip at the bottom.
+   * own chip at the bottom. The width is `chipWidth`, shared with the layout,
+   * which has to leave room for a chip before the theme draws one.
    */
-  const PAD_X = size * 0.25
   const PAD_Y = size * 0.15
 
   // How far the drawn glyphs actually reach. A subscript hangs below the line,
@@ -505,11 +507,7 @@ export function labelChip(
   // wide run, and a percentage of that came to less than a percentage of one
   // wide letter. A chip holding a single letter was never short of room and is
   // left at exactly the width it has always had.
-  const w = Math.max(
-    size * 1.25,
-    (mainW + subW) * 1.18,
-    subscript ? mainW + subW + PAD_X * 2 : 0,
-  )
+  const w = chipWidth(text, size, subscript ?? '')
   const h = bottom - top + PAD_Y * 2
   return (
     el('rect', {
