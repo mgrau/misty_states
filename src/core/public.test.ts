@@ -31,6 +31,7 @@ describe('the published surfaces', () => {
       'SHAPE_NAMES',
       'THEMES',
       'THEME_IDS',
+      'VERSION',
       'detectMode',
       'render',
       'renderFrames',

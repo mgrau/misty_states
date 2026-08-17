@@ -10,12 +10,64 @@ Type text, get an SVG. Everything runs client-side; nothing is uploaded.
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # static bundle in dist/, plus the API bundle in dist/lib/
-npm test         # 628 tests
+npm test         # 1457 tests
 ```
 
 Built with TypeScript, Svelte 5 and Tailwind 4. No backend and no network calls:
 `dist/` is a plain static bundle that also runs straight off the filesystem. The
-only runtime dependency is jsPDF, loaded lazily for PDF export.
+drawing library has no runtime dependencies at all; jsPDF and the rest belong to
+the editor, which bundles them.
+
+---
+
+## Versioning
+
+Semantic, and the useful part is saying what it is semantic *about*. This
+project has three surfaces that can break, and they break differently.
+
+**The notation.** Every exported figure carries its own source, so a file made
+two years ago has to keep opening. This is the surface with the most people
+depending on it — 140 figures in a course library — and the one where a break is
+worst, because it is silent: the text still looks right and no longer draws what
+it drew.
+
+**The API.** The three entry points, `misty-states` (`api.ts`),
+`misty-states/render` and `misty-states/kernel`, plus `misty-states/ui` for the
+drag layer. `public.test.ts` pins every name in all four against a literal list,
+so removing one is a failing test rather than somebody else's mystery.
+
+**The drawing.** What comes out for a given source. Not a compatibility surface
+in the semver sense — nothing breaks — but the thing a reader notices, and the
+one the golden suite measures exactly.
+
+### What each number means
+
+| | |
+| --- | --- |
+| **major** | A source that used to parse no longer does, or means something else. A published export removed or renamed. |
+| **minor** | New notation, new exports, new options. Everything that worked still works. |
+| **patch** | Fixes that change neither the notation nor the API — including fixes to a drawing that was simply wrong. |
+
+**A change to the drawing is not a level of its own.** A gate that moves three
+pixels breaks nothing and can ship in a patch; a figure that was drawing the
+wrong thing is a bug fix, whatever it looks like. What matters is that such a
+change is never silent, and it need not be: the golden suite renders every
+example and every gate in three themes, light and dark, and a release note can
+say exactly how many of the 336 moved and which. "12 of 336 — the two figures
+with a name on a target" is a fact, not a reassurance.
+
+Below `1.0.0` the notation is settled — 140 figures depend on it — but the
+published API is days old and has two decisions openly outstanding, so it may
+still move. `1.0.0` is the point at which that stops being true.
+
+### Where the number lives
+
+`package.json` holds it, `src/core/version.ts` repeats it as a literal so the
+library can be imported without a JSON loader, and `version.test.ts` holds the
+two in step. Every figure the editor exports is stamped with it in the same
+`<metadata>` element that carries the source — a drawing is not reproducible
+from its text alone, since the text is stable and what the renderer makes of it
+is not.
 
 ---
 

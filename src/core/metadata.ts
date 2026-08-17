@@ -20,6 +20,8 @@
  * Nothing here needs the DOM, so it is all testable in Node.
  */
 
+import { VERSION } from './version'
+
 /** Marks our payload in every format, and is what the readers search for. */
 export const SOURCE_KEY = 'misty-source'
 
@@ -90,8 +92,11 @@ export function embedSvgMeta(svg: string, meta: DiagramMeta): string {
   const open = /^\s*<svg[^>]*>/.exec(clean)
   if (!open) return clean
   const title = meta.name ? `<title>${escapeXml(meta.name)}</title>` : ''
+  // The version is stamped alongside the source, so a figure found in three
+  // years says what drew it. A drawing is not reproducible from its text alone
+  // — the text is stable, but what the renderer makes of it moves.
   const source =
-    `<metadata id="${SOURCE_KEY}" data-app="misty-states">` +
+    `<metadata id="${SOURCE_KEY}" data-app="misty-states" data-version="${VERSION}">` +
     escapeXml(meta.source) +
     `</metadata>`
   return clean.slice(0, open[0].length) + title + source + clean.slice(open[0].length)

@@ -20,6 +20,7 @@ import {
 } from './circuit/animate-svg'
 import { layoutState, type DialMode } from './state/layout'
 export type { DialMode } from './state/layout'
+export { VERSION } from './version'
 import { layoutCircuit, type CircuitGeometry, type CircuitLayout } from './circuit/layout'
 import { DEFAULT_METRICS, type Metrics } from './render/primitives'
 import { THEMES, renderPrims } from './render/themes'
