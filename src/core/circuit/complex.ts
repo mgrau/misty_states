@@ -105,8 +105,11 @@ export const over = (a: Cx, k: number): Cx => cx(a.re / k, a.im / k)
  */
 export function show(a: Cx): string {
   // Rounded where it is not whole: `0.9659258262890683` is not something to
-  // read off a figure, and three places is more than a drawing can show.
-  const n = (x: number) => (Number.isInteger(x) ? String(x) : x.toFixed(3).replace(/0+$/, ''))
+  // read off a figure. Two places, which is what a drawn state shows — the
+  // written state and the drawn one are the same state, and saying `0.966`
+  // beside a picture that says `0.97` invites the reader to wonder which.
+  const n = (x: number) =>
+    Number.isInteger(x) ? String(x) : x.toFixed(2).replace(/\.?0+$/, '')
   const im = a.im === 1 ? 'i' : a.im === -1 ? '-i' : `${n(a.im)}i`
   if (a.im === 0) return n(a.re)
   if (a.re === 0) return im

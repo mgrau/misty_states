@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { svgToPdfBlob, pdfDataUrl } from './export'
 import { embedSvgMeta, readPdfMeta } from '../core/metadata'
 import { render } from '../core/index'
+import { bandGradients } from '../core/render/band'
 
 const head = async (blob: Blob) =>
   new TextDecoder().decode(new Uint8Array(await blob.arrayBuffer()).subarray(0, 8))
@@ -93,5 +94,16 @@ describe('pdfDataUrl', () => {
     // Decodes back to a PDF.
     const b64 = url.split(',')[1]
     expect(atob(b64).slice(0, 5)).toBe('%PDF-')
+  })
+})
+
+describe('gradients in a PDF', () => {
+  it('are banded on the way in, since Preview will not draw a shading', () => {
+    // The figure that goes to jsPDF must carry no gradient-filled rectangle:
+    // PDFKit flattens a shading to one colour once the drawing is embedded in
+    // another document, which is where every one of these is headed.
+    const svg = render('qubits 2\nH 1\nCNOT 1 -> 2', { theme: 'solid' }).svg
+    expect(svg).toMatch(/<rect[^>]*fill="url\(#ms-pipe\)"/)
+    expect(bandGradients(svg)).not.toMatch(/<rect[^>]*fill="url\(#ms-(pipe|gate|shadow)\)"/)
   })
 })

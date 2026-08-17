@@ -71,7 +71,10 @@ describe('what a right angle does', () => {
 
 describe('what an odd angle does', () => {
   it('leaves cosines in the amplitudes', () => {
-    expect(state('in 0\nRX(30) 1')).toBe('0:0.966 1:-0.259i')
+    // Two places, matching what a drawn state shows: the written state and the
+    // drawn one are the same state, and two spellings of it invite the reader
+    // to wonder which is right.
+    expect(state('in 0\nRX(30) 1')).toBe('0:0.97 1:-0.26i')
   })
 
   it('leaves the odds a distribution, at every angle', () => {
@@ -132,7 +135,7 @@ describe('what an odd angle does', () => {
   it('charts and writes out perfectly well', () => {
     expect(render('in 0\nRX(30) 1\nprobability').svg).toContain('<svg')
     expect(render('in 0\nRX(30) 1\ntabulate').svg).toContain('<svg')
-    expect(render('in 0\nRX(30) 1').dirac?.[0]).toContain('0.259')
+    expect(render('in 0\nRX(30) 1').dirac?.[0]).toContain('0.26')
   })
 })
 

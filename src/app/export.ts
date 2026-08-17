@@ -12,6 +12,7 @@ import {
   type DiagramMeta,
 } from '../core/metadata'
 import { blobToDataUrl, svgBlob, svgToPngBlob } from '../core/render/encode'
+import { bandGradients } from '../core/render/band'
 
 // Re-exported because they were here first and half the app imports them from
 // here; where they live now is a fact about the library boundary, not about
@@ -64,9 +65,24 @@ export async function svgToPdfBlob(svg: string): Promise<Blob> {
   host.style.position = 'fixed'
   host.style.left = '-10000px'
   host.style.top = '0'
+  /*
+   * Banded on the way in, always.
+   *
+   * A gradient becomes a shading pattern in PDF, and Apple's PDFKit does not
+   * draw a shading once the figure has been embedded in another document — the
+   * `\includegraphics` case, which is where every one of these is going. The
+   * pipes arrive as flat grey sticks in Preview while looking perfectly correct
+   * everywhere they were checked.
+   *
+   * Not offered as a choice, because there is no version of this anyone would
+   * want the other way: the bands are visually indistinguishable, they are
+   * still vector, and they cost only markup — which `compress: true` below
+   * largely takes back. A figure exported as SVG keeps its gradients, since a
+   * browser draws those perfectly well and is where an SVG is read.
+   */
   // svg2pdf walks every node it is given; the metadata goes in the Info
   // dictionary below instead, where a PDF reader can actually show it.
-  host.innerHTML = stripSvgMeta(svg)
+  host.innerHTML = bandGradients(stripSvgMeta(svg))
   const root = host.firstElementChild
   if (!root || root.tagName.toLowerCase() !== 'svg') {
     throw new Error('could not parse the SVG')

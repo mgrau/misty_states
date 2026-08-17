@@ -268,7 +268,7 @@ export function layoutState(doc: StateDoc, opts: StateLayoutOptions = {}): Layou
   const annotationGap = ctx.m.qubit * 0.5
   const gutter = laidRows.reduce((max, { row }) => {
     const c = row.sides[0].caption
-    return c ? Math.max(max, textWidth(c, captionSize, true, true) + annotationGap) : max
+    return c ? Math.max(max, textWidth(c, captionSize, false, true) + annotationGap) : max
   }, 0)
 
   const prims: Prim[] = []
@@ -295,13 +295,16 @@ export function layoutState(doc: StateDoc, opts: StateLayoutOptions = {}): Layou
         text: caption,
         size: captionSize,
         anchor: 'end',
-        weight: 600,
+        // Regular, like a circuit's annotations and like the prose these sit
+        // beside. Semibold here and plain there was two answers to one
+        // question, and in a serif face the heavier one reads as emphasis
+        // nobody asked for.
         serif: true,
       })
       boxes.push({
-        x: gutter - ctx.m.qubit * 0.5 - textWidth(caption, captionSize, true, true),
+        x: gutter - ctx.m.qubit * 0.5 - textWidth(caption, captionSize, false, true),
         y: cy - captionSize / 2,
-        w: textWidth(caption, captionSize, true, true),
+        w: textWidth(caption, captionSize, false, true),
         h: captionSize,
       })
     }
@@ -314,11 +317,11 @@ export function layoutState(doc: StateDoc, opts: StateLayoutOptions = {}): Layou
       const x = gutter + widest + annotationGap
       prims.push({
         t: 'text', x, cy, text: note,
-        size: captionSize, anchor: 'start', weight: 600, serif: true,
+        size: captionSize, anchor: 'start', serif: true,
       })
       boxes.push({
         x, y: cy - captionSize / 2,
-        w: textWidth(note, captionSize, true, true), h: captionSize,
+        w: textWidth(note, captionSize, false, true), h: captionSize,
       })
     }
 
