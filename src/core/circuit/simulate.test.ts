@@ -141,6 +141,18 @@ describe('the gates', () => {
     expect(outputOf('in 01\nSWAP 1 2')).toBe('10')
   })
 
+  it('swaps only when the control is black (Fredkin)', () => {
+    // Control white: the pair is left alone.
+    expect(outputOf('in 001\nCSWAP 1 2 3')).toBe('001')
+    // Control black: the pair exchanges.
+    expect(outputOf('in 101\nCSWAP 1 2 3')).toBe('110')
+    expect(outputOf('in 110\nCSWAP 1 2 3')).toBe('101')
+    // The arrow form reads the same, and two controls need both black.
+    expect(outputOf('in 110\nCSWAP 1 -> 2 3')).toBe('101')
+    expect(outputOf('in 1110\nCSWAP 1 2 -> 3 4')).toBe('1101')
+    expect(outputOf('in 1010\nCSWAP 1 2 -> 3 4')).toBe('1010')
+  })
+
   it('does nothing on an identity', () => {
     expect(outputOf('in 01\nI 1')).toBe('01')
   })

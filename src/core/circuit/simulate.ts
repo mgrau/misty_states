@@ -282,7 +282,10 @@ function spreadOf(gate: Gate): Spread | null {
 
     case 'swap': {
       const [a, b] = gate.qubits
+      const controls = gate.controls ?? []
+      const on = (bits: string) => controls.every((c) => bits[c - 1] === '1')
       return (bits, amp, emit) => {
+        if (!on(bits)) return emit(bits, amp)
         const chars = [...bits]
         ;[chars[a - 1], chars[b - 1]] = [chars[b - 1], chars[a - 1]]
         emit(chars.join(''), amp)

@@ -267,6 +267,21 @@ describe('moving a gate that is already there', () => {
       head: 'TOFFOLI',
       wires: 3,
     })
+    // A controlled swap writes itself as CSWAP; a plain one stays SWAP.
+    expect(asDroppable(parseCircuit('CSWAP 1 2 3').layers[0].gates[0])).toMatchObject({
+      head: 'CSWAP',
+      wires: 3,
+    })
+    // A CSWAP moved stays a CSWAP — the gate must come from the same parse it
+    // is moved within, or the patch cannot find it.
+    const csDoc = parseCircuit('qubits 4\nH 1\nCSWAP 1 2 3')
+    const cs = csDoc.layers.flatMap((l) => l.gates).find((g) => g.kind === 'swap')!
+    const moved = moveGate('qubits 4\nH 1\nCSWAP 1 2 3', csDoc, cs, {
+      wire: 1,
+      layer: 0,
+      where: 'before',
+    })
+    expect(moved?.source).toContain('CSWAP 1 2 3')
   })
 
   it('always produces something that parses, wherever it is put', () => {

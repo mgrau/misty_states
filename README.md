@@ -62,6 +62,7 @@ out calculate
 | `TOFFOLI 1 2 -> 3` | Two controls (`CCNOT`/`CCX`) |
 | `CZ 1 2` | Controlled-Z |
 | `SWAP 1 2` | Swap |
+| `CSWAP 1 2 3` | Controlled swap / Fredkin (`CSWAP 1 -> 2 3` too) |
 | `measure 1 Z` | Measurement (`M` is an alias) |
 | `box "U" 1-3` | Custom labelled box |
 | `blank 1-2` | Empty frame for students |

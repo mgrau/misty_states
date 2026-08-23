@@ -210,7 +210,7 @@ const KEYWORDS = new Set([
   'qubits', 'shape', 'shapes', 'header', 'labels', 'in', 'out', 'view', 'show', 'window',
   'animate',
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
-  'cz', 'swap', 'measure', 'm', 'box', 'gate', 'blank',
+  'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
 ])
 
@@ -241,7 +241,7 @@ const CALCULATE = /^calc(ulate)?\s*(?::\s*(.*?))?\s*$/i
 /** The gate names, as opposed to the directives that also open a line. */
 const GATE_KEYWORDS = new Set([
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
-  'cz', 'swap', 'measure', 'm', 'box', 'gate', 'blank',
+  'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
 ])
 
@@ -761,6 +761,20 @@ function parseGate(src: string, line: number): Gate {
     const qs = parseQubits(rest, line)
     if (qs.length !== 2) throw new ParseError('SWAP takes two qubits', 0, line)
     return { kind: 'swap', qubits: [qs[0], qs[1]] }
+  }
+
+  // Controlled SWAP — the Fredkin gate at one control. The two swapped wires
+  // are the targets and everything before is a control, split on `->` the same
+  // way CNOT is; without an arrow the last two wires are the pair, matching how
+  // `SWAP 1 2` and `CNOT 1 2` already read their trailing wire.
+  if (head === 'CSWAP' || head === 'FREDKIN') {
+    const arrow = rest.findIndex((t) => t.text === '->')
+    const split = arrow < 0 ? rest.length - 2 : arrow
+    const controls = parseQubits(rest.slice(0, Math.max(0, split)), line)
+    const targets = parseQubits(rest.slice(arrow < 0 ? split : arrow + 1), line)
+    if (!controls.length) throw new ParseError(`${head} needs at least one control`, 0, line)
+    if (targets.length !== 2) throw new ParseError(`${head} swaps exactly two qubits`, 0, line)
+    return { kind: 'swap', qubits: [targets[0], targets[1]], controls }
   }
 
   if (head === 'MEASURE' || head === 'M') {

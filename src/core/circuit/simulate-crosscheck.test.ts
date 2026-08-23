@@ -62,6 +62,7 @@ describe('identities that must hold for every input', () => {
   it('CZ·CZ = I', () => isSelfInverse(2, 'CZ 1 2'))
   it('SWAP·SWAP = I', () => isSelfInverse(2, 'SWAP 1 2'))
   it('TOFFOLI·TOFFOLI = I', () => isSelfInverse(3, 'TOFFOLI 1 2 -> 3'))
+  it('CSWAP·CSWAP = I', () => isSelfInverse(3, 'CSWAP 1 -> 2 3'))
 
   it('H·H = 2I — the factor of two the integers carry', () => isSelfInverse(2, 'H 1', 2))
 
@@ -145,7 +146,12 @@ function randomCircuit(rand: () => number): { src: string; qubits: number } {
     else if (qubits < 2) lines.push(`H ${a}`)
     else if (choice === 3) lines.push(`CNOT ${a} -> ${b}`)
     else if (choice === 4) lines.push(`CZ ${a} ${b}`)
-    else lines.push(`SWAP ${a} ${b}`)
+    else if (choice === 9 && qubits >= 3) {
+      // A third distinct wire, so a Fredkin has a control and a pair.
+      let c = pick(qubits)
+      while (c === a || c === b) c = pick(qubits)
+      lines.push(`CSWAP ${a} -> ${b} ${c}`)
+    } else lines.push(`SWAP ${a} ${b}`)
   }
   return { src: lines.join('\n'), qubits }
 }

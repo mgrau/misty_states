@@ -51,6 +51,7 @@ export const GATE_GALLERY: GateGroup[] = [
       { code: 'CZ 1 2', name: 'Controlled Z', source: 'qubits 2\nCZ 1 2', drop: { head: 'CZ', wires: 2 } },
       { code: 'SWAP 1 2', name: 'Swap', source: 'qubits 2\nSWAP 1 2', drop: { head: 'SWAP', wires: 2 } },
       { code: 'TOFFOLI 1 2 3', name: 'Toffoli', source: 'qubits 3\nTOFFOLI 1 2 3', drop: { head: 'TOFFOLI', wires: 3 } },
+      { code: 'CSWAP 1 2 3', name: 'Controlled swap', text: 'The Fredkin gate: swap two wires when the control is black', source: 'qubits 3\nCSWAP 1 2 3', drop: { head: 'CSWAP', wires: 3 } },
       {
         code: 'CNOT 1 2 "Tiger?"',
         name: 'Named link',

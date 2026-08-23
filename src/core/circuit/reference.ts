@@ -120,12 +120,31 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
 
     case 'swap': {
       const [a, b] = gate.qubits
-      return [
-        embed(n, { [a]: P0, [b]: P0 }),
-        embed(n, { [a]: P1, [b]: P1 }),
-        embed(n, { [a]: S01, [b]: S10 }),
-        embed(n, { [a]: S10, [b]: S01 }),
+      const controls = gate.controls ?? []
+      // Fold P1 on every control straight into the swap's blocks, so the swap
+      // only acts where the controls are all ones. Empty for a plain SWAP, in
+      // which case this is exactly the swap.
+      const gated: Record<number, Matrix> = {}
+      for (const c of controls) gated[c] = P1
+      let out = [
+        embed(n, { ...gated, [a]: P0, [b]: P0 }),
+        embed(n, { ...gated, [a]: P1, [b]: P1 }),
+        embed(n, { ...gated, [a]: S01, [b]: S10 }),
+        embed(n, { ...gated, [a]: S10, [b]: S01 }),
       ].reduce(sum)
+      // Every control assignment that is not all-ones holds the wires still.
+      // With the acting block above, the projectors sum to the identity, so
+      // each case is covered exactly once — the same construction the
+      // controlled gates use above.
+      const total = 1 << controls.length
+      for (let mask = 0; mask < total - 1; mask++) {
+        const ops: Record<number, Matrix> = {}
+        controls.forEach((c, i) => {
+          ops[c] = mask & (1 << i) ? P1 : P0
+        })
+        out = sum(out, embed(n, ops))
+      }
+      return out
     }
 
     case 'measure':

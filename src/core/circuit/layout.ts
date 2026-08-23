@@ -1052,7 +1052,14 @@ function emitGate(
     case 'swap': {
       bodies.push({ t: 'gatebox', box, label: '', labelSize: m.fontSize })
       const [a, b] = gate.qubits
-      glyphs.push({ t: 'link', x0: gateX(a), x1: gateX(b), cy })
+      const controls = gate.controls ?? []
+      // The bar spans the controls as well, so a Fredkin gate's dot is joined
+      // to the pair it governs by the same line the two ×s sit on.
+      const xs = [...controls, a, b].map(gateX)
+      glyphs.push({ t: 'link', x0: Math.min(...xs), x1: Math.max(...xs), cy })
+      for (const c of controls) {
+        glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R })
+      }
       glyphs.push({ t: 'swap', cx: gateX(a), cy, r: m.pipeWidth * 0.3 })
       glyphs.push({ t: 'swap', cx: gateX(b), cy, r: m.pipeWidth * 0.3 })
       return

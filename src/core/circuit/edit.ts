@@ -561,7 +561,12 @@ export function asDroppable(gate: Gate): Droppable {
     case 'identity':
       return { head: 'I', wires: 1 }
     case 'swap':
-      return { head: 'SWAP', wires: 2 }
+      // A controlled swap writes `CSWAP <controls> <pair>`, so the pair is the
+      // last two wires — which is how the bare form reads them back. This round
+      // trips whenever the controls come before the pair, as a Fredkin's does.
+      return gate.controls?.length
+        ? { head: 'CSWAP', wires }
+        : { head: 'SWAP', wires: 2 }
     case 'measure':
       return { head: 'measure', wires: 1, tail: gate.basis }
     case 'view':

@@ -63,6 +63,14 @@ export interface ControlledGate {
 export interface SwapGate {
   kind: 'swap'
   qubits: [number, number]
+  /**
+   * Control wires, where the swap only happens when they are all `1`.
+   *
+   * Empty for a plain SWAP; a single control is the Fredkin gate. Drawn as
+   * filled dots on the same bar the × glyphs sit on, exactly as a controlled
+   * gate draws its controls.
+   */
+  controls?: number[]
 }
 
 /** Measurement: a darker box with a meter dial and a basis label. */
@@ -142,7 +150,7 @@ export function gateQubits(gate: Gate): number[] {
     case 'single': return [gate.qubit]
     case 'identity': return [gate.qubit]
     case 'controlled': return [...gate.controls, gate.target]
-    case 'swap': return [...gate.qubits]
+    case 'swap': return [...(gate.controls ?? []), ...gate.qubits]
     case 'measure': return [gate.qubit]
     case 'box': return [...gate.qubits]
     case 'view': return [...gate.qubits]

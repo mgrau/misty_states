@@ -115,6 +115,7 @@
         { code: 'CNOT 3 2', text: 'The arrow is optional — the last wire is the target' },
         { code: 'TOFFOLI 1 2 -> 3', text: 'Two controls' },
         { code: 'CZ 1 2', text: 'Controlled-Z' },
+        { code: 'CSWAP 1 2 3', text: 'Controlled swap (Fredkin) — control 1, swap 2 and 3' },
         { code: 'CNOT "Oracle" 1 2', text: 'A name before the wires stands on the target' },
         { code: 'CNOT 1 2 "Tiger?"', text: 'A name after them labels the link' },
       ],
