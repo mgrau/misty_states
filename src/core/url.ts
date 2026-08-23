@@ -86,18 +86,24 @@ export function renderOptionsFrom(p: DiagramParams): RenderOptions {
 }
 
 /**
- * Characters that `URLSearchParams` escapes but which are perfectly safe to
- * leave literal in a query string, so links stay readable: `src=(00|11)(0|-1)`
- * rather than `src=%2800%7C11%29%280%7C-1%29`.
+ * Characters that `URLSearchParams` escapes but which are safe to leave literal
+ * in a query string, so links stay readable: `src=(00|11)(0|-1)` rather than
+ * `src=%2800%7C11%29%280%7C-1%29`.
  *
- * All of these are RFC 3986 query characters except `|` and `>`, which are
- * excluded by the grammar but accepted literally by every browser. `&`, `=`,
- * `+`, `#` and `%` are deliberately absent — they are structural, and decoding
- * them would corrupt the query.
+ * All of these are RFC 3986 query characters except `|`, which the grammar
+ * excludes but every browser accepts. `&`, `=`, `+`, `#` and `%` are absent
+ * because they are structural — decoding them would corrupt the query.
+ *
+ * `>` is absent for a different reason, and it used to be here. A circuit's
+ * arrow, `CNOT 1 -> 2`, put a literal `>` in the link, and while a browser
+ * takes it, the things that turn a pasted URL *into* a link do not: an HTML
+ * attribute, a Markdown auto-link and most plain-text linkifiers all end the
+ * URL at `>`, so the link broke off right after the `-` before it. It is
+ * percent-encoded now — `1+-%3E+2` — which every one of those carries whole.
  */
 const READABLE: Record<string, string> = {
   '21': '!', '24': '$', '27': "'", '28': '(', '29': ')', '2C': ',',
-  '2F': '/', '3A': ':', '3B': ';', '3E': '>', '3F': '?', '40': '@', '7C': '|',
+  '2F': '/', '3A': ':', '3B': ';', '3F': '?', '40': '@', '7C': '|',
 }
 
 /**
@@ -117,7 +123,7 @@ export function prettyQuery(sp: URLSearchParams): string {
  *
  * `base` should be the app's document URL; its query and fragment are replaced.
  * The query is appended by hand rather than through `url.search`, because the
- * URL setter would re-escape `>` and the spaces we just made readable.
+ * URL setter would re-escape the characters `prettyQuery` just made readable.
  */
 export function diagramUrl(base: string, p: DiagramParams): string {
   const url = new URL(base)

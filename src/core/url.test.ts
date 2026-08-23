@@ -109,9 +109,12 @@ describe('readable links', () => {
     )
   })
 
-  it('keeps circuit arrows and semicolons readable', () => {
+  it('keeps semicolons readable but escapes the arrow', () => {
+    // The `-` stays literal; the `>` is escaped, because a linkifier ends a
+    // URL there and the link would otherwise break off right after the `-`.
     const url = editorUrl('http://x.test/', { source: 'H 1; CNOT 1 -> 2' })
-    expect(url).toContain('H+1;+CNOT+1+->+2')
+    expect(url).toContain('H+1;+CNOT+1+-%3E+2')
+    expect(url).not.toContain('>')
   })
 
   it('still parses back to the exact source', () => {

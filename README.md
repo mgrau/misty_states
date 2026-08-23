@@ -254,8 +254,10 @@ Cloud outlines are seeded, so the same input always gives the same output.
 ?format=pdf&src=00|11       a PDF in the browser's viewer
 ```
 
-The `|`, `(`, `)`, `;`, `:`, `->` characters can be written literally.
-These are client-side renders, not HTTP image responses.
+Generated links keep `|`, `(`, `)`, `;`, `:` readable rather than
+percent-encoding them, so a URL stays legible. A circuit's arrow is the
+exception — its `>` is escaped as `%3E`, because auto-linkers and HTML end a
+URL at `>`. These are client-side renders, not HTTP image responses.
 
 ## The library
 
