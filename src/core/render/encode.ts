@@ -14,7 +14,7 @@
  * always be reopened for editing.
  */
 
-import { embedPngMeta, readSvgMeta } from '../metadata'
+import { embedPngDpi, embedPngMeta, readSvgMeta } from '../metadata'
 
 export function svgBlob(svg: string): Blob {
   return new Blob([svg], { type: 'image/svg+xml;charset=utf-8' })
@@ -45,10 +45,14 @@ export async function svgToPngBlob(svg: string, scale = 3): Promise<Blob> {
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG encoding failed'))), 'image/png')
     })
 
-    // Canvas throws the metadata away, so put it back as text chunks.
+    // Canvas writes no resolution, so a placing program assumes 96 dpi and the
+    // figure lands `scale`× too large. State the dpi it was actually drawn at
+    // — 96 CSS pixels to the inch, times the scale — so it lands true size.
+    let bytes = embedPngDpi(new Uint8Array(await raw.arrayBuffer()), scale * 96)
+
+    // Canvas throws the source metadata away too; put it back as text chunks.
     const meta = readSvgMeta(svg)
-    if (!meta) return raw
-    const bytes = embedPngMeta(new Uint8Array(await raw.arrayBuffer()), meta)
+    if (meta) bytes = embedPngMeta(bytes, meta)
     return new Blob([bytes as unknown as BlobPart], { type: 'image/png' })
   } finally {
     URL.revokeObjectURL(url)

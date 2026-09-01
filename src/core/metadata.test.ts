@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  NoSourceError, SOURCE_KEY, decodeSource, embedPngMeta, embedSvgMeta, encodeSource,
+  NoSourceError, SOURCE_KEY, decodeSource, embedPngDpi, embedPngMeta, embedSvgMeta, encodeSource,
   readFileMeta, readPdfMeta, readPngMeta, readSvgMeta, stripSvgMeta,
 } from './metadata'
 import { render } from './index'
@@ -120,6 +120,58 @@ describe('PNG metadata', () => {
     const other = new Uint8Array([1, 2, 3, 4])
     expect(embedPngMeta(other, { source: CIRCUIT })).toBe(other)
     expect(readPngMeta(other)).toBeNull()
+  })
+
+  describe('resolution', () => {
+    /** Read the pHYs chunk's pixels-per-metre and unit, if present. */
+    const phys = (png: Uint8Array) => {
+      const text = String.fromCharCode(...png)
+      const start = text.indexOf('pHYs')
+      if (start < 0) return null
+      const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
+      return { ppm: view.getUint32(start + 4), unit: png[start + 12], before: start }
+    }
+
+    it('states the dpi as pixels per metre', () => {
+      // 300 dpi is 300 / 0.0254 = 11811 pixels per metre, in metre units (1).
+      const p = phys(embedPngDpi(barePng(), 300))
+      expect(p?.ppm).toBe(11811)
+      expect(p?.unit).toBe(1)
+    })
+
+    it('places the chunk before IDAT, as the spec requires', () => {
+      const png = embedPngDpi(barePng(), 300)
+      const text = String.fromCharCode(...png)
+      expect(text.indexOf('pHYs')).toBeLessThan(text.indexOf('IDAT'))
+      expect(text.indexOf('pHYs')).toBeGreaterThan(text.indexOf('IHDR'))
+    })
+
+    it('writes a chunk with a valid CRC', () => {
+      const png = embedPngDpi(barePng(), 300)
+      const start = String.fromCharCode(...png).indexOf('pHYs') - 4
+      const view = new DataView(png.buffer, png.byteOffset, png.byteLength)
+      const length = view.getUint32(start)
+      const stored = view.getUint32(start + 8 + length)
+      let c = 0xffffffff
+      for (const byte of png.subarray(start + 4, start + 8 + length)) {
+        c = (c >>> 8) ^ crcTable[(c ^ byte) & 0xff]
+      }
+      expect((c ^ 0xffffffff) >>> 0).toBe(stored)
+    })
+
+    it('coexists with the source chunk, both readable', () => {
+      // The two are written by different calls in the encoder; a figure carries
+      // both its resolution and its source, and neither disturbs the other.
+      const png = embedPngMeta(embedPngDpi(barePng(), 300), { source: CIRCUIT })
+      expect(phys(png)?.ppm).toBe(11811)
+      expect(readPngMeta(png)?.source).toBe(CIRCUIT)
+    })
+
+    it('leaves a non-PNG or a nonsense dpi alone', () => {
+      const other = new Uint8Array([1, 2, 3, 4])
+      expect(embedPngDpi(other, 300)).toBe(other)
+      expect(phys(embedPngDpi(barePng(), 0))).toBeNull()
+    })
   })
 
   it('reports nothing for a PNG with no chunk of ours', () => {

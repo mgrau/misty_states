@@ -234,11 +234,18 @@ Framework-agnostic. Four callbacks in, four methods out (`press`,
 
 ## Export
 
-**Copy** — PNG image (default), SVG image, SVG markup, data URLs.
-**Save** — PDF (default, vector), SVG, PNG. **Open** — drop or pick any
-file saved from this app to reopen it with its source.
+**Drag** the figure straight into PowerPoint, Keynote, Word or Finder — grab
+any empty part of it and drag out (a press on a gate still edits). **Copy** —
+PNG image (default), SVG image, SVG markup, data URLs. **Save** — PDF
+(default, vector), SVG, PNG. **Open** — drop or pick any file saved from this
+app to reopen it with its source.
 
 Every format embeds the source and name, so a file found later is editable.
+
+A copied or dragged PNG declares its resolution (the Settings dpi, 300 by
+default), so it lands at its true physical size in a slide rather than being
+blown up four-fold on a 96-dpi assumption — high-resolution, but correctly
+sized.
 
 PDFs are banded (gradient rectangles drawn as solid strips) so they render
 correctly in Apple Preview when embedded via `\includegraphics`.

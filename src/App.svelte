@@ -296,6 +296,77 @@
 
   /** 300 dpi at 96 CSS pixels to the inch — the usual print requirement. */
   let pngScale = $state(300 / 96)
+
+  /**
+   * A PNG of the figure, kept ready for a drag out to another program.
+   *
+   * A drag cannot wait: `dragstart` fires and has to hand over the data on the
+   * spot, but rasterising is asynchronous. So the PNG is made a little after
+   * the drawing settles and held here, paired with the SVG it came from, and
+   * the drag uses it only when the two still match. Made off the settled
+   * drawing, so a running animation drags its first frame like every other
+   * export does.
+   */
+  let dragImage = $state.raw<{ svg: string; url: string } | null>(null)
+  $effect(() => {
+    const from = stillSvg
+    if (!from) return
+    let alive = true
+    // A beat after the last keystroke, so a burst of edits rasterises once.
+    const timer = setTimeout(async () => {
+      try {
+        const url = await pngDataUrl(from, pngScale)
+        if (alive) dragImage = { svg: from, url }
+      } catch {
+        // A drawing that will not rasterise simply has no drag image; the
+        // handler falls back to the SVG.
+      }
+    }, 250)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  })
+
+  /** Whether the last press landed on a gate or qubit, which a drag must yield to. */
+  let pressClaimed = $state(false)
+
+  /**
+   * Hand the figure to another program — PowerPoint, Keynote, Finder — as an
+   * image, when it is dragged out of the pane.
+   *
+   * `DownloadURL` is what a Chromium browser turns into a real file on the
+   * drop, which those programs take; `text/html` and the URI list cover the
+   * ones that read an `<img>` or a plain image URL instead. The ready PNG is
+   * used where it matches, and the SVG stands in until the next one is baked.
+   */
+  function onDragOut(event: DragEvent) {
+    const dt = event.dataTransfer
+    if (!dt || !result.ok || pressClaimed) {
+      // A gate is being grabbed, or there is nothing good to drag: let the
+      // pointer interaction have the press and start no native drag.
+      event.preventDefault()
+      return
+    }
+    const name = `${filename}.png`
+    const png = dragImage?.svg === stillSvg ? dragImage.url : null
+    if (png) {
+      dt.setData('DownloadURL', `image/png:${name}:${png}`)
+      dt.setData('text/uri-list', png)
+      dt.setData('text/html', `<img src="${png}" alt="">`)
+    } else {
+      const svgUrl = svgDataUrl(stillSvg)
+      dt.setData('text/uri-list', svgUrl)
+      dt.setData('text/html', `<img src="${svgUrl}" alt="">`)
+    }
+    dt.effectAllowed = 'copy'
+    // Drag the drawing itself as the ghost, not the checkerboard pane around it.
+    const drawn = previewEl?.querySelector('svg') as SVGElement | null
+    if (drawn) {
+      const box = drawn.getBoundingClientRect()
+      dt.setDragImage(drawn, box.width / 2, box.height / 2)
+    }
+  }
   /**
    * Which drawer is open, if any.
    *
@@ -1580,14 +1651,18 @@
         oncontextmenu={openContextMenu}
         onwheel={onWheel}
         bind:this={previewEl}
+        draggable={result.ok}
+        ondragstart={onDragOut}
         onpointerdown={(e) => {
           trackTouch(e)
-          if (!pinch) board.press(e)
+          // A press on a gate or qubit is the board's; an empty one is left for
+          // a drag out. `pinch` means two fingers, which is never either.
+          pressClaimed = !pinch && board.press(e)
         }}
         onpointermove={onPinchMove}
         onpointerup={endTouch}
         onpointercancel={endTouch}
-        title="Scroll to zoom, or pinch"
+        title="Drag the figure into slides, or scroll to zoom"
         style="touch-action: pan-x pan-y;"
         class="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8
                {dark ? 'checkerboard-dark' : 'checkerboard'}

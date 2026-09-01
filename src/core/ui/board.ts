@@ -118,8 +118,15 @@ export interface BoardHost {
 export interface Board {
   /** Pick a gate up off a palette. */
   carryNew(gate: Droppable, event: PointerEvent): void
-  /** A press inside the drawing, which may become a move or may be a click. */
-  press(event: PointerEvent): void
+  /**
+   * A press inside the drawing, which may become a move or may be a click.
+   *
+   * Returns whether it claimed the press — true when a gate or qubit is under
+   * the pointer, false when the press landed on empty drawing. A host can use
+   * that to leave an empty grab for something else, such as dragging the whole
+   * figure out to another program.
+   */
+  press(event: PointerEvent): boolean
   /** Call immediately before the drawing is replaced, and again after. */
   beforeRender(): void
   afterRender(): void
@@ -251,8 +258,8 @@ export function createBoard(host: BoardHost): Board {
     window.addEventListener('keydown', onCarryKey)
   }
 
-  function press(event: PointerEvent) {
-    if (event.button !== 0 || carrying || !hold() || !held) return
+  function press(event: PointerEvent): boolean {
+    if (event.button !== 0 || carrying || !hold() || !held) return false
     const view = host.view()
     const at = toDiagram(event)
     const gate = view?.geometry ? gateAt(held.doc, view.geometry, at) : undefined
@@ -264,11 +271,14 @@ export function createBoard(host: BoardHost): Board {
     const spot = qubitAt(view?.spots ?? [], at)
     if (!gate && !spot) {
       held = null
-      return
+      // Nothing here to edit — the press is the host's to do with as it likes,
+      // which is how a drag-to-export can tell an empty grab from a gate.
+      return false
     }
     pending = { gate, spot, x: event.clientX, y: event.clientY }
     window.addEventListener('pointermove', onPendingMove)
     window.addEventListener('pointerup', clickGate, { once: true })
+    return true
   }
 
   function onPendingMove(event: PointerEvent) {

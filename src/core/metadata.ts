@@ -201,6 +201,51 @@ export function embedPngMeta(png: Uint8Array, meta: DiagramMeta): Uint8Array {
   return out
 }
 
+/**
+ * Declare the image's physical resolution, so it lands at its true size.
+ *
+ * A canvas PNG carries no `pHYs` chunk, which leaves its resolution unstated —
+ * and a program that places it, PowerPoint above all, then assumes 96 dpi. A
+ * figure rasterised at 300 dpi is four pixels across for every one it is meant
+ * to occupy, so at that assumption it arrives four times too big and has to be
+ * shrunk by hand every time. Stating the resolution it was actually drawn at
+ * makes it land at the size it was drawn to be, and stay crisp when the slide
+ * is projected — the pixels are there, they are just correctly sized.
+ *
+ * The chunk is 9 bytes: pixels-per-metre across, the same down, and a unit
+ * byte of 1 meaning metres. Placed straight after `IHDR`, since the spec
+ * requires it before the first `IDAT`.
+ */
+export function embedPngDpi(png: Uint8Array, dpi: number): Uint8Array {
+  if (!isPng(png) || !(dpi > 0)) return png
+  let afterHeader = -1
+  for (const chunk of pngChunks(png)) {
+    if (chunk.type === 'IHDR') afterHeader = chunk.start + 12 + chunk.data.length
+  }
+  if (afterHeader < 0) return png
+
+  // 1 inch is 0.0254 m, so pixels-per-metre is the dpi over that.
+  const perMetre = Math.round(dpi / 0.0254)
+  const payload = new Uint8Array(9)
+  const pv = new DataView(payload.buffer)
+  pv.setUint32(0, perMetre)
+  pv.setUint32(4, perMetre)
+  payload[8] = 1
+
+  const chunk = new Uint8Array(12 + payload.length)
+  const view = new DataView(chunk.buffer)
+  view.setUint32(0, payload.length)
+  chunk.set(new TextEncoder().encode('pHYs'), 4)
+  chunk.set(payload, 8)
+  view.setUint32(8 + payload.length, crc32(chunk.subarray(4, 8 + payload.length)))
+
+  const out = new Uint8Array(png.length + chunk.length)
+  out.set(png.subarray(0, afterHeader), 0)
+  out.set(chunk, afterHeader)
+  out.set(png.subarray(afterHeader), afterHeader + chunk.length)
+  return out
+}
+
 /** The value of a `tEXt` chunk with this keyword, or null. */
 function pngText(png: Uint8Array, keyword: string): string | null {
   for (const chunk of pngChunks(png)) {
