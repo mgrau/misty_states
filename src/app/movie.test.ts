@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { render, renderFrames } from '../core/index'
-import { canMakeMp4 } from './movie'
+import { canMakeMp4, frameSize } from './movie'
 import { parseCircuit } from '../core/circuit/parse'
 import { layoutCircuit } from '../core/circuit/layout'
 import { buildTimeline, positionAt } from '../core/circuit/animate'
@@ -84,6 +84,36 @@ describe('sampling an animation', () => {
     const dark = renderFrames(SRC, { fps: 4, dark: true })
     expect(dark.frames[0].svg).not.toBe(plain.frames[0].svg)
     expect(renderFrames(SRC, { fps: 4, scale: 2 }).width).toBeCloseTo(plain.width * 2, 6)
+  })
+})
+
+describe('rounding a frame to whole pixels', () => {
+  it('rounds a GIF to the nearest whole pixel, so it matches a PNG', () => {
+    // A PNG of the same figure lands at its intrinsic size; a GIF has no dpi to
+    // state, so it lands at its pixel count over 96. Rounding to the nearest
+    // whole pixel keeps the two the same size — rounding up to an even one, as
+    // a video must, is up to a pixel and most of a percent adrift.
+    expect(frameSize(155, 'gif')).toBe(155)
+    expect(frameSize(130, 'gif')).toBe(130)
+    expect(frameSize(231.2, 'gif')).toBe(231)
+  })
+
+  it('rounds a video to an even pixel, which H.264 requires', () => {
+    expect(frameSize(155, 'mp4')).toBe(156)
+    expect(frameSize(130, 'mp4')).toBe(130)
+    expect(frameSize(231.2, 'mp4')).toBe(232)
+  })
+
+  it('the GIF of an animation matches a PNG of its first frame to within a pixel', () => {
+    // The animation and the still are laid out to the same size; a GIF at 1×
+    // and a PNG at any scale both land at intrinsic/96 on a slide, so their
+    // footprints agree to within the single pixel integer sizes cost.
+    const shot = renderFrames(SRC)
+    const still = render(SRC, { still: true } as never)
+    for (const dim of ['width', 'height'] as const) {
+      const gif = frameSize(shot[dim], 'gif')
+      expect(Math.abs(gif - still[dim])).toBeLessThan(1)
+    }
   })
 })
 
