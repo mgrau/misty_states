@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { svgDataUrl } from './encode'
+import { svgAtPrintSize, svgDataUrl } from './encode'
 import { render } from '../index'
 
 const decode = (url: string) => {
@@ -44,5 +44,37 @@ describe('svgDataUrl', () => {
     const svg = render(Array.from({ length: 40 }, () => '0000|1111').join('|')).svg
     expect(svg.length).toBeGreaterThan(20000)
     expect(decode(svgDataUrl(svg))).toBe(svg)
+  })
+})
+
+describe('svgAtPrintSize', () => {
+  const attr = (svg: string, name: string) =>
+    new RegExp(`<svg[^>]*\\b${name}="([^"]+)"`).exec(svg)?.[1]
+
+  it('restates width and height in inches, at even pixels over 96', () => {
+    // 130 is already even, so 130/96 = 1.3542in; a viewBox stays put.
+    const svg = svgAtPrintSize(render('qubits 2\nH 1\nCNOT 1 -> 2').svg)
+    expect(attr(svg, 'width')).toBe('1.3542in')
+    expect(svg).toMatch(/viewBox="/)
+  })
+
+  it('rounds an odd side up to even first, matching a video and a PNG', () => {
+    // Whatever the figure, its inch size is even(intrinsic)/96 on each side —
+    // the same footprint every other export lands at, so they drop one size.
+    const raw = render('in 11\nCNOT 1 -> 2\nout 00|11').svg
+    const sized = svgAtPrintSize(raw)
+    const px = (v: string | undefined) => parseFloat(v ?? '0')
+    for (const side of ['width', 'height'] as const) {
+      const intrinsic = px(attr(raw, side))
+      const even = Math.max(2, Math.round(intrinsic / 2) * 2)
+      expect(attr(sized, side)).toBe(`${(even / 96).toFixed(4)}in`)
+    }
+  })
+
+  it('touches only the root, leaving the drawing and any metadata alone', () => {
+    const raw = render('00|11').svg
+    const sized = svgAtPrintSize(raw)
+    // Everything after the opening tag is unchanged.
+    expect(sized.slice(sized.indexOf('>'))).toBe(raw.slice(raw.indexOf('>')))
   })
 })

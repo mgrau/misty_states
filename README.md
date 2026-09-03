@@ -236,20 +236,24 @@ Framework-agnostic. Four callbacks in, four methods out (`press`,
 
 **Drag** the figure straight into PowerPoint, Keynote, Word or Finder — grab
 any empty part of it and drag out (a press on a gate still edits). It drags as
-a PNG or an SVG, whichever Settings → *Drag out as* is set to; an animation
-drags its first frame (Save it as a video for a playable one). **Copy** — PNG
-image (default), SVG image, SVG markup, data URLs. **Save** — PDF (default,
-vector), SVG, PNG, and GIF/MP4 for an animation. **Open** — drop or pick any
-file saved from this app to reopen it with its source.
+an SVG (the default), a PNG, or a GIF, per Settings → *Drag out as*. SVG and
+PNG drag a still figure whole and an animation's first frame; GIF carries the
+motion, so an animation drags as a playing GIF (a still figure has none, so it
+drags a PNG). **Copy** — PNG image (default), SVG image, SVG markup, data URLs.
+**Save** — PDF (default, vector), SVG, PNG, and GIF/MP4 for an animation.
+**Open** — drop or pick any file saved from this app to reopen it with its
+source.
 
 Every image format embeds the source and name, so a file found later is
 editable.
 
-A PNG declares its resolution (the Settings dpi, 288 by default), so it lands
-at its true physical size in a slide rather than being blown up on a 96-dpi
-assumption — high-resolution, but correctly sized. The dpi is a whole multiple
-of 96 (192 / 288 / 576) and the pixels round the same way a video's do, so a
-PNG and an MP4 of the same figure drop onto a slide at exactly the same size.
+Everything lands on a slide at one size. A PNG declares its resolution (the
+Settings dpi — a whole multiple of 96, 288 by default) so it shrinks back to
+its true footprint rather than being blown up on a 96-dpi assumption; a GIF or
+video simply is its pixels over 96; and an exported SVG states its size in
+inches, since a bare number is read differently by different programs. All
+three round the figure's size the same way, so a PNG, a GIF, an MP4 and an SVG
+of it drop onto a slide at exactly the same size.
 
 PDFs are banded (gradient rectangles drawn as solid strips) so they render
 correctly in Apple Preview when embedded via `\includegraphics`.

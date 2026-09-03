@@ -32,7 +32,7 @@
     animateInside: boolean
     movieFps: number
     checking: boolean
-    dragFormat: 'png' | 'svg'
+    dragFormat: 'svg' | 'png' | 'gif'
     shapeOrder: ShapeName[]
     /** Whether the drawing has layers to step through, and text to write out. */
     canStep: boolean
@@ -58,7 +58,7 @@
     oninsidechange: (inside: boolean) => void
     onfpschange: (fps: number) => void
     oncheckingchange: (on: boolean) => void
-    ondragformatchange: (format: 'png' | 'svg') => void
+    ondragformatchange: (format: 'svg' | 'png' | 'gif') => void
     onshapeorderchange: (order: ShapeName[]) => void
     onstepchange: (on: boolean) => void
     ondiracchange: (on: boolean) => void
@@ -613,7 +613,7 @@
       <section class="flex flex-col gap-2">
         <h3 class="text-xs font-medium text-slate-500">Drag out as</h3>
         <div class="flex rounded-md border border-slate-200 p-0.5">
-          {#each [{ id: 'png', label: 'PNG' }, { id: 'svg', label: 'SVG' }] as const as opt (opt.id)}
+          {#each [{ id: 'svg', label: 'SVG' }, { id: 'png', label: 'PNG' }, { id: 'gif', label: 'GIF' }] as const as opt (opt.id)}
             <button
               type="button"
               onclick={() => ondragformatchange(opt.id)}
@@ -628,12 +628,13 @@
           {/each}
         </div>
         <p class="text-[11px] text-slate-400">
-          What dragging the figure out of the pane hands over. A
+          What dragging the figure out of the pane hands over. An
+          <span class="font-mono">SVG</span> is vector and stays sharp at any
+          size, where the target supports it (PowerPoint 365, Keynote); a
           <span class="font-mono">PNG</span> is a raster image every program
-          takes; an <span class="font-mono">SVG</span> is vector and stays sharp
-          at any size, where the target supports it (PowerPoint 365, Keynote). An
-          animation drags its first frame either way — Save it as a video for a
-          playable one.
+          takes. Both drag an animation's first frame. A
+          <span class="font-mono">GIF</span> carries the motion, so an animation
+          drags as one that plays — a still figure has none, so it drags a PNG.
         </p>
       </section>
 

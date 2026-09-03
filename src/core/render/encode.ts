@@ -97,6 +97,34 @@ export async function blobToDataUrl(blob: Blob, mime: string): Promise<string> {
 }
 
 /**
+ * Restate an SVG's size in inches, at the footprint every other export lands at.
+ *
+ * The `<svg>` names its size in bare user units, and a program placing it reads
+ * those by its own lights — 96 to the inch in a browser, but PowerPoint sizes a
+ * dropped one by a different rule, so it comes in a different size from a video
+ * or a PNG of the same figure and has to be scaled by hand to match.
+ *
+ * Stated in inches it lands where it is put, the same everywhere. And the size
+ * chosen is the one the others use: each side rounded to an even whole pixel —
+ * as a video must and a PNG does — over 96. The `viewBox` is left alone, so the
+ * drawing simply fills the box at its true proportions.
+ */
+export function svgAtPrintSize(svg: string): string {
+  const read = (name: string) => {
+    const hit = new RegExp(`<svg[^>]*\\b${name}="([\\d.]+)"`).exec(svg)
+    return hit ? parseFloat(hit[1]) : NaN
+  }
+  const w = read('width')
+  const h = read('height')
+  if (!(w > 0) || !(h > 0)) return svg
+  const even = (n: number) => Math.max(2, Math.round(n / 2) * 2)
+  const inches = (n: number) => `${(even(n) / 96).toFixed(4)}in`
+  return svg
+    .replace(/(<svg[^>]*\bwidth=")[\d.]+(")/, `$1${inches(w)}$2`)
+    .replace(/(<svg[^>]*\bheight=")[\d.]+(")/, `$1${inches(h)}$2`)
+}
+
+/**
  * A self-contained `data:` URL for the SVG.
  *
  * This is the browser-only answer to "a URL that returns the image": it needs

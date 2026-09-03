@@ -11,13 +11,13 @@ import {
   PDF_PREFIX, encodeSource, readFileMeta, readSvgMeta, stripSvgMeta,
   type DiagramMeta,
 } from '../core/metadata'
-import { blobToDataUrl, svgBlob, svgToPngBlob } from '../core/render/encode'
+import { blobToDataUrl, svgAtPrintSize, svgBlob, svgToPngBlob } from '../core/render/encode'
 import { bandGradients } from '../core/render/band'
 
 // Re-exported because they were here first and half the app imports them from
 // here; where they live now is a fact about the library boundary, not about
 // what an exporter is called.
-export { pngDataUrl, svgDataUrl, svgToPngBlob } from '../core/render/encode'
+export { blobToDataUrl, pngDataUrl, svgAtPrintSize, svgDataUrl, svgToPngBlob } from '../core/render/encode'
 
 /** Recover a diagram from a file the user picked or dropped. */
 export async function readSourceFile(file: File): Promise<DiagramMeta> {
@@ -42,7 +42,10 @@ export function downloadText(text: string, filename: string, mime = 'text/plain'
 }
 
 export function downloadSVG(svg: string, filename: string): void {
-  triggerDownload(svgBlob(svg), filename.endsWith('.svg') ? filename : `${filename}.svg`)
+  // Sized in inches, so it lands in a slide at the same size a PNG or a video
+  // of the figure does, rather than at whatever a placing program makes of a
+  // bare number.
+  triggerDownload(svgBlob(svgAtPrintSize(svg)), filename.endsWith('.svg') ? filename : `${filename}.svg`)
 }
 
 export async function downloadPNG(svg: string, filename: string, scale = 3): Promise<void> {
@@ -153,16 +156,18 @@ export type SvgCopyFlavor = 'image' | 'html'
  * rather than claiming a vector paste it may not have achieved.
  */
 export async function copySVGImage(svg: string): Promise<SvgCopyFlavor> {
+  // Sized in inches, so a paste lands at the same size as a PNG or a video.
+  const sized = svgAtPrintSize(svg)
   try {
-    const blob = new Blob([svg], { type: 'image/svg+xml' })
+    const blob = new Blob([sized], { type: 'image/svg+xml' })
     await navigator.clipboard.write([new ClipboardItem({ 'image/svg+xml': blob })])
     return 'image'
   } catch {
     await navigator.clipboard.write([
       new ClipboardItem({
-        'text/html': new Blob([svg], { type: 'text/html' }),
+        'text/html': new Blob([sized], { type: 'text/html' }),
         // Plain text keeps the markup reachable in editors that ignore HTML.
-        'text/plain': new Blob([svg], { type: 'text/plain' }),
+        'text/plain': new Blob([sized], { type: 'text/plain' }),
       }),
     ])
     return 'html'
