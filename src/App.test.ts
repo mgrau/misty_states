@@ -375,6 +375,39 @@ describe('PNG resolution', () => {
   })
 })
 
+describe('drag-out format', () => {
+  const openSettings = () => {
+    ;[...host.querySelectorAll('button')]
+      .find((b) => b.getAttribute('aria-label') === 'Settings')!
+      .click()
+    flushSync()
+  }
+  const formatButtons = () =>
+    [...host.querySelectorAll<HTMLButtonElement>('aside button')].filter((b) =>
+      /^(PNG|SVG)$/.test(b.textContent!.trim()),
+    )
+
+  it('offers PNG and SVG, PNG the default', () => {
+    boot()
+    openSettings()
+    const buttons = formatButtons()
+    expect(buttons.map((b) => b.textContent!.trim())).toEqual(['PNG', 'SVG'])
+    const on = buttons.find((b) => b.getAttribute('aria-pressed') === 'true')
+    expect(on!.textContent!.trim()).toBe('PNG')
+  })
+
+  it('the choice can be switched', () => {
+    boot()
+    openSettings()
+    formatButtons().find((b) => b.textContent!.trim() === 'SVG')!.click()
+    flushSync()
+    const on = formatButtons().find((b) => b.getAttribute('aria-pressed') === 'true')
+    expect(on!.textContent!.trim()).toBe('SVG')
+    // The actual drag output is a browser concern — DataTransfer and
+    // getScreenCTM are not in jsdom — and is covered against a real browser.
+  })
+})
+
 describe('the correctness badge', () => {
   const badge = () => host.querySelector('[role="status"]')
   const dismiss = () =>

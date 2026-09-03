@@ -235,12 +235,12 @@ Framework-agnostic. Four callbacks in, four methods out (`press`,
 ## Export
 
 **Drag** the figure straight into PowerPoint, Keynote, Word or Finder — grab
-any empty part of it and drag out (a press on a gate still edits). A still
-figure drags as a PNG; an animated one as an MP4 (or a GIF where the browser
-cannot encode video). **Copy** — PNG image (default), SVG image, SVG markup,
-data URLs. **Save** — PDF (default, vector), SVG, PNG, and GIF/MP4 for an
-animation. **Open** — drop or pick any file saved from this app to reopen it
-with its source.
+any empty part of it and drag out (a press on a gate still edits). It drags as
+a PNG or an SVG, whichever Settings → *Drag out as* is set to; an animation
+drags its first frame (Save it as a video for a playable one). **Copy** — PNG
+image (default), SVG image, SVG markup, data URLs. **Save** — PDF (default,
+vector), SVG, PNG, and GIF/MP4 for an animation. **Open** — drop or pick any
+file saved from this app to reopen it with its source.
 
 Every image format embeds the source and name, so a file found later is
 editable.

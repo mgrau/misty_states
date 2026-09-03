@@ -48,6 +48,7 @@
     animateInside: boolean
     movieFps: number
     checking: boolean
+    dragFormat: 'png' | 'svg'
   }
 
   function load(): Saved {
@@ -69,6 +70,7 @@
       animateInside: true,
       movieFps: 30,
       checking: true,
+      dragFormat: 'png' as const,
     }
 
     // A ?src= deep link wins over the saved session, so a shared link always
@@ -151,6 +153,8 @@
   let animateInside = $state(initial.animateInside)
   let movieFps = $state(initial.movieFps)
   let checking = $state(initial.checking)
+  /** What a drag out of the pane hands over: a raster PNG or a vector SVG. */
+  let dragFormat = $state(initial.dragFormat)
   let zoom = $state(1)
 
   /**
@@ -273,7 +277,7 @@
   $effect(() => {
     const snapshot: Saved = {
       source, name, theme, dark, shapeOrder, qubitSize, paneWidth, separator, cloudFluff, cloudPad,
-      factorCalculated, exactOdds, keepSign, phaseDial, animateInside, movieFps, checking,
+      factorCalculated, exactOdds, keepSign, phaseDial, animateInside, movieFps, checking, dragFormat,
     }
     try {
       localStorage.setItem(STORE, JSON.stringify(snapshot))
@@ -325,56 +329,36 @@
   let pngScale = $state(3)
 
   /**
-   * The figure as a file, kept ready for a drag out to another program.
-   *
-   * A still one drags as a PNG; a moving one as an MP4, or a GIF where the
-   * browser cannot encode video. That is the file each is best carried as — a
-   * frozen frame would throw an animation away, and a video of a static figure
-   * is waste.
+   * A PNG of the figure, kept ready for a drag out as a raster image.
    *
    * A drag cannot wait: `dragstart` fires and must hand over the data on the
-   * spot, but making any of these is asynchronous. So it is made a little after
+   * spot, but rasterising is asynchronous. So the PNG is made a little after
    * the drawing settles and held here, paired with the still it came from, and
-   * used only while the two still match. A movie is a blob URL — smaller to
-   * hand about than a data URL of the same bytes — so the previous one is
-   * revoked as each new one lands.
+   * used only while the two still match. Only when the drag format is PNG —
+   * the SVG one needs no bake, being written on the spot from the still that is
+   * always to hand. Made off the still, so an animation drags its first frame,
+   * the same as every other still export of one.
+   *
+   * A video used to be dragged for an animation, and it did not work: dropping
+   * one into PowerPoint from a browser is not something the two agree on. A
+   * still image does drop, and reliably, so a moving figure drags as its first
+   * frame; Save → MP4 is the way to a playable one.
    */
-  type DragFile = { svg: string; url: string; mime: string; name: string; image: boolean }
-  let dragFile = $state.raw<DragFile | null>(null)
+  let dragPng = $state.raw<{ svg: string; url: string } | null>(null)
   $effect(() => {
+    if (dragFormat !== 'png') return
     const from = stillSvg
-    const src = source
-    const moving = !!animation
     if (!from) return
     let alive = true
-    // A longer beat for a movie, which is dozens of frames and worth not
-    // re-encoding on every keystroke.
+    // A beat after the last keystroke, so a burst of edits rasterises once.
     const timer = setTimeout(async () => {
       try {
-        let made: DragFile
-        if (moving) {
-          const blob = canMakeMp4() ? await toMp4(src, movieOptions()) : await toGif(src, movieOptions())
-          made = {
-            svg: from,
-            url: URL.createObjectURL(blob),
-            mime: blob.type,
-            name: `${filename}.${canMakeMp4() ? 'mp4' : 'gif'}`,
-            image: false,
-          }
-        } else {
-          made = { svg: from, url: await pngDataUrl(from, pngScale), mime: 'image/png', name: `${filename}.png`, image: true }
-        }
-        if (!alive) {
-          if (made.url.startsWith('blob:')) URL.revokeObjectURL(made.url)
-          return
-        }
-        if (dragFile?.url.startsWith('blob:')) URL.revokeObjectURL(dragFile.url)
-        dragFile = made
+        const url = await pngDataUrl(from, pngScale)
+        if (alive) dragPng = { svg: from, url }
       } catch {
-        // A drawing that will not encode simply has no drag file; the handler
-        // falls back to the still SVG.
+        // A drawing that will not rasterise falls back to the SVG in the handler.
       }
-    }, moving ? 500 : 250)
+    }, 250)
     return () => {
       alive = false
       clearTimeout(timer)
@@ -386,13 +370,12 @@
 
   /**
    * Hand the figure to another program — PowerPoint, Keynote, Finder — when it
-   * is dragged out of the pane.
+   * is dragged out of the pane, as the image format Settings asks for.
    *
    * `DownloadURL` is what a Chromium browser turns into a real file on the
    * drop, which those programs take; `text/html` and the URI list cover the
-   * ones that read an `<img>` or a plain URL instead — an image only, since
-   * there is no `<img>` for a video. The ready file is used while it matches,
-   * and the still SVG stands in until the next one is baked.
+   * ones that read an `<img>` or a plain URL instead. An SVG is written on the
+   * spot; a PNG uses the baked one, and the SVG stands in until it is ready.
    */
   function onDragOut(event: DragEvent) {
     const dt = event.dataTransfer
@@ -402,14 +385,16 @@
       event.preventDefault()
       return
     }
-    const ready = dragFile?.svg === stillSvg ? dragFile : null
-    if (ready) {
-      dt.setData('DownloadURL', `${ready.mime}:${ready.name}:${ready.url}`)
-      dt.setData('text/uri-list', ready.url)
-      if (ready.image) dt.setData('text/html', `<img src="${ready.url}" alt="">`)
+    const png = dragFormat === 'png' && dragPng?.svg === stillSvg ? dragPng.url : null
+    if (png) {
+      dt.setData('DownloadURL', `image/png:${filename}.png:${png}`)
+      dt.setData('text/uri-list', png)
+      dt.setData('text/html', `<img src="${png}" alt="">`)
     } else {
-      // Not baked yet — the still, which is synchronous and always available.
+      // SVG by choice, or a PNG not yet baked: either way the still SVG, which
+      // is synchronous, carries its own source, and every target takes.
       const svgUrl = svgDataUrl(stillSvg)
+      dt.setData('DownloadURL', `image/svg+xml:${filename}.svg:${svgUrl}`)
       dt.setData('text/uri-list', svgUrl)
       dt.setData('text/html', `<img src="${svgUrl}" alt="">`)
     }
@@ -1746,6 +1731,7 @@
     {animateInside}
     {movieFps}
     {checking}
+    {dragFormat}
     {shapeOrder}
     {canStep}
     {stepOn}
@@ -1776,6 +1762,7 @@
     oninsidechange={(v) => (animateInside = v)}
     onfpschange={(v) => (movieFps = v)}
     oncheckingchange={(v) => (checking = v)}
+    ondragformatchange={(v) => (dragFormat = v)}
     onshapeorderchange={(o) => (shapeOrder = o)}
   />
 

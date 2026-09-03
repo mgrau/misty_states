@@ -32,6 +32,7 @@
     animateInside: boolean
     movieFps: number
     checking: boolean
+    dragFormat: 'png' | 'svg'
     shapeOrder: ShapeName[]
     /** Whether the drawing has layers to step through, and text to write out. */
     canStep: boolean
@@ -57,6 +58,7 @@
     oninsidechange: (inside: boolean) => void
     onfpschange: (fps: number) => void
     oncheckingchange: (on: boolean) => void
+    ondragformatchange: (format: 'png' | 'svg') => void
     onshapeorderchange: (order: ShapeName[]) => void
     onstepchange: (on: boolean) => void
     ondiracchange: (on: boolean) => void
@@ -79,6 +81,7 @@
     animateInside,
     movieFps,
     checking,
+    dragFormat,
     shapeOrder,
     canStep,
     hasDirac,
@@ -103,6 +106,7 @@
     oninsidechange,
     onfpschange,
     oncheckingchange,
+    ondragformatchange,
     onshapeorderchange,
     onstepchange,
     ondiracchange,
@@ -603,6 +607,34 @@
             </button>
           {/each}
         </div>
+      </section>
+
+      <!-- Drag format ------------------------------------------------------ -->
+      <section class="flex flex-col gap-2">
+        <h3 class="text-xs font-medium text-slate-500">Drag out as</h3>
+        <div class="flex rounded-md border border-slate-200 p-0.5">
+          {#each [{ id: 'png', label: 'PNG' }, { id: 'svg', label: 'SVG' }] as const as opt (opt.id)}
+            <button
+              type="button"
+              onclick={() => ondragformatchange(opt.id)}
+              aria-pressed={dragFormat === opt.id}
+              class="flex-1 rounded px-2 py-1 text-xs transition-colors
+                     {dragFormat === opt.id
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-600 hover:text-slate-900'}"
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="text-[11px] text-slate-400">
+          What dragging the figure out of the pane hands over. A
+          <span class="font-mono">PNG</span> is a raster image every program
+          takes; an <span class="font-mono">SVG</span> is vector and stays sharp
+          at any size, where the target supports it (PowerPoint 365, Keynote). An
+          animation drags its first frame either way — Save it as a video for a
+          playable one.
+        </p>
       </section>
 
       <!-- Library ---------------------------------------------------------- -->
