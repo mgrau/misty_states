@@ -131,10 +131,18 @@
    *
    * Screen CSS pixels are 96 to the inch, so the scale a PNG is rasterised at
    * *is* a DPI once divided through — and a DPI is what a journal or a printer
-   * asks for. 150 is draft, 300 the usual requirement, 600 for line art.
+   * asks for.
+   *
+   * Whole multiples of 96 rather than the rounder 150/300/600, so a PNG lands
+   * on a slide at exactly the size a video of the same figure does: a video
+   * carries no dpi and so shows at its pixels over 96, and only an integer
+   * scale makes the dpi-tagged PNG line up with that pixel grid instead of
+   * falling a fraction of a percent short. 192 is draft, 288 the usual choice,
+   * 576 for line art — each a hair below its old round value and none you could
+   * tell apart on a projector.
    */
   const SCREEN_DPI = 96
-  const RESOLUTIONS = [150, 300, 600]
+  const RESOLUTIONS = [192, 288, 576]
 
   let libraryMessage = $state('')
   let libraryError = $state(false)

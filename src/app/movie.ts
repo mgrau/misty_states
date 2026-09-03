@@ -27,33 +27,16 @@ export interface MovieOptions extends RenderOptions {
 }
 
 /**
- * Round a drawing's size to whole pixels for the encoder.
+ * Round a drawing's size to an even whole pixel.
  *
- * These play against a subtler thing than they look. A movie carries no
- * resolution, so a program that places it reads its pixels at 96 to the inch —
- * which is exactly the size a PNG lands at too, since a PNG states the dpi it
- * was drawn at and so shrinks back to that same 96-per-inch footprint. The two
- * therefore agree on the page only as closely as their pixel counts agree, and
- * a whole pixel rounded away at this size is most of a percent.
- *
- * So the movie is rounded to the nearest whole pixel, not up to the nearest
- * even one, wherever the format allows: `even` throws away an odd row and its
- * height stops matching the PNG's. H.264 will not encode an odd dimension, so
- * a video has to give that up; a GIF has no such rule and keeps the match.
+ * H.264 will not encode an odd dimension, so a video has to round to even —
+ * and a GIF and a PNG round the same way so that all three land at one size on
+ * a slide. None carries a resolution a program will read except the PNG, which
+ * states its dpi and so shrinks back to its pixels over 96; a video and a GIF
+ * simply are their pixels over 96. Sharing the even base is what keeps the
+ * three footprints identical rather than a pixel apart.
  */
-const even = (n: number) => Math.max(2, Math.round(n / 2) * 2)
-const whole = (n: number) => Math.max(1, Math.round(n))
-
-/**
- * The whole-pixel size a format rounds a drawing's dimension to.
- *
- * A GIF takes the nearest whole pixel; an MP4 the nearest even one. Exported
- * because it is the whole of the fix that makes a saved animation land at the
- * same size on a slide as a PNG of the same figure — an even-rounded height is
- * up to a pixel off, which is most of a percent at this size.
- */
-export const frameSize = (n: number, format: 'gif' | 'mp4'): number =>
-  format === 'mp4' ? even(n) : whole(n)
+export const frameSize = (n: number): number => Math.max(2, Math.round(n / 2) * 2)
 
 /**
  * Draw every frame onto one canvas and read the pixels back.
@@ -64,11 +47,10 @@ export const frameSize = (n: number, format: 'gif' | 'mp4'): number =>
 async function rasterise(
   source: string,
   opts: MovieOptions,
-  format: 'gif' | 'mp4',
 ): Promise<{ frames: ImageData[]; width: number; height: number; fps: number; loop: boolean }> {
   const shot = renderFrames(source, opts)
-  const width = frameSize(shot.width, format)
-  const height = frameSize(shot.height, format)
+  const width = frameSize(shot.width)
+  const height = frameSize(shot.height)
 
   const canvas = document.createElement('canvas')
   canvas.width = width
@@ -119,7 +101,7 @@ function gifRate(fps: number): { fps: number; delayMs: number } {
 /** The animation as a GIF. */
 export async function toGif(source: string, opts: MovieOptions = {}): Promise<Blob> {
   const rate = gifRate(opts.fps ?? 30)
-  const { frames, width, height, loop } = await rasterise(source, { ...opts, fps: rate.fps }, 'gif')
+  const { frames, width, height, loop } = await rasterise(source, { ...opts, fps: rate.fps })
   const gif = GIFEncoder()
   const delay = rate.delayMs
 
@@ -151,7 +133,7 @@ export async function toMp4(source: string, opts: MovieOptions = {}): Promise<Bl
   if (!canMakeMp4()) {
     throw new Error('this browser cannot encode video — save a GIF instead')
   }
-  const { frames, width, height, fps } = await rasterise(source, opts, 'mp4')
+  const { frames, width, height, fps } = await rasterise(source, opts)
 
   const target = new ArrayBufferTarget()
   const muxer = new Muxer({

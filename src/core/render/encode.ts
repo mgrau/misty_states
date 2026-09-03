@@ -32,8 +32,27 @@ export async function svgToPngBlob(svg: string, scale = 3): Promise<Blob> {
       img.src = url
     })
 
-    const w = Math.max(1, Math.round(img.naturalWidth * scale))
-    const h = Math.max(1, Math.round(img.naturalHeight * scale))
+    // Round each side to an even whole pixel before scaling, the same as a
+    // video does. A video cannot state a resolution, so it lands at its pixel
+    // count over 96 on a slide, and H.264 forces those pixels even; a PNG that
+    // wants to land at the exact same size has to start from the same even
+    // base. With an integer scale (a dpi that is a multiple of 96) this is
+    // exact — the PNG is the video's frame, dpi-tagged and drawn sharper.
+    //
+    // The base is the drawing's own fractional size, read off the `<svg>`, not
+    // `naturalWidth`: the browser rounds that to a whole pixel first, and a
+    // width of 278.94 rounded to 279 then evens *up* to 280 where the true 278.94
+    // evens *down* to 278 — a whole pixel adrift from the video, which rounds
+    // the same fraction the same way.
+    const even = (n: number) => Math.max(2, Math.round(n / 2) * 2)
+    const attr = (name: string) => {
+      const hit = new RegExp(`<svg[^>]*\\b${name}="([\\d.]+)"`).exec(svg)
+      return hit ? parseFloat(hit[1]) : NaN
+    }
+    const baseW = attr('width') || img.naturalWidth
+    const baseH = attr('height') || img.naturalHeight
+    const w = Math.max(1, Math.round(even(baseW) * scale))
+    const h = Math.max(1, Math.round(even(baseH) * scale))
     const canvas = document.createElement('canvas')
     canvas.width = w
     canvas.height = h

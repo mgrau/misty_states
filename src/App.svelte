@@ -241,6 +241,25 @@
   })
 
   /**
+   * How a GIF or MP4 is drawn, in one place so a saved one and a dragged one
+   * are the same file.
+   *
+   * At the drawing's own size — `scale: 1` — on purpose. A video carries no
+   * resolution, so it lands on a slide at its pixels over 96; drawn at 1× that
+   * is the figure's own footprint, which is exactly where a dpi-tagged PNG of
+   * the same figure lands, so the still and the animation drop the same size.
+   * Drawn larger it would keep more detail but arrive bigger than the PNG,
+   * which is the mismatch this is here to remove.
+   */
+  const movieOptions = (onProgress?: (done: number) => void) => ({
+    ...renderOptions,
+    scale: 1,
+    background: true,
+    fps: movieFps,
+    onProgress,
+  })
+
+  /**
    * Keep the last good drawing on screen while the source is mid-edit — along
    * with the text that produced it, since that is what gets embedded in an
    * export. Pairing them means a figure saved during a broken edit still
@@ -294,34 +313,68 @@
 
   const filename = $derived(result.ok && result.kind === 'circuit' ? 'circuit' : 'misty-state')
 
-  /** 300 dpi at 96 CSS pixels to the inch — the usual print requirement. */
-  let pngScale = $state(300 / 96)
+  /**
+   * 288 dpi — 3× the 96 CSS pixels an inch holds.
+   *
+   * A whole multiple of 96 on purpose, rather than the rounder-looking 300: it
+   * makes a PNG rasterise to an exact multiple of the size a video of the same
+   * figure lands at, so a still and its animation drop onto a slide the same
+   * size. 300 would leave them a fraction of a percent apart. Still well above
+   * what any projector resolves.
+   */
+  let pngScale = $state(3)
 
   /**
-   * A PNG of the figure, kept ready for a drag out to another program.
+   * The figure as a file, kept ready for a drag out to another program.
    *
-   * A drag cannot wait: `dragstart` fires and has to hand over the data on the
-   * spot, but rasterising is asynchronous. So the PNG is made a little after
-   * the drawing settles and held here, paired with the SVG it came from, and
-   * the drag uses it only when the two still match. Made off the settled
-   * drawing, so a running animation drags its first frame like every other
-   * export does.
+   * A still one drags as a PNG; a moving one as an MP4, or a GIF where the
+   * browser cannot encode video. That is the file each is best carried as — a
+   * frozen frame would throw an animation away, and a video of a static figure
+   * is waste.
+   *
+   * A drag cannot wait: `dragstart` fires and must hand over the data on the
+   * spot, but making any of these is asynchronous. So it is made a little after
+   * the drawing settles and held here, paired with the still it came from, and
+   * used only while the two still match. A movie is a blob URL — smaller to
+   * hand about than a data URL of the same bytes — so the previous one is
+   * revoked as each new one lands.
    */
-  let dragImage = $state.raw<{ svg: string; url: string } | null>(null)
+  type DragFile = { svg: string; url: string; mime: string; name: string; image: boolean }
+  let dragFile = $state.raw<DragFile | null>(null)
   $effect(() => {
     const from = stillSvg
+    const src = source
+    const moving = !!animation
     if (!from) return
     let alive = true
-    // A beat after the last keystroke, so a burst of edits rasterises once.
+    // A longer beat for a movie, which is dozens of frames and worth not
+    // re-encoding on every keystroke.
     const timer = setTimeout(async () => {
       try {
-        const url = await pngDataUrl(from, pngScale)
-        if (alive) dragImage = { svg: from, url }
+        let made: DragFile
+        if (moving) {
+          const blob = canMakeMp4() ? await toMp4(src, movieOptions()) : await toGif(src, movieOptions())
+          made = {
+            svg: from,
+            url: URL.createObjectURL(blob),
+            mime: blob.type,
+            name: `${filename}.${canMakeMp4() ? 'mp4' : 'gif'}`,
+            image: false,
+          }
+        } else {
+          made = { svg: from, url: await pngDataUrl(from, pngScale), mime: 'image/png', name: `${filename}.png`, image: true }
+        }
+        if (!alive) {
+          if (made.url.startsWith('blob:')) URL.revokeObjectURL(made.url)
+          return
+        }
+        if (dragFile?.url.startsWith('blob:')) URL.revokeObjectURL(dragFile.url)
+        dragFile = made
       } catch {
-        // A drawing that will not rasterise simply has no drag image; the
-        // handler falls back to the SVG.
+        // A drawing that will not encode simply has no drag file; the handler
+        // falls back to the still SVG.
       }
-    }, 250)
+    }, moving ? 500 : 250)
     return () => {
       alive = false
       clearTimeout(timer)
@@ -332,13 +385,14 @@
   let pressClaimed = $state(false)
 
   /**
-   * Hand the figure to another program — PowerPoint, Keynote, Finder — as an
-   * image, when it is dragged out of the pane.
+   * Hand the figure to another program — PowerPoint, Keynote, Finder — when it
+   * is dragged out of the pane.
    *
    * `DownloadURL` is what a Chromium browser turns into a real file on the
    * drop, which those programs take; `text/html` and the URI list cover the
-   * ones that read an `<img>` or a plain image URL instead. The ready PNG is
-   * used where it matches, and the SVG stands in until the next one is baked.
+   * ones that read an `<img>` or a plain URL instead — an image only, since
+   * there is no `<img>` for a video. The ready file is used while it matches,
+   * and the still SVG stands in until the next one is baked.
    */
   function onDragOut(event: DragEvent) {
     const dt = event.dataTransfer
@@ -348,13 +402,13 @@
       event.preventDefault()
       return
     }
-    const name = `${filename}.png`
-    const png = dragImage?.svg === stillSvg ? dragImage.url : null
-    if (png) {
-      dt.setData('DownloadURL', `image/png:${name}:${png}`)
-      dt.setData('text/uri-list', png)
-      dt.setData('text/html', `<img src="${png}" alt="">`)
+    const ready = dragFile?.svg === stillSvg ? dragFile : null
+    if (ready) {
+      dt.setData('DownloadURL', `${ready.mime}:${ready.name}:${ready.url}`)
+      dt.setData('text/uri-list', ready.url)
+      if (ready.image) dt.setData('text/html', `<img src="${ready.url}" alt="">`)
     } else {
+      // Not baked yet — the still, which is synchronous and always available.
       const svgUrl = svgDataUrl(stillSvg)
       dt.setData('text/uri-list', svgUrl)
       dt.setData('text/html', `<img src="${svgUrl}" alt="">`)
@@ -885,28 +939,9 @@
     making = true
     toast = `Drawing frames…`
     try {
-      const opts = {
-        theme,
-        dark,
-        shapeOrder,
-        factorCalculated,
-        exactOdds,
-        keepSign,
-        animateInside,
-        scale: 2,
-        background: true,
-        fps: movieFps,
-        metrics: {
-          qubit: qubitSize,
-          separator,
-          cloudFluff,
-          cloudPadX: cloudPad,
-          cloudPadY: cloudPad * (11 / 14),
-        },
-        onProgress: (done: number) => {
-          toast = `Drawing frames… ${Math.round(done * 100)}%`
-        },
-      }
+      const opts = movieOptions((done) => {
+        toast = `Drawing frames… ${Math.round(done * 100)}%`
+      })
       const blob = kind === 'gif' ? await toGif(source, opts) : await toMp4(source, opts)
       triggerDownload(blob, `${filename}.${kind}`)
       flash(`${kind.toUpperCase()} saved`)

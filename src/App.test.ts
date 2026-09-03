@@ -342,26 +342,26 @@ describe('PNG resolution', () => {
       /dpi$/.test(b.textContent!.trim()),
     )
 
-  it('offers real print resolutions, not multipliers', () => {
+  it('offers resolutions that are whole multiples of 96, so a PNG matches a video', () => {
     boot()
     openSettings()
-    expect(buttons().map((b) => b.textContent!.trim())).toEqual(['150 dpi', '300 dpi', '600 dpi'])
+    expect(buttons().map((b) => b.textContent!.trim())).toEqual(['192 dpi', '288 dpi', '576 dpi'])
   })
 
-  it('starts at 300, the usual print requirement', () => {
+  it('starts at 288, three times screen resolution', () => {
     boot()
     openSettings()
     const on = buttons().find((b) => b.getAttribute('aria-pressed') === 'true')
-    expect(on!.textContent!.trim()).toBe('300 dpi')
+    expect(on!.textContent!.trim()).toBe('288 dpi')
   })
 
   it('rasterises at the scale that dpi implies', () => {
     boot()
     openSettings()
-    // 96 CSS pixels to the inch, so 600 dpi is 6.25x actual size.
-    buttons().find((b) => b.textContent!.trim() === '600 dpi')!.click()
+    // 96 CSS pixels to the inch, so 576 dpi is 6× actual size.
+    buttons().find((b) => b.textContent!.trim() === '576 dpi')!.click()
     flushSync()
-    expect(host.querySelector('aside')!.textContent).toContain('6.25× actual size')
+    expect(host.querySelector('aside')!.textContent).toContain('6× actual size')
   })
 
   it('says the resolution in the export menus too', () => {
@@ -371,7 +371,7 @@ describe('PNG resolution', () => {
     )!
     caret.click()
     flushSync()
-    expect(host.textContent).toContain('Raster at 300 dpi')
+    expect(host.textContent).toContain('Raster at 288 dpi')
   })
 })
 

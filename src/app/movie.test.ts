@@ -88,31 +88,25 @@ describe('sampling an animation', () => {
 })
 
 describe('rounding a frame to whole pixels', () => {
-  it('rounds a GIF to the nearest whole pixel, so it matches a PNG', () => {
-    // A PNG of the same figure lands at its intrinsic size; a GIF has no dpi to
-    // state, so it lands at its pixel count over 96. Rounding to the nearest
-    // whole pixel keeps the two the same size — rounding up to an even one, as
-    // a video must, is up to a pixel and most of a percent adrift.
-    expect(frameSize(155, 'gif')).toBe(155)
-    expect(frameSize(130, 'gif')).toBe(130)
-    expect(frameSize(231.2, 'gif')).toBe(231)
+  it('rounds every format to an even pixel', () => {
+    // H.264 forces even, and a GIF and a PNG round the same way so all three
+    // land at one footprint on a slide rather than a pixel apart.
+    expect(frameSize(155)).toBe(156)
+    expect(frameSize(130)).toBe(130)
+    expect(frameSize(231.2)).toBe(232)
+    expect(frameSize(1)).toBe(2)
   })
 
-  it('rounds a video to an even pixel, which H.264 requires', () => {
-    expect(frameSize(155, 'mp4')).toBe(156)
-    expect(frameSize(130, 'mp4')).toBe(130)
-    expect(frameSize(231.2, 'mp4')).toBe(232)
-  })
-
-  it('the GIF of an animation matches a PNG of its first frame to within a pixel', () => {
-    // The animation and the still are laid out to the same size; a GIF at 1×
-    // and a PNG at any scale both land at intrinsic/96 on a slide, so their
-    // footprints agree to within the single pixel integer sizes cost.
+  it('matches the pixel grid a PNG is built on, so the two are one size', () => {
+    // The PNG bases its dimensions on the same even round and scales by the
+    // dpi multiple, so a video at even(n) and a PNG at even(n)×scale, tagged
+    // scale×96 dpi, both land at even(n)/96 inches — the exact same size.
     const shot = renderFrames(SRC)
-    const still = render(SRC, { still: true } as never)
+    const scale = 3 // 288 dpi
     for (const dim of ['width', 'height'] as const) {
-      const gif = frameSize(shot[dim], 'gif')
-      expect(Math.abs(gif - still[dim])).toBeLessThan(1)
+      const videoPx = frameSize(shot[dim])
+      const pngPx = frameSize(shot[dim]) * scale
+      expect(pngPx / (scale * 96)).toBeCloseTo(videoPx / 96, 9)
     }
   })
 })
