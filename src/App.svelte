@@ -48,7 +48,7 @@
     animateInside: boolean
     movieFps: number
     checking: boolean
-    dragFormat: 'svg' | 'png' | 'gif'
+    dragFormat: 'svg' | 'png'
   }
 
   function load(): Saved {
@@ -153,7 +153,12 @@
   let animateInside = $state(initial.animateInside)
   let movieFps = $state(initial.movieFps)
   let checking = $state(initial.checking)
-  /** What a drag out of the pane hands over: a raster PNG or a vector SVG. */
+  /**
+   * What a *still* figure drags out as — a vector SVG or a raster PNG.
+   *
+   * An animation ignores this and always drags a GIF, that being the only
+   * still-image format that carries the motion and drops onto a slide.
+   */
   let dragFormat = $state(initial.dragFormat)
   let zoom = $state(1)
 
@@ -248,16 +253,19 @@
    * How a GIF or MP4 is drawn, in one place so a saved one and a dragged one
    * are the same file.
    *
-   * At the drawing's own size — `scale: 1` — on purpose. A video carries no
-   * resolution, so it lands on a slide at its pixels over 96; drawn at 1× that
-   * is the figure's own footprint, which is exactly where a dpi-tagged PNG of
-   * the same figure lands, so the still and the animation drop the same size.
-   * Drawn larger it would keep more detail but arrive bigger than the PNG,
-   * which is the mismatch this is here to remove.
+   * At three-quarters of the drawing's own size, which is not a quality choice
+   * but a units one. Neither a GIF nor a video can state a resolution, so
+   * PowerPoint places one by treating its pixels as points — 72 to the inch —
+   * where a PNG's dpi tag and an SVG's inches put those at the figure's true
+   * 96-per-inch size. Left at full size a movie would therefore land 96/72
+   * larger than everything else. Drawn at 72/96 it lands where they land. The
+   * cost is some sharpness, which is the price of a format that cannot say its
+   * own resolution; the alternative is a figure the wrong size on the slide.
    */
+  const MOVIE_SCALE = 72 / 96
   const movieOptions = (onProgress?: (done: number) => void) => ({
     ...renderOptions,
-    scale: 1,
+    scale: MOVIE_SCALE,
     background: true,
     fps: movieFps,
     onProgress,
@@ -329,27 +337,26 @@
   let pngScale = $state(3)
 
   /**
-   * The figure as a raster file, kept ready for a drag out as PNG or GIF.
+   * The figure as a raster file, kept ready for a drag out as GIF or PNG.
    *
    * A drag cannot wait: `dragstart` fires and must hand over the data on the
    * spot, but rasterising and encoding are asynchronous. So the file is made a
    * little after the drawing settles and held here, paired with the still it
    * came from, and used only while the two still match. An SVG needs none of
    * this — it is written on the spot from the still that is always to hand — so
-   * the bake runs only for the two formats that need it.
+   * the bake runs only when there is a raster to make: an animation (a GIF,
+   * always, whatever the still format is set to) or a still asked for as PNG.
    *
-   * A GIF is the only format that carries the motion: it is an image, and an
-   * image is what a slide takes on a drop, where a video is not. So `gif` on a
-   * moving figure encodes the animation; on a still one there is nothing to
-   * animate, so it falls back to a PNG. `png` is always the still frame, the
-   * same as every other raster export of an animation.
+   * A GIF because it is the only still-image format that carries the motion,
+   * and an image is what a slide takes on a drop where a video is not.
    */
   let dragRaster = $state.raw<{ svg: string; url: string; mime: string; ext: string } | null>(null)
   $effect(() => {
-    if (dragFormat === 'svg') return
     const from = stillSvg
     const src = source
-    const gif = dragFormat === 'gif' && !!animation
+    const gif = !!animation
+    // SVG needs no bake; a still asked for as SVG has nothing to make here.
+    if (!gif && dragFormat !== 'png') return
     if (!from) return
     let alive = true
     // A longer beat for a GIF, which is dozens of frames and worth not
@@ -375,12 +382,13 @@
 
   /**
    * Hand the figure to another program — PowerPoint, Keynote, Finder — when it
-   * is dragged out of the pane, as the format Settings asks for.
+   * is dragged out of the pane.
    *
-   * `DownloadURL` is what a Chromium browser turns into a real file on the
+   * An animation drags as a GIF; a still figure as the SVG or PNG Settings asks
+   * for. `DownloadURL` is what a Chromium browser turns into a real file on the
    * drop, which those programs take; `text/html` and the URI list cover the
    * ones that read an `<img>` or a plain URL instead. An SVG is written on the
-   * spot; a PNG or GIF uses the baked one, and the SVG stands in until it is
+   * spot; a GIF or PNG uses the baked one, and the SVG stands in until it is
    * ready.
    */
   function onDragOut(event: DragEvent) {
@@ -391,7 +399,10 @@
       event.preventDefault()
       return
     }
-    const raster = dragFormat !== 'svg' && dragRaster?.svg === stillSvg ? dragRaster : null
+    // A raster whenever there is one to hand: always for an animation, and for
+    // a still asked for as PNG. An SVG still, or one not yet baked, is the SVG.
+    const wantRaster = !!animation || dragFormat === 'png'
+    const raster = wantRaster && dragRaster?.svg === stillSvg ? dragRaster : null
     if (raster) {
       dt.setData('DownloadURL', `${raster.mime}:${filename}.${raster.ext}:${raster.url}`)
       dt.setData('text/uri-list', raster.url)

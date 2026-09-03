@@ -384,14 +384,14 @@ describe('drag-out format', () => {
   }
   const formatButtons = () =>
     [...host.querySelectorAll<HTMLButtonElement>('aside button')].filter((b) =>
-      /^(SVG|PNG|GIF)$/.test(b.textContent!.trim()),
+      /^(SVG|PNG)$/.test(b.textContent!.trim()),
     )
 
-  it('offers SVG, PNG and GIF, SVG the default', () => {
+  it('offers SVG and PNG for a still, SVG the default (an animation is always a GIF)', () => {
     boot()
     openSettings()
     const buttons = formatButtons()
-    expect(buttons.map((b) => b.textContent!.trim())).toEqual(['SVG', 'PNG', 'GIF'])
+    expect(buttons.map((b) => b.textContent!.trim())).toEqual(['SVG', 'PNG'])
     const on = buttons.find((b) => b.getAttribute('aria-pressed') === 'true')
     expect(on!.textContent!.trim()).toBe('SVG')
   })
@@ -399,10 +399,10 @@ describe('drag-out format', () => {
   it('the choice can be switched', () => {
     boot()
     openSettings()
-    formatButtons().find((b) => b.textContent!.trim() === 'GIF')!.click()
+    formatButtons().find((b) => b.textContent!.trim() === 'PNG')!.click()
     flushSync()
     const on = formatButtons().find((b) => b.getAttribute('aria-pressed') === 'true')
-    expect(on!.textContent!.trim()).toBe('GIF')
+    expect(on!.textContent!.trim()).toBe('PNG')
     // The actual drag output is a browser concern — DataTransfer and
     // getScreenCTM are not in jsdom — and is covered against a real browser.
   })

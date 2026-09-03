@@ -235,25 +235,26 @@ Framework-agnostic. Four callbacks in, four methods out (`press`,
 ## Export
 
 **Drag** the figure straight into PowerPoint, Keynote, Word or Finder — grab
-any empty part of it and drag out (a press on a gate still edits). It drags as
-an SVG (the default), a PNG, or a GIF, per Settings → *Drag out as*. SVG and
-PNG drag a still figure whole and an animation's first frame; GIF carries the
-motion, so an animation drags as a playing GIF (a still figure has none, so it
-drags a PNG). **Copy** — PNG image (default), SVG image, SVG markup, data URLs.
-**Save** — PDF (default, vector), SVG, PNG, and GIF/MP4 for an animation.
-**Open** — drop or pick any file saved from this app to reopen it with its
-source.
+any empty part of it and drag out (a press on a gate still edits). A still
+figure drags as an SVG (the default) or a PNG, per Settings → *Drag a still
+out as*; an animation drags as a GIF, the one still-image format that carries
+the motion and drops onto a slide. **Copy** — PNG image (default), SVG image,
+SVG markup, data URLs. **Save** — PDF (default, vector), SVG, PNG, and GIF/MP4
+for an animation. **Open** — drop or pick any file saved from this app to
+reopen it with its source.
 
 Every image format embeds the source and name, so a file found later is
 editable.
 
-Everything lands on a slide at one size. A PNG declares its resolution (the
-Settings dpi — a whole multiple of 96, 288 by default) so it shrinks back to
-its true footprint rather than being blown up on a 96-dpi assumption; a GIF or
-video simply is its pixels over 96; and an exported SVG states its size in
-inches, since a bare number is read differently by different programs. All
-three round the figure's size the same way, so a PNG, a GIF, an MP4 and an SVG
-of it drop onto a slide at exactly the same size.
+Everything lands on a slide at one size, which takes a different trick per
+format because a slide sizes each differently. A PNG declares its resolution
+(the Settings dpi — a whole multiple of 96, 288 by default) so it shrinks back
+to its true footprint. An exported SVG states its size in inches, since a bare
+number is read differently by different programs. A GIF or video can state no
+resolution at all, and PowerPoint places one by its pixels at 72 to the inch,
+so those are drawn at ¾ size to land where the rest do. The result is that a
+PNG, an SVG, a GIF and an MP4 of the same figure all drop onto a slide the same
+size.
 
 PDFs are banded (gradient rectangles drawn as solid strips) so they render
 correctly in Apple Preview when embedded via `\includegraphics`.
