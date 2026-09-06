@@ -952,7 +952,11 @@ export function parseCircuit(text: string): CircuitDoc {
 
   /** A view takes a layer to itself: a snapshot sits between gates, not among them. */
   const pushView = (view: ViewGate, line: number) => {
-    groups.push({ gates: [view], breakBefore: true, line })
+    // Carrying the line it was written on, like every other gate does: that is
+    // how one pointed at in the drawing is traced back to its text, and a view
+    // written bare — a state line, or `calculate` by itself — is no different.
+    // Without it such a view can be drawn but never moved or taken away again.
+    groups.push({ gates: [{ ...view, line }], breakBefore: true, line })
     pendingBreak = true
   }
 

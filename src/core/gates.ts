@@ -89,7 +89,7 @@ export const GATE_GALLERY: GateGroup[] = [
     heading: 'Views',
     items: [
       {
-        code: 'view calculate',
+        code: 'calculate',
         name: 'Calculated state',
         text: 'The state at this point, worked out from the input and the gates above it',
         source: 'qubits 2\nview ??',

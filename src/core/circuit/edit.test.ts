@@ -498,6 +498,82 @@ describe('dropping a view into a circuit', () => {
   })
 })
 
+/**
+ * Dropping the calculated state, which is written as the word alone.
+ *
+ * `calculate` is the whole statement — the notation's own shorthand for the
+ * view everyone actually wants — and it is what the block is called, so it is
+ * what the block writes. Spelling it `view calculate` would say the same thing
+ * at greater length.
+ */
+describe('dropping a calculated state', () => {
+  const CALC: Droppable = { head: 'view', wires: 1, shows: 'calculate' }
+  const put = (source: string, target: DropTarget) =>
+    insertGate(source, parseCircuit(source), target, CALC).source
+
+  it('writes the word alone, not `view calculate`', () => {
+    expect(put('in 00\nH 1\nCNOT 1 2', at(1, 0, 'after')))
+      .toBe('in 00\nH 1\ncalculate\nCNOT 1 2')
+  })
+
+  it('below the last gate, it is the circuit’s worked-out output', () => {
+    // Past the end there is no layer to land in, and a bare `calculate` there
+    // means the output — which is exactly what was aimed at.
+    expect(put('in 00\nH 1\nCNOT 1 2', at(1, 1, 'after')))
+      .toBe('in 00\nH 1\nCNOT 1 2\ncalculate')
+  })
+
+  it('asks the question instead where the arithmetic cannot follow', () => {
+    // The long form comes back for the unknowns: `calculate ??` is not a line
+    // the notation has.
+    expect(put('in 000\nH 1\nbox "U" 1-3\nCNOT 1 2', at(1, 1, 'after')))
+      .toContain('view ???')
+  })
+
+  it('is offered by the palette', () => {
+    const droppable = GATE_GALLERY.flatMap((g) => g.items).filter((i) => i.drop)
+    expect(droppable.map((i) => i.code)).toContain('calculate')
+  })
+})
+
+/**
+ * A view survives being picked up and put down as the view it was.
+ *
+ * Each of these was once a way to lose your figure: a bare view came back
+ * framed, and one written as the shorthand could not be picked up at all,
+ * because the parser never told it which line it came from.
+ */
+describe('moving a view that is already in the drawing', () => {
+  const move = (source: string, to: DropTarget) => {
+    const doc = parseCircuit(source)
+    const view = doc.layers.flatMap((l) => l.gates).find((g) => g.kind === 'view')!
+    return moveGate(source, doc, view, to)?.source
+  }
+  const below = at(1, 2, 'after')
+
+  it('keeps the shorthand a shorthand', () => {
+    expect(move('in 00\nH 1\ncalculate\nCNOT 1 2', below))
+      .toBe('in 00\nH 1\nCNOT 1 2\ncalculate')
+  })
+
+  it('keeps a frame a frame', () => {
+    expect(move('in 00\nH 1\nwindow calculate\nCNOT 1 2', below))
+      .toBe('in 00\nH 1\nCNOT 1 2\nwindow calculate')
+  })
+
+  it('does not fit a bare view with a frame it never had', () => {
+    expect(move('in 00\nH 1\nview 00|11\nCNOT 1 2', below))
+      .toBe('in 00\nH 1\nCNOT 1 2\nview 00|11')
+  })
+
+  it('gives a bare view a line to be traced back to', () => {
+    // Without one it can be drawn and never edited again.
+    const doc = parseCircuit('in 00\nH 1\ncalculate\nCNOT 1 2')
+    const view = doc.layers.flatMap((l) => l.gates).find((g) => g.kind === 'view')!
+    expect(view.line).toBe(3)
+  })
+})
+
 describe('turning a rotation by a different angle', () => {
   const turned = (source: string, angle: number) => {
     const doc = parseCircuit(source)

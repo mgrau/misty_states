@@ -68,7 +68,8 @@ out calculate
 | `blank 1-2` | Empty frame for students |
 | `in 00\|11` | Input state above the circuit |
 | `out calculate` | Calculated output state |
-| `window calculate` | State window mid-circuit |
+| `calculate` | The state at this point, worked out |
+| `window calculate` | The same, framed and plumbed in |
 | `view 2-3 00\|11` | View of some qubits |
 | `header on` | Label columns with shapes |
 | `qubits 3` | Set register width (usually inferred) |

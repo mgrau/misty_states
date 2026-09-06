@@ -131,7 +131,15 @@ export interface Droppable {
  */
 export function gateLine(gate: Droppable, wire: number, qubits: number): string {
   // A view is not on a wire; it is a break across all of them.
-  if (gate.shows) return `${gate.head} ${gate.shows}`
+  // A view is named and then told what to show — except for the one everybody
+  // wants, which the notation lets you write as the word alone. `calculate` is
+  // what the block is called and what the line says; `view calculate` would be
+  // the same drawing spelled the long way.
+  if (gate.shows) {
+    return gate.head === 'view' && gate.shows === 'calculate'
+      ? 'calculate'
+      : `${gate.head} ${gate.shows}`
+  }
 
   const room = qubits + 1
   let start = Math.max(1, Math.min(wire, room))
@@ -299,10 +307,22 @@ export function insertGate(
     candidates(source, doc, aim, text),
   )
 
+  /**
+   * Did this candidate put the gate where it was aimed?
+   *
+   * Usually that means the line ended up in the layer aimed at. A calculated
+   * view dropped below the last gate is the exception: past the end there is no
+   * layer to land in, and what the line becomes is the circuit's *output*,
+   * worked out — which is exactly where it was aimed and what it says.
+   */
+  const landed = (parsed: CircuitDoc, candidate: Candidate) =>
+    parsed.layers[want]?.lines.includes(candidate.line) ||
+    (gate.shows === 'calculate' && want >= parsed.layers.length && !!parsed.calculateOutput)
+
   for (const candidate of tries) {
     try {
       const parsed = parseCircuit(candidate.source)
-      if (parsed.layers[want]?.lines.includes(candidate.line) && resolves(parsed)) {
+      if (landed(parsed, candidate) && resolves(parsed)) {
         return candidate
       }
     } catch {
@@ -572,11 +592,13 @@ export function moveGate(
   // in its text — rows spelled out, `answer`, a range of wires — and none of
   // that survives a round trip through the drawing, so the statement travels
   // rather than being composed again from what it drew.
-  const shows =
-    gate.kind === 'view' && written ? written.replace(/^\s*\S+\s*/, '') || undefined : undefined
+  // Only where there is something after the keyword: the shorthand `calculate`
+  // is the whole statement, and blanking `shows` for it would put the view back
+  // as a bare `view` with no state to show.
+  const rest = gate.kind === 'view' && written ? written.replace(/^\s*\S+\s*/, '').trim() : ''
   return insertGate(cut.source, reduced, afterRemoval(target, cut.layerRemoved), {
     ...moved,
-    ...(gate.kind === 'view' ? { shows } : {}),
+    ...(rest ? { shows: rest } : {}),
     arrow: written?.includes('->') || undefined,
   })
 }
@@ -606,7 +628,13 @@ export function asDroppable(gate: Gate): Droppable {
       // What a window shows cannot be rebuilt from the drawing — written-out
       // rows, an answer, a range of wires are all in the text and nowhere else.
       // This is the label and the fallback; a move takes the statement itself.
-      return { head: 'window', wires, shows: gate.calculate ? 'calculate' : undefined }
+      // Framed or laid open, as it was drawn: picking a view up and putting it
+      // down must not quietly fit it with a frame it never had.
+      return {
+        head: gate.boxed ? 'window' : 'view',
+        wires,
+        shows: gate.calculate ? 'calculate' : undefined,
+      }
     case 'box':
       return {
         head: gate.blank ? 'blank' : 'box',
