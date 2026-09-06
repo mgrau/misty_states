@@ -89,12 +89,21 @@ export const GATE_GALLERY: GateGroup[] = [
     heading: 'Views',
     items: [
       {
+        code: 'view calculate',
+        name: 'Calculated state',
+        text: 'The state at this point, worked out from the input and the gates above it',
+        source: 'qubits 2\nview ??',
+        // Not on a wire: a view is a break across all of them, and what it
+        // shows is worked out from the gates above it. Dropped rather than
+        // typed, this is the question anyone reading a circuit asks — what is
+        // the state *here* — answered in place.
+        drop: { head: 'view', wires: 1, shows: 'calculate' },
+      },
+      {
         code: 'window calculate',
         name: 'Window',
-        text: 'The state at this point, framed and plumbed into the circuit',
+        text: 'The same state, framed and plumbed into the circuit rather than breaking it',
         source: 'qubits 2\nwindow ??',
-        // Not on a wire: a view is a break across all of them, and what it
-        // shows is worked out from the gates above it.
         drop: { head: 'window', wires: 1, shows: 'calculate' },
       },
     ],

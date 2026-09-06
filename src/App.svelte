@@ -205,6 +205,19 @@
    * mutated in place, so there is nothing to gain by proxying it.
    */
   let carry = $state.raw<CarryState>({ carrying: null, at: null, removing: false })
+  /**
+   * What the carried block calls itself under the pointer.
+   *
+   * What it does, where that is not what it is called: a view carries the word
+   * for what it will show — `calculate` — rather than the keyword that writes
+   * it, because "view" is not what anyone thinks they are holding.
+   */
+  const heldName = $derived.by(() => {
+    const held = carry.carrying
+    if (!held) return ''
+    const drop = held.from === 'palette' ? held.gate : asDroppable(held.gate)
+    return drop.shows ?? drop.head
+  })
   let dragPreview = $state.raw<Edit | null>(null)
   /** The element the anchor compensation is applied to. */
   let anchorEl = $state<HTMLElement | undefined>()
@@ -1867,9 +1880,7 @@
         : 'border-slate-400 bg-white/90 text-slate-700'}"
       style="left: {carry.at.x}px; top: {carry.at.y}px;"
     >
-      {carry.carrying.from === 'palette'
-        ? carry.carrying.gate.head
-        : asDroppable(carry.carrying.gate).head}
+      {heldName}
     </div>
   {/if}
 
