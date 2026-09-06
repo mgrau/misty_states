@@ -385,6 +385,9 @@ function locate(
  * controls to swap with.
  */
 export function cycleTarget(source: string, doc: CircuitDoc, gate: Gate): Edit | null {
+  // A controlled swap has a control to move rather than a target, and moving it
+  // is the same edit: the wires stay, the dot walks to the next one they cover.
+  if (gate.kind === 'swap') return cycleSwapControl(source, doc, gate)
   if (gate.kind !== 'controlled' || !gate.controls.length || gate.targetGlyph === 'z') return null
   const found = locate(source, doc, gate)
   if (!found) return null
@@ -409,6 +412,36 @@ export function cycleTarget(source: string, doc: CircuitDoc, gate: Gate): Edit |
   ]
     .filter(Boolean)
     .join(' ')
+
+  const parts = [...found.parts]
+  parts[found.which] = text
+  const lines = [...found.lines]
+  lines[found.at] = rewrite(lines[found.at], parts.join('; '))
+  return { source: lines.join('\n'), line: gate.line! }
+}
+
+/**
+ * Walk a controlled swap's control onto the next wire the gate covers.
+ *
+ * A Fredkin is a control and a pair to exchange; clicking it cycles which of its
+ * three wires holds the control, the other two becoming the pair — the swap
+ * counterpart of moving a CNOT's ⊕. A plain SWAP has no control to move, and a
+ * multi-control swap is left alone.
+ */
+function cycleSwapControl(source: string, doc: CircuitDoc, gate: Gate): Edit | null {
+  if (gate.kind !== 'swap' || (gate.controls?.length ?? 0) !== 1) return null
+  const found = locate(source, doc, gate)
+  if (!found) return null
+
+  const cur = gate.controls![0]
+  const wires = [cur, ...gate.qubits].sort((a, b) => a - b)
+  const control = wires[(wires.indexOf(cur) + 1) % wires.length]
+  const pair = wires.filter((w) => w !== control)
+
+  const was = found.parts[found.which]
+  const head = was.trim().split(/\s+/)[0] // CSWAP, as it was written
+  const arrow = was.includes('->')
+  const text = [head, String(control), arrow ? '->' : '', pair.join(' ')].filter(Boolean).join(' ')
 
   const parts = [...found.parts]
   parts[found.which] = text
