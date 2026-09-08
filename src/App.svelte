@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
+  import { flushSync, untrack } from 'svelte'
   import { render } from './core/index'
   import type { ThemeId } from './core/render/theme'
   import { DEFAULT_SHAPE_ORDER, SHAPE_NAMES, type ShapeName } from './core/shapes'
@@ -113,6 +113,101 @@
 
   let source = $state(initial.source)
   let name = $state(initial.name)
+
+  /* -- Taking it back ------------------------------------------------------ */
+
+  /**
+   * Every version of the source this session has held, and the way back.
+   *
+   * Kept here rather than left to the browser because the text box is only one
+   * of the ways the document changes: a gate dragged onto the drawing, a gate
+   * dragged off it, a rotation turned by its dial, an example or a library
+   * entry chosen, a figure opened from a file. The textarea's own undo stack
+   * knows about none of those, and a programmatic write throws away what it
+   * does know — so a drag that went wrong could not be taken back at all.
+   *
+   * A run of typing collapses into one step. Undoing a paragraph a letter at a
+   * time is not undo, it is a re-enactment.
+   */
+  const COALESCE_MS = 450
+  let past = $state.raw<string[]>([])
+  let future = $state.raw<string[]>([])
+  /** The last value the history knows about, and when it learned it. */
+  let recorded = initial.source
+  let recordedAt = 0
+  /**
+   * Set by the source box, cleared by the next thing the history records: it
+   * says *this* change was typed, rather than that something was typed lately.
+   * A gate dropped a moment after a word has to be its own step.
+   */
+  let typed = false
+  /** True while undo/redo is writing, so the write is not recorded as an edit. */
+  let travelling = false
+
+  $effect(() => {
+    const now = source
+    untrack(() => {
+      if (travelling || now === recorded) {
+        recorded = now
+        return
+      }
+      // Typing on: keep the step that is already there, so one undo goes back
+      // to before the burst rather than one letter into it. Only keystrokes
+      // run together — a gate dropped a moment after a word was typed is its
+      // own change, and has to be taken back on its own.
+      const now2 = Date.now()
+      const keystroke = typed
+      typed = false
+      const burst = keystroke && now2 - recordedAt < COALESCE_MS && past.length > 0
+      if (!burst) past = [...past, recorded].slice(-200)
+      future = []
+      recorded = now
+      recordedAt = now2
+    })
+  })
+
+  /**
+   * Step back or forward, putting the caret where the text actually differs.
+   *
+   * Otherwise a `⌘Z` while typing sends the cursor to the end of the document,
+   * and the next keystroke lands somewhere nobody asked for.
+   */
+  function travel(from: string[], to: string[], set: (a: string[], b: string[]) => void) {
+    if (!from.length) return
+    const next = from[from.length - 1]
+    const was = source
+    travelling = true
+    set(from.slice(0, -1), [...to, was])
+    source = next
+    recorded = next
+    recordedAt = 0 // the next edit starts a step of its own
+    flushSync()
+    travelling = false
+    const box = document.activeElement
+    if (box instanceof HTMLTextAreaElement) {
+      let i = 0
+      while (i < next.length && i < was.length && next[i] === was[i]) i++
+      box.setSelectionRange(i, i)
+    }
+  }
+  const undo = () => travel(past, future, (p, f) => ((past = p), (future = f)))
+  const redo = () => travel(future, past, (f, p) => ((future = f), (past = p)))
+
+  /**
+   * `⌘Z` and `⌘⇧Z`, wherever the focus is — including inside the source box,
+   * whose own undo stack cannot be trusted once anything has been dragged.
+   * A field that holds a name rather than the document keeps its own.
+   */
+  function onUndoKey(event: KeyboardEvent) {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) return
+    const key = event.key.toLowerCase()
+    const wants = key === 'z' || (event.ctrlKey && key === 'y')
+    if (!wants) return
+    if (document.activeElement instanceof HTMLInputElement) return
+    event.preventDefault()
+    if (key === 'y' || event.shiftKey) redo()
+    else undo()
+  }
   let theme = $state<ThemeId>(initial.theme)
   let dark = $state(initial.dark)
   let shapeOrder = $state<ShapeName[]>(initial.shapeOrder)
@@ -1149,6 +1244,8 @@
 
 </script>
 
+<svelte:window onkeydown={onUndoKey} />
+
 <!-- Dropping a saved figure anywhere in the window reopens it. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
@@ -1336,6 +1433,7 @@
         <span class="text-xs font-medium text-slate-500">Source</span>
         <textarea
           bind:value={source}
+          oninput={() => (typed = true)}
           spellcheck="false"
           rows="5"
           class="field-sizing-content min-h-24 w-full resize-y rounded border

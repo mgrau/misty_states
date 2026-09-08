@@ -689,6 +689,94 @@ describe('the example and library pickers', () => {
   })
 })
 
+/**
+ * Taking a change back.
+ *
+ * The text box has an undo of its own, and it is not enough: the document also
+ * changes when a gate is dragged on or off the drawing, when a dial is turned,
+ * when an example is picked. Those are the ones worth being able to take back,
+ * and they are the ones the browser knows nothing about.
+ */
+describe('undo and redo', () => {
+  const press = (key: string, opts: KeyboardEventInit = {}) => {
+    const event = new KeyboardEvent('keydown', {
+      key, metaKey: true, bubbles: true, cancelable: true, ...opts,
+    })
+    window.dispatchEvent(event)
+    flushSync()
+    return event
+  }
+
+  it('takes back an edit, and puts it back again', () => {
+    boot()
+    setSource('00|11')
+    expect(editor().value).toBe('00|11')
+    press('z')
+    expect(editor().value).not.toBe('00|11')
+    press('z', { shiftKey: true })
+    expect(editor().value).toBe('00|11')
+  })
+
+  it('collapses a burst of typing into one step', () => {
+    boot()
+    const was = editor().value
+    // A run of keystrokes, as fast as anyone types them.
+    setSource('0')
+    setSource('0|')
+    setSource('0|1')
+    press('z')
+    // One press goes back to before the burst, not one letter into it.
+    expect(editor().value).toBe(was)
+  })
+
+  it('takes back a change that was never typed', () => {
+    // The drag itself needs SVG geometry that jsdom does not have, so the
+    // stand-in is the other way the document is replaced wholesale: choosing an
+    // example. Both write `source` from outside the text box, which is the part
+    // the browser's own undo cannot see.
+    boot()
+    setSource('in 00')
+    const picker = host.querySelectorAll('select')[0] as HTMLSelectElement
+    picker.value = picker.querySelectorAll('option')[1].value
+    picker.dispatchEvent(new Event('change', { bubbles: true }))
+    flushSync()
+    const chosen = editor().value
+    expect(chosen).not.toBe('in 00')
+    press('z')
+    expect(editor().value).toBe('in 00')
+    press('z', { shiftKey: true })
+    expect(editor().value).toBe(chosen)
+  })
+
+  it('does nothing at the beginning of history', () => {
+    boot()
+    const was = editor().value
+    press('z')
+    press('z')
+    expect(editor().value).toBe(was)
+  })
+
+  it('a fresh edit forgets the way forward', () => {
+    boot()
+    setSource('0')
+    press('z')
+    setSource('1')
+    press('z', { shiftKey: true })
+    expect(editor().value).toBe('1')
+  })
+
+  it('leaves a name field its own undo', () => {
+    boot()
+    setSource('00|11')
+    const input = host.querySelector('input[type="text"]') as HTMLInputElement | null
+    if (!input) return
+    input.focus()
+    const event = press('z')
+    expect(event.defaultPrevented).toBe(false)
+    expect(editor().value).toBe('00|11')
+  })
+})
+
 describe('settings panel', () => {
   const openSettings = () => {
     const btn = [...host.querySelectorAll('button')].find((b) =>
