@@ -665,6 +665,24 @@ function parseGate(src: string, line: number): Gate {
   const rest = tokens.slice(1)
 
   /**
+   * A colour needs something to paint.
+   *
+   * A controlled gate is dots and a bar with nothing between them, and a plain
+   * pipe is a pipe — neither has a face to take a fill. Saying so beats drawing
+   * the line exactly as it would have been drawn without the colour, which
+   * looks for all the world like the colour was wrong.
+   */
+  const noBox = () => {
+    if (fill !== undefined) {
+      throw new ParseError(
+        `${head} has no box to fill — \`fill=\` belongs on a box, a blank, a gate letter or a measurement`,
+        0,
+        line,
+      )
+    }
+  }
+
+  /**
    * The wire a one-wire gate acts on. Told nothing, it takes the first: most
    * circuits start there, and `H` reads better than `H 1`.
    */
@@ -676,6 +694,7 @@ function parseGate(src: string, line: number): Gate {
   }
 
   if (head === 'I' || head === 'ID' || head === 'IDENTITY') {
+    noBox()
     // `I 2 0` is an identity that shows what the qubit holds — the same window
     // a view opens, on a wire where nothing is happening. That is what makes
     // "look at these, hold those" expressible alongside a partial view.
@@ -707,7 +726,7 @@ function parseGate(src: string, line: number): Gate {
     if (!Number.isFinite(angle)) {
       throw new ParseError(`${turn[1]} needs an angle in degrees, e.g. ${turn[1]}(90)`, 0, line)
     }
-    return { kind: 'single', label: turn[1].toUpperCase(), qubit: oneQubit(), angle }
+    return { kind: 'single', label: turn[1].toUpperCase(), qubit: oneQubit(), angle, accent: fill }
   }
 
   if (head in SINGLE_GATES) {
@@ -716,6 +735,7 @@ function parseGate(src: string, line: number): Gate {
   }
 
   if (head === 'CNOT' || head === 'CX' || head === 'TOFFOLI' || head === 'CCNOT' || head === 'CCX') {
+    noBox()
     // A quoted name may sit at either end, and where it sits is what it means:
     // before the wires it stands on the target in place of the ⊕; after them it
     // labels the link, naming the gate as a whole.
@@ -743,6 +763,7 @@ function parseGate(src: string, line: number): Gate {
   }
 
   if (head === 'CZ') {
+    noBox()
     const front = rest[0]?.quoted ? rest.shift() : undefined
     const back = rest[rest.length - 1]?.quoted ? rest.pop() : undefined
     const qs = parseQubits(rest, line)
@@ -758,6 +779,7 @@ function parseGate(src: string, line: number): Gate {
   }
 
   if (head === 'SWAP') {
+    noBox()
     const qs = parseQubits(rest, line)
     if (qs.length !== 2) throw new ParseError('SWAP takes two qubits', 0, line)
     return { kind: 'swap', qubits: [qs[0], qs[1]] }
@@ -768,6 +790,7 @@ function parseGate(src: string, line: number): Gate {
   // way CNOT is; without an arrow the last two wires are the pair, matching how
   // `SWAP 1 2` and `CNOT 1 2` already read their trailing wire.
   if (head === 'CSWAP' || head === 'FREDKIN') {
+    noBox()
     const arrow = rest.findIndex((t) => t.text === '->')
     const split = arrow < 0 ? rest.length - 2 : arrow
     const controls = parseQubits(rest.slice(0, Math.max(0, split)), line)
@@ -785,7 +808,7 @@ function parseGate(src: string, line: number): Gate {
       basis = last.text.toUpperCase()
       rest.pop()
     }
-    return { kind: 'measure', qubit: oneQubit(), basis }
+    return { kind: 'measure', qubit: oneQubit(), basis, fill }
   }
 
   if (head === 'BOX' || head === 'GATE' || head === 'BLANK') {

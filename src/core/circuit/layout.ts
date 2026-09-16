@@ -1039,7 +1039,7 @@ function emitGate(
     }
 
     case 'measure':
-      bodies.push({ t: 'measurebox', box, basis: gate.basis })
+      bodies.push({ t: 'measurebox', box, basis: gate.basis, fill: gate.fill })
       return
 
     case 'box':

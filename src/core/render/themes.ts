@@ -284,7 +284,10 @@ function makeTheme(
         case 'gatebox': {
           // `||`, not `??`: an empty fill would reach the SVG as fill="" and
           // render black, which is worse than falling back to the default.
-          const fill = p.blank ? pal.paper : p.fill || pal.gate
+          // A colour that was asked for wins over the blank's paper: a frame
+          // for students to fill in is still a box, and tinting one to mark it
+          // out is the whole reason for saying so.
+          const fill = p.fill || (p.blank ? pal.paper : pal.gate)
           const body = s.body(p.box, fill, pal, m)
           const cx = p.box.x + p.box.w / 2
           const cy = p.box.y + p.box.h / 2
@@ -333,7 +336,7 @@ function makeTheme(
         }
 
         case 'measurebox': {
-          const body = s.body(p.box, pal.measure, pal, m)
+          const body = s.body(p.box, p.fill || pal.measure, pal, m)
           const cx = p.box.x + p.box.w / 2
           const cy = p.box.y + p.box.h / 2
           const r = Math.min(p.box.w, p.box.h) * 0.3

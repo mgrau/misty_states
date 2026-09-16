@@ -114,6 +114,12 @@ export const GATE_GALLERY: GateGroup[] = [
       { code: 'box "U" 1-2', name: 'Custom box', source: 'qubits 2\nbox "U" 1-2', drop: { head: 'box', wires: 2, label: '"U"', range: true } },
       { code: 'blank 1-2', name: 'Blank', text: 'For students to fill in', source: 'qubits 2\nblank 1-2', drop: { head: 'blank', wires: 2, range: true } },
       { code: 'measure 1 Z', name: 'Measurement', source: 'qubits 1\nmeasure 1 Z', drop: { head: 'measure', wires: 1, tail: 'Z' } },
+      {
+        code: 'box "U" 1-2 fill=#e6f0e6',
+        name: 'Coloured box',
+        text: 'Any box takes a colour — `#rrggbb` or a name. So does a blank, a gate letter and a measurement',
+        source: 'qubits 2\nbox "U" 1-2 fill=#e6f0e6',
+      },
     ],
   },
 ]

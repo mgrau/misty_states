@@ -66,6 +66,7 @@ out calculate
 | `measure 1 Z` | Measurement (`M` is an alias) |
 | `box "U" 1-3` | Custom labelled box |
 | `blank 1-2` | Empty frame for students |
+| `box "U" 1-3 fill=#e6f0e6` | Painted a colour — `#rrggbb` or a name |
 | `in 00\|11` | Input state above the circuit |
 | `out calculate` | Calculated output state |
 | `calculate` | The state at this point, worked out |
@@ -84,6 +85,20 @@ out calculate
 | `CNOT 1 -> 2 "label"` | Named link |
 | `answer 010` | Hidden until "Show answer" |
 | `step: H 1 : note` | Annotations on a gate line |
+
+### Colour
+
+`fill=` paints anything with a face to paint: a `box`, a `blank`, a single
+gate letter, a rotation, a `measure`, and a `window`. Takes `#rrggbb` or a CSS
+colour name. A gate with no box — a controlled gate, a swap, a plain pipe —
+says so rather than ignoring it, and a `view` asks to be written as a `window`,
+since a colour needs a frame to sit in.
+
+```
+box "Oracle" 1-2 fill=#e6f0e6
+blank 1-2 fill=salmon
+H 1 fill=#ffe9c7
+```
 
 ### Calculated states
 

@@ -78,6 +78,8 @@ export interface MeasureGate {
   kind: 'measure'
   qubit: number
   basis: string
+  /** Overrides the palette's measurement colour, like any other box. */
+  fill?: string
 }
 
 /** Custom box spanning a contiguous range, e.g. an oracle. */

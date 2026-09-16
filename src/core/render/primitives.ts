@@ -170,6 +170,7 @@ export interface MeasureBoxPrim {
   t: 'measurebox'
   box: Box
   basis: string
+  fill?: string
 }
 
 export interface ControlPrim {
