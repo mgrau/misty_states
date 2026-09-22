@@ -82,6 +82,7 @@ out calculate
 | `animate` | CSS animation |
 | `HH` | Shorthand: `H 1; H 2` |
 | `H H`, `H; H` | Also `H 1; H 2` — gates without wires take the next free ones |
+| `CNOT` | `CNOT 1 2` — likewise `CZ`, `SWAP`, `TOFFOLI`, `CSWAP` |
 | `H2` | `H 2` — the wire may be glued to the name |
 | `;` | Same layer: `H 1; X 2` |
 | `---` | Force a new layer |
@@ -94,7 +95,9 @@ out calculate
 
 A row can be written the way it is said. A gate name starts a new gate, so
 `H X Z` is `H 1; X 2; Z 3`; a gate that leaves its wire out takes the lowest
-wire nobody else on the line is using (`CNOT 1 2 H` puts the H on 3); and the
+wire nobody else on the line is using (`CNOT 1 2 H` puts the H on 3) — or, for
+a gate over several wires, the lowest run of them side by side, so `CNOT` is
+`CNOT 1 2` and `H CNOT` is `H 1; CNOT 2 3`; and the
 wire may be glued to the name, `H2`. After a measurement, `X`, `Y` or `Z` is its
 basis rather than a gate: `M X` measures in the X basis, and `M H` measures and
 then applies an H. Everything written the long way still means what it did.
@@ -103,6 +106,7 @@ then applies an H. Everything written the long way still means what it did.
 H H            # H 1; H 2
 H X Z          # H 1; X 2; Z 3
 H1 CNOT2 3     # H 1; CNOT 2 3
+H CNOT         # H 1; CNOT 2 3
 M X H          # measure 1 in X; H 2
 ```
 

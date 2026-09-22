@@ -17,7 +17,7 @@
 
 import type { CircuitDoc, Gate } from './ast'
 import { gateSpan } from './ast'
-import { leavesWireOut, liftGateAnnotations, parseCircuit, splitStatements, withWire } from './parse'
+import { liftGateAnnotations, parseCircuit, splitStatements, wiresLeftOut, withWires } from './parse'
 import { resolveCalculations } from './simulate'
 import type { CircuitGeometry } from './layout'
 import type { QubitValue } from '../state/ast'
@@ -547,7 +547,10 @@ export function removeGate(
   // the wire it had by having it written in before anything is taken away.
   const mates = doc.layers[layerOf].gates.filter((g) => g.line === gate.line)
   const kept = parts
-    .map((part, i) => (leavesWireOut(part) && mates[i] ? withWire(part, gateSpan(mates[i])[0]) : part))
+    .map((part, i) => {
+      const count = wiresLeftOut(part)
+      return count && mates[i] ? withWires(part, gateSpan(mates[i])[0], count) : part
+    })
     .filter((_, i) => i !== which)
   const alone = doc.layers[layerOf]?.lines.filter((l) => l === gate.line).length === 1
 

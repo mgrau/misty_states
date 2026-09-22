@@ -284,3 +284,53 @@ describe('editing a row written in shorthand', () => {
     expect(c.kind === 'controlled' && c.target).toBe(2)
   })
 })
+
+/**
+ * A gate over several wires, written without them.
+ *
+ * `CNOT` is `CNOT 1 2`: control, then target, the way the arrowless form has
+ * always read. It takes the lowest run of free wires long enough to hold it —
+ * a gate is drawn across its span, so the wires have to be side by side.
+ */
+describe('a multi-wire gate without its wires', () => {
+  const same = (short: string, long: string) =>
+    expect(parseCircuit(short), short).toEqual(parseCircuit(long))
+
+  it('reads CNOT as CNOT 1 2, and the others the same way', () => {
+    same('CNOT', 'CNOT 1 2')
+    same('CX', 'CX 1 2')
+    same('CZ', 'CZ 1 2')
+    same('SWAP', 'SWAP 1 2')
+    same('TOFFOLI', 'TOFFOLI 1 2 3')
+    same('CCNOT', 'CCNOT 1 2 3')
+    same('CSWAP', 'CSWAP 1 2 3')
+  })
+
+  it('takes its place in a row', () => {
+    same('H CNOT', 'H 1; CNOT 2 3')
+    same('CNOT H', 'CNOT 1 2; H 3')
+    same('CNOT CNOT', 'CNOT 1 2; CNOT 3 4')
+  })
+
+  it('wants its wires side by side', () => {
+    // Wire 1 is free but alone; the first free pair is 3 and 4.
+    same('H 2; CNOT', 'H 2; CNOT 3 4')
+  })
+
+  it('keeps its options', () => {
+    same('CNOT height=2', 'CNOT 1 2 height=2')
+  })
+
+  it('leaves a named one to say where its name stands', () => {
+    // Before the wires names the target; after, the link. With no wires there
+    // is no telling which was meant, so it is refused as it always was.
+    expect(() => parseCircuit('CNOT "Oracle"')).toThrow(/needs at least one control/)
+  })
+
+  it('keeps its wires when a neighbour is taken away', () => {
+    const src = 'in 000\nH CNOT'
+    const doc = parseCircuit(src)
+    const out = removeGate(src, doc, doc.layers[0].gates[0])!
+    expect(parseCircuit(out.source)).toEqual(parseCircuit('in 000\nCNOT 2 3'))
+  })
+})

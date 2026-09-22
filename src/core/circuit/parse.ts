@@ -267,8 +267,17 @@ export interface Statement {
 /** A gate name glued to its wires: `H2`, `CNOT1`, `blank1-2`. */
 const GLUED = /^([a-z]+)(\d+(?:-\d+)?)$/i
 
-/** The one-wire gates, which may leave their wire to be worked out. */
-const ONE_WIRE = new Set(['h', 'pete', 'x', 'not', 'y', 'z', 's', 't', 'i', 'id', 'identity', 'm', 'measure'])
+/**
+ * The gates that may leave their wires to be worked out, and how many they take.
+ *
+ * Only those with a fixed number of wires: a box or a blank is as wide as it
+ * is written, and there is nothing to work that out from.
+ */
+const ARITY: Record<string, number> = {
+  h: 1, pete: 1, x: 1, not: 1, y: 1, z: 1, s: 1, t: 1, i: 1, id: 1, identity: 1, m: 1, measure: 1,
+  cnot: 2, cx: 2, cz: 2, swap: 2,
+  toffoli: 3, ccnot: 3, ccx: 3, cswap: 3, fredkin: 3,
+}
 
 /** Does this word begin a gate — named, turned, run together, or glued to its wire? */
 function startsGate(word: string): boolean {
@@ -374,25 +383,39 @@ export function splitStatements(body: string, lineNo: number): Statement[] {
 }
 
 /**
- * A one-wire gate written without its wire: `H`, `M X`, `RX(90) fill=red`.
+ * How many wires a gate written without them needs: `H` one, `CNOT` two,
+ * `TOFFOLI` three. Nought when it wrote its own, or cannot leave them out.
  *
  * Read off the words rather than from what the gate turns out to be, so the
- * editor can ask the same question of text it is about to rewrite.
+ * editor can ask the same question of text it is about to rewrite. A gate
+ * carrying a quoted name is left to say what it always said: where the name
+ * stands relative to the wires is what it means, and with no wires there is
+ * no telling which it was.
  */
-export function leavesWireOut(text: string): boolean {
+export function wiresLeftOut(text: string): number {
   const words = text.trim().split(/\s+/).filter((w) => !w.includes('='))
+  if (words.some((w) => w.startsWith('"'))) return 0
   const head = words[0]?.toLowerCase() ?? ''
-  if (!ONE_WIRE.has(head) && !isTurn(head)) return false
-  if (words.length === 1) return true
+  const arity = ARITY[head] ?? (isTurn(head) ? 1 : 0)
+  if (!arity) return 0
+  if (words.length === 1) return arity
+  // A measurement's basis is not a wire: `M X` still leaves its wire out.
   return (head === 'm' || head === 'measure') && words.length === 2 && /^[a-z]+$/i.test(words[1])
+    ? arity
+    : 0
 }
 
-/** Write the wire in, straight after the name: `M X` on wire 3 is `M 3 X`. */
-export function withWire(text: string, wire: number): string {
+/**
+ * Write the wires in, straight after the name, from `first` down: `M X` on
+ * wire 3 is `M 3 X`, and `CNOT` from wire 2 is `CNOT 2 3`. Written without an
+ * arrow, which puts the target last — exactly what the bare name meant.
+ */
+export function withWires(text: string, first: number, count = 1): string {
   const lead = text.length - text.trimStart().length
   const head = text.slice(lead).split(/\s/)[0]
   const end = lead + head.length
-  return `${text.slice(0, end)} ${wire}${text.slice(end)}`
+  const wires = Array.from({ length: count }, (_, i) => first + i).join(' ')
+  return `${text.slice(0, end)} ${wires}${text.slice(end)}`
 }
 
 /** Would this stand on its own as gates? Then it is not prose. */
@@ -1174,8 +1197,8 @@ function parseStatements(src: string, line: number, base?: number): Gate[] {
  *
  * Those written with wires keep them, and claim them first. The rest take the
  * lowest wires nobody on the line is using, in the order they are written —
- * so `H H` is `H 1; H 2`, and `CNOT 1 2 H` puts the H on wire 3 rather than
- * on top of the CNOT. A lone `H` is still `H 1`, and a line that was already
+ * so `H H` is `H 1; H 2`, `CNOT` is `CNOT 1 2`, and `CNOT 1 2 H` puts the H
+ * on wire 3 rather than on top of the CNOT. A lone `H` is still `H 1`, and a line that was already
  * valid means what it always meant: before, a gate with no wire took wire 1,
  * and that was only valid when nothing else on the line had it.
  */
@@ -1184,7 +1207,7 @@ function placeGates(
   lineNo: number,
   placeOf: (text: string) => number | undefined,
 ): Gate[] {
-  const open = parts.map((text) => leavesWireOut(text))
+  const open = parts.map((text) => wiresLeftOut(text))
   const read = parts.map((text, i) => (open[i] ? null : parseStatements(text, lineNo, placeOf(text))))
   const taken = new Set<number>()
   for (const gates of read) {
@@ -1195,11 +1218,14 @@ function placeGates(
     }
   }
   return parts.flatMap((text, i) => {
-    if (!open[i]) return read[i]!
-    let wire = 1
-    while (taken.has(wire)) wire++
-    taken.add(wire)
-    return parseStatements(withWire(text, wire), lineNo, undefined)
+    const count = open[i]
+    if (!count) return read[i]!
+    // A gate over several wires is drawn across a run of them, so it wants
+    // that many free in a row — the lowest such run.
+    let first = 1
+    while (Array.from({ length: count }, (_, k) => first + k).some((q) => taken.has(q))) first++
+    for (let k = 0; k < count; k++) taken.add(first + k)
+    return parseStatements(withWires(text, first, count), lineNo, undefined)
   })
 }
 
