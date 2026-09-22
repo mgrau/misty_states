@@ -132,6 +132,8 @@
       heading: 'Layers',
       rows: [
         { code: 'H 1; H 2', text: '";" pins gates into the same layer' },
+        { code: 'H X Z', text: 'A row as it is said: H 1; X 2; Z 3. A gate with no wire takes the next free one' },
+        { code: 'H1 CNOT2 3', text: 'The wire may be glued to the name' },
         { code: '---', text: 'Force a new layer' },
       ],
     },

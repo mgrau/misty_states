@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { parseCircuit, isGateRun } from './parse'
+import { removeGate, cycleTarget } from './edit'
 import { render, detectMode } from '../index'
 import type { Gate } from './ast'
 
@@ -144,5 +145,142 @@ describe('a controlled gate without its arrow', () => {
 
   it('still wants a control to go with the target', () => {
     expect(() => gate('CNOT 2')).toThrow(/at least one control/)
+  })
+})
+
+/**
+ * A row written the way it is said.
+ *
+ * `H; H`, `H H` and `H1 H2` all mean `H 1; H 2`. Three relaxations, each of
+ * which gives a meaning to something that used to be an error — so nothing
+ * already written changes what it says. (That was checked against every
+ * example and every entry of the course library, parsed and drawn before and
+ * after: all of them identical.)
+ */
+describe('a gate without its wire takes the next free one', () => {
+  it('reads H; H as H 1; H 2', () => {
+    expect(where('H; H')).toEqual(['H1', 'H2'])
+    expect(where('H; H; H')).toEqual(['H1', 'H2', 'H3'])
+  })
+
+  it('lets the wires they claim go first', () => {
+    // Written wires are claimed before the rest are handed out, lowest first,
+    // so a gate left without one never lands on top of one that has it.
+    expect(where('H 2; H')).toEqual(['H2', 'H1'])
+    expect(where('CNOT 1 2; H').filter((w) => w.startsWith('H'))).toEqual(['H3'])
+  })
+
+  it('means what a lone gate always meant', () => {
+    // Before, a gate with no wire took wire 1 — valid only when nothing else on
+    // the line had it. Wherever that was so, it is still wire 1.
+    expect(where('H')).toEqual(['H1'])
+    expect(where('H 2; H')).toEqual(['H2', 'H1'])
+    expect(parseCircuit('in 000\nview 2-3 00|11; H').layers[0].gates.map((g) =>
+      g.kind === 'single' ? g.qubit : 'view')).toEqual(['view', 1])
+  })
+})
+
+describe('a gate name starts a new gate, as ";" would', () => {
+  it('reads H H as H 1; H 2', () => {
+    expect(parseCircuit('H H')).toEqual(parseCircuit('H 1; H 2'))
+    expect(where('H X Z')).toEqual(['H1', 'controlled', 'Z3'])
+  })
+
+  it('takes gates with their wires, and gates without', () => {
+    expect(where('H 1 H 2')).toEqual(['H1', 'H2'])
+    expect(where('CNOT 1 2 H')).toEqual(['controlled', 'H3'])
+    expect(where('HH H')).toEqual(['H1', 'H2', 'H3'])
+    expect(where('RX(90) RY(90)')).toEqual(['RX1', 'RY2'])
+  })
+
+  it('keeps the row to one layer, as ";" does', () => {
+    expect(layers('H X Z')).toHaveLength(1)
+  })
+
+  it('leaves a measurement its basis', () => {
+    // X, Y and Z are gates and bases both. After a measurement they are its
+    // basis, as they always were: `M X` measures in the X basis.
+    const [m] = gatesIn('M X')
+    expect(m.kind === 'measure' && [m.qubit, m.basis]).toEqual([1, 'X'])
+    // Any other gate after one is a gate.
+    expect(where('M H')).toEqual(['measure', 'H2'])
+    expect(where('M X H')).toEqual(['measure', 'H2'])
+    expect(where('measure 1 Z H')).toEqual(['measure', 'H2'])
+  })
+
+  it('does not read into a label, a colour, or a view', () => {
+    expect(gatesIn('box "H X" 1-2')).toHaveLength(1)
+    expect(gatesIn('CNOT 1 2 "Tiger?"')).toHaveLength(1)
+    expect(gatesIn('H 1 fill=#e6f0e6')).toHaveLength(1)
+  })
+
+  it('takes annotations either side of the row', () => {
+    const doc = parseCircuit('in 00\nsplit: H H : both wires')
+    expect(doc.layers[0].caption).toBe('split')
+    expect(doc.layers[0].note).toBe('both wires')
+    expect(doc.layers[0].gates).toHaveLength(2)
+  })
+})
+
+describe('a gate glued to its wire', () => {
+  it('reads H2 as H 2', () => {
+    expect(parseCircuit('H2')).toEqual(parseCircuit('H 2'))
+    expect(where('H1 H2')).toEqual(['H1', 'H2'])
+  })
+
+  it('works for any gate, and its other wires still take spaces', () => {
+    expect(parseCircuit('CNOT1 2')).toEqual(parseCircuit('CNOT 1 2'))
+    expect(parseCircuit('M2 X')).toEqual(parseCircuit('M 2 X'))
+    expect(parseCircuit('in 00\nblank1-2')).toEqual(parseCircuit('in 00\nblank 1-2'))
+    expect(where('H1 CNOT2 3')).toEqual(['H1', 'controlled'])
+  })
+
+  it('is read as a circuit, not a state', () => {
+    for (const src of ['H2', 'H1 H2', 'H H', 'H; H', 'CNOT1 2']) expect(detectMode(src), src).toBe('circuit')
+  })
+
+  it('still refuses what it always refused', () => {
+    expect(() => parseCircuit('HH 2')).toThrow(/unknown gate "HH"/)
+    expect(() => parseCircuit('H 1 2')).toThrow(/exactly one qubit/)
+    expect(() => parseCircuit('MZ')).toThrow(/unknown gate/)
+    expect(() => parseCircuit('Q2')).toThrow(/unknown gate/)
+  })
+})
+
+/**
+ * Editing a row written in shorthand.
+ *
+ * The editor has to split a line exactly as the parser does, or a gate's place
+ * among its line-mates is wrong — and `HH` never was split that way: removing
+ * its first H took the whole line, and its second could not be removed at all.
+ * And since a gate without a wire was given the lowest one free, taking a gate
+ * away can free a lower one; the others must keep the wires they had.
+ */
+describe('editing a row written in shorthand', () => {
+  const remove = (src: string, which: number) => {
+    const doc = parseCircuit(src)
+    const out = removeGate(src, doc, doc.layers[0].gates[which])!
+    return where(out.source)
+  }
+
+  it('removes one gate of a run, not the line', () => {
+    expect(remove('HH', 0)).toEqual(['H2'])
+    expect(remove('HH', 1)).toEqual(['H1'])
+  })
+
+  it('removes one gate of a row, and the rest stay where they were', () => {
+    expect(remove('H H', 0)).toEqual(['H2'])
+    expect(remove('H X Z', 1)).toEqual(['H1', 'Z3'])
+    expect(remove('CNOT 1 2 H', 0)).toEqual(['H3'])
+  })
+
+  it('edits a gate in a row without moving its neighbours', () => {
+    const src = 'H CNOT 2 3'
+    const doc = parseCircuit(src)
+    const cnot = doc.layers[0].gates[1]
+    const out = cycleTarget(src, doc, cnot)!
+    const [h, c] = parseCircuit(out.source).layers[0].gates
+    expect(h.kind === 'single' && h.qubit).toBe(1)
+    expect(c.kind === 'controlled' && c.target).toBe(2)
   })
 })

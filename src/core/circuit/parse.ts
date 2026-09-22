@@ -256,14 +256,153 @@ function bareColons(line: string): number[] {
   return out
 }
 
-const opensWithGate = (text: string): boolean => {
-  const word = text.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
-  return GATE_KEYWORDS.has(word) || isTurn(word) || isGateRun(word)
+const opensWithGate = (text: string): boolean => startsGate(text.trim().split(/\s+/)[0] ?? '')
+
+/** One statement of a gate line, and where in that line it was written. */
+export interface Statement {
+  text: string
+  at: number
+}
+
+/** A gate name glued to its wires: `H2`, `CNOT1`, `blank1-2`. */
+const GLUED = /^([a-z]+)(\d+(?:-\d+)?)$/i
+
+/** The one-wire gates, which may leave their wire to be worked out. */
+const ONE_WIRE = new Set(['h', 'pete', 'x', 'not', 'y', 'z', 's', 't', 'i', 'id', 'identity', 'm', 'measure'])
+
+/** Does this word begin a gate — named, turned, run together, or glued to its wire? */
+function startsGate(word: string): boolean {
+  const w = word.toLowerCase()
+  if (GATE_KEYWORDS.has(w) || isTurn(w) || isGateRun(w)) return true
+  const glued = GLUED.exec(w)
+  return !!glued && GATE_KEYWORDS.has(glued[1])
+}
+
+/** Split a word glued to its wires back apart: `H2` is `H 2`. */
+export function unglue(src: string): string {
+  const lead = src.length - src.trimStart().length
+  const word = src.slice(lead).split(/\s/)[0]
+  const glued = GLUED.exec(word)
+  if (!glued || !GATE_KEYWORDS.has(glued[1].toLowerCase())) return src
+  return src.slice(0, lead) + glued[1] + ' ' + src.slice(lead + glued[1].length)
+}
+
+/**
+ * Split a gate line into its statements.
+ *
+ * `;` has always separated them. A gate's name does too, so a row can be
+ * written the way it is said — `H H`, `H X Z`, `H1 CNOT2 3` — and a run of
+ * letters is a row of one-letter gates, `HH`, each its own statement.
+ *
+ * Two things keep this from reading into what is already written. A name only
+ * ends the statement before it when that statement is itself a gate: a view's
+ * state is its own business, whatever letters it holds. And the word after a
+ * measurement that names its basis is its basis — `M X` measures in the X
+ * basis, as it always has, rather than measuring and then applying a NOT.
+ *
+ * Every statement comes back as the text it was written as, and where it was:
+ * nothing is rewritten here, so a view's qubits still know their place.
+ */
+export function splitStatements(body: string, lineNo: number): Statement[] {
+  const out: Statement[] = []
+  // The statement being gathered: where it starts and ends, and what it is.
+  let open: { at: number; end: number; gate: boolean; measure: boolean; basis: boolean } | null = null
+  const close = () => {
+    if (open) out.push({ text: body.slice(open.at, open.end), at: open.at })
+    open = null
+  }
+
+  let i = 0
+  while (i < body.length) {
+    const c = body[i]
+    if (c === ';') { close(); i++; continue }
+    if (/\s/.test(c)) { i++; continue }
+
+    // One word: a quoted label whole, and brackets whole — `RX( 90 )`.
+    const at = i
+    if (c === '"') {
+      i++
+      while (i < body.length && body[i] !== '"') i++
+      i++
+    } else {
+      let depth = 0
+      while (i < body.length) {
+        const d = body[i]
+        if (d === '(') depth++
+        else if (d === ')') depth = Math.max(0, depth - 1)
+        else if (depth === 0 && (/\s/.test(d) || d === ';' || d === '"')) break
+        i++
+      }
+    }
+    const word = body.slice(at, Math.min(i, body.length))
+    const quoted = word.startsWith('"')
+
+    const current = open as typeof open
+    const isBasis =
+      !!current?.measure && !current.basis && !quoted && /^[xyz]$/i.test(word)
+    const begins = !quoted && startsGate(word) && !isBasis && (!current || current.gate)
+
+    if (begins && isGateRun(word)) {
+      // A run is a row of one-letter gates. Given anything but another gate
+      // after it, it is not a run but a misspelling, and is left to say so.
+      close()
+      const next = body.slice(i).trimStart()
+      if (next && !next.startsWith(';') && !startsGate(next.split(/[\s;]/)[0])) {
+        throw new ParseError(`unknown gate "${word}"`, 0, lineNo)
+      }
+      for (let k = 0; k < word.length; k++) out.push({ text: word[k], at: at + k })
+      continue
+    }
+
+    if (begins || !current) {
+      close()
+      const head = (GLUED.exec(word)?.[1] ?? word).toLowerCase()
+      open = {
+        at,
+        end: i,
+        gate: startsGate(word),
+        measure: head === 'm' || head === 'measure',
+        basis: false,
+      }
+      continue
+    }
+    current.end = i
+    if (isBasis) current.basis = true
+  }
+  close()
+  return out
+}
+
+/**
+ * A one-wire gate written without its wire: `H`, `M X`, `RX(90) fill=red`.
+ *
+ * Read off the words rather than from what the gate turns out to be, so the
+ * editor can ask the same question of text it is about to rewrite.
+ */
+export function leavesWireOut(text: string): boolean {
+  const words = text.trim().split(/\s+/).filter((w) => !w.includes('='))
+  const head = words[0]?.toLowerCase() ?? ''
+  if (!ONE_WIRE.has(head) && !isTurn(head)) return false
+  if (words.length === 1) return true
+  return (head === 'm' || head === 'measure') && words.length === 2 && /^[a-z]+$/i.test(words[1])
+}
+
+/** Write the wire in, straight after the name: `M X` on wire 3 is `M 3 X`. */
+export function withWire(text: string, wire: number): string {
+  const lead = text.length - text.trimStart().length
+  const head = text.slice(lead).split(/\s/)[0]
+  const end = lead + head.length
+  return `${text.slice(0, end)} ${wire}${text.slice(end)}`
 }
 
 /** Would this stand on its own as gates? Then it is not prose. */
 function readsAsGates(text: string): boolean {
-  const parts = text.split(';').map((s) => s.trim()).filter(Boolean)
+  let parts: string[]
+  try {
+    parts = splitStatements(text, 0).map((p) => p.text)
+  } catch {
+    return false
+  }
   if (!parts.length) return false
   try {
     // The line number only ever reaches an error message, and the error is
@@ -1030,8 +1169,45 @@ function parseStatements(src: string, line: number, base?: number): Gate[] {
   return from([parseStatement(src, line, base)])
 }
 
+/**
+ * Read a line's statements, giving each gate that left its wire out one.
+ *
+ * Those written with wires keep them, and claim them first. The rest take the
+ * lowest wires nobody on the line is using, in the order they are written —
+ * so `H H` is `H 1; H 2`, and `CNOT 1 2 H` puts the H on wire 3 rather than
+ * on top of the CNOT. A lone `H` is still `H 1`, and a line that was already
+ * valid means what it always meant: before, a gate with no wire took wire 1,
+ * and that was only valid when nothing else on the line had it.
+ */
+function placeGates(
+  parts: string[],
+  lineNo: number,
+  placeOf: (text: string) => number | undefined,
+): Gate[] {
+  const open = parts.map((text) => leavesWireOut(text))
+  const read = parts.map((text, i) => (open[i] ? null : parseStatements(text, lineNo, placeOf(text))))
+  const taken = new Set<number>()
+  for (const gates of read) {
+    for (const gate of gates ?? []) {
+      if (gate.kind === 'view' && !gate.qubits.length) continue
+      const [q0, q1] = gateSpan(gate)
+      for (let q = q0; q <= q1; q++) taken.add(q)
+    }
+  }
+  return parts.flatMap((text, i) => {
+    if (!open[i]) return read[i]!
+    let wire = 1
+    while (taken.has(wire)) wire++
+    taken.add(wire)
+    return parseStatements(withWire(text, wire), lineNo, undefined)
+  })
+}
+
 /** One statement: a gate, a view, or a bare state that is therefore a view. */
 function parseStatement(src: string, line: number, base?: number): Gate {
+  // `H2` is `H 2`. Only a gate is ever glued: nothing else takes a wire, and
+  // a view's state keeps its place in the line untouched.
+  if (startsGate(src.trim().split(/\s+/)[0] ?? '')) src = unglue(src)
   const kw = src.split(/\s+/)[0].toLowerCase()
   if (kw === 'view' || kw === 'show' || kw === 'window') {
     const arg = src.slice(kw.length).trim()
@@ -1286,12 +1462,12 @@ export function parseCircuit(text: string): CircuitDoc {
 
     const kw = body.split(/\s+/)[0].toLowerCase()
     const arg = body.slice(kw.length).trim()
-    const parts = body.split(';').map((s) => s.trim()).filter(Boolean)
+    const parts = splitStatements(body, lineNo).map((p) => p.text)
 
     // A whole line that is nothing but a state takes its meaning from position.
     // Anything joined by ';' is a statement among others, so it skips this and
     // becomes a view like any other.
-    if (parts.length === 1 && !KEYWORDS.has(kw) && !isTurn(kw) && !isGateRun(kw)) {
+    if (parts.length === 1 && !KEYWORDS.has(kw) && !startsGate(kw)) {
       // A table is the finished thing rather than a state among states, so it
       // is read here but does not become a view.
       const bareTable = readTable(line, lineNo)
@@ -1440,7 +1616,7 @@ export function parseCircuit(text: string): CircuitDoc {
     // Everything else is one or more statements; ';' pins them to a single
     // layer — which is how a view of some qubits sits beside a held identity,
     // or beside a view of the others.
-    const gates = parts.flatMap((s) => parseStatements(s, lineNo, placeOf(s)))
+    const gates = placeGates(parts, lineNo, placeOf)
     for (let a = 0; a < gates.length; a++) {
       for (let b = a + 1; b < gates.length; b++) {
         if (conflicts(gates[a], gates[b])) {

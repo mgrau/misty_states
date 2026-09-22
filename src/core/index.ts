@@ -202,7 +202,11 @@ const CIRCUIT_KEYWORDS = new Set([
  * state begins with a letter, so the word before one is enough.
  */
 const isKeyword = (word: string): boolean =>
-  CIRCUIT_KEYWORDS.has(word) || CIRCUIT_KEYWORDS.has(word.split('(')[0])
+  CIRCUIT_KEYWORDS.has(word) ||
+  CIRCUIT_KEYWORDS.has(word.split('(')[0]) ||
+  // And glued to its wire — `H2`, `CNOT1`. A state's digits have no letters
+  // in front of them to be a keyword.
+  CIRCUIT_KEYWORDS.has(word.replace(/\d+(-\d+)?$/, ''))
 
 export function detectMode(source: string): 'state' | 'circuit' {
   for (const raw of source.split('\n')) {

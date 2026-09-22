@@ -17,7 +17,7 @@
 
 import type { CircuitDoc, Gate } from './ast'
 import { gateSpan } from './ast'
-import { liftGateAnnotations, parseCircuit } from './parse'
+import { leavesWireOut, liftGateAnnotations, parseCircuit, splitStatements, withWire } from './parse'
 import { resolveCalculations } from './simulate'
 import type { CircuitGeometry } from './layout'
 import type { QubitValue } from '../state/ast'
@@ -373,7 +373,21 @@ export function gateAt(doc: CircuitDoc, geometry: CircuitGeometry, at: Point): G
 }
 
 /** Splitting a gate line into the statements written on it. */
-const statements = (body: string) => body.split(';').map((part) => part.trim()).filter(Boolean)
+/**
+ * A line's statements, split exactly as the parser splits them.
+ *
+ * Not on `;` alone: `HH`, `H H` and `H1 X2` are each two statements with no
+ * `;` between them, and a gate's place among its line-mates has to be its
+ * place in *this* list. Split any other way, the two disagree — and removing
+ * the first H of `HH` took the whole line with it.
+ */
+const statements = (body: string): string[] => {
+  try {
+    return splitStatements(body, 0).map((part) => part.text)
+  } catch {
+    return body.split(';').map((part) => part.trim()).filter(Boolean)
+  }
+}
 
 /**
  * Find a gate's own statement within the line it was written on.
@@ -528,7 +542,13 @@ export function removeGate(
   if (!found) return null
   const { lines, at, parts, which, layer: layerOf } = found
 
-  const kept = parts.filter((_, i) => i !== which)
+  // A gate that left its wire out was given the lowest one free on its line,
+  // so taking a gate away can free a lower one and slide it across. Each keeps
+  // the wire it had by having it written in before anything is taken away.
+  const mates = doc.layers[layerOf].gates.filter((g) => g.line === gate.line)
+  const kept = parts
+    .map((part, i) => (leavesWireOut(part) && mates[i] ? withWire(part, gateSpan(mates[i])[0]) : part))
+    .filter((_, i) => i !== which)
   const alone = doc.layers[layerOf]?.lines.filter((l) => l === gate.line).length === 1
 
   const next = kept.length
