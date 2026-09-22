@@ -42,7 +42,7 @@ import { parseState } from '../state/parse'
 import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
 import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
-import type { ChartSpec, CircuitDoc, Gate, Layer, TableColumn, TableLine, TableSpec, ViewGate } from './ast'
+import type { ChartSpec, CircuitDoc, Gate, GateStyle, Layer, TableColumn, TableLine, TableSpec, ViewGate } from './ast'
 import type { AnimationOptions } from './animate'
 import { gateSpan } from './ast'
 
@@ -642,17 +642,25 @@ export function isGateRun(token: string): boolean {
  * The range is only taken as a range when something follows it, which is what
  * keeps `view 10` (the state `10`) apart from `view 1 0` (qubit 1, state `0`).
  */
-function parseView(arg: string, lineNo: number, boxed = false, base?: number): ViewGate {
-  // Pulled out by hand rather than through `tokenize`, which drops commas and
-  // eats quotes — both of which are state syntax the rest of this line needs.
-  let text = arg
-  let fill: string | undefined
-  const option = /(^|\s)fill=(\S*)/.exec(text)
-  if (option) {
+function parseView(
+  arg: string,
+  lineNo: number,
+  boxed = false,
+  base?: number,
+): ViewGate & GateStyle {
+  // Options come off first, blanked rather than cut, so that positions in
+  // `text` are still positions in `arg` — the state carries them.
+  const { text, found } = takeOptions(arg, ['fill', 'rows', 'width', 'height'])
+  const framed = (name: string) => {
     if (!boxed) {
-      throw new ParseError('fill= needs a frame — use "window" rather than "view"', 0, lineNo)
+      throw new ParseError(`${name}= needs a frame — use "window" rather than "view"`, 0, lineNo)
     }
-    fill = option[2]
+  }
+
+  let fill: string | undefined
+  if (found.fill !== undefined) {
+    framed('fill')
+    fill = found.fill
     if (!isColour(fill)) {
       throw new ParseError(
         fill
@@ -662,30 +670,37 @@ function parseView(arg: string, lineNo: number, boxed = false, base?: number): V
         lineNo,
       )
     }
-    text = (text.slice(0, option.index) + ' ' + text.slice(option.index + option[0].length)).trim()
   }
 
   // Room, counted in rows of qubits. Only a frame has an inside to be tall;
   // a bare view is the state itself, and is exactly as tall as that.
   let space: number | undefined
-  const room = /(^|\s)rows=(\S*)/.exec(text)
-  if (room) {
-    if (!boxed) {
-      throw new ParseError('rows= needs a frame — use "window" rather than "view"', 0, lineNo)
-    }
-    const n = Number(room[2])
-    if (!Number.isInteger(n) || n < 1 || n > MAX_ROWS) {
+  if (found.rows !== undefined) {
+    framed('rows')
+    const n = Number(found.rows)
+    if (!found.rows || !Number.isInteger(n) || n < 1 || n > MAX_ROWS) {
       throw new ParseError(`rows= takes a whole number of rows up to ${MAX_ROWS}, e.g. rows=3`, 0, lineNo)
     }
     space = n
-    text = (text.slice(0, room.index) + ' ' + text.slice(room.index + room[0].length)).trim()
   }
+
+  let width: number | undefined
+  let height: number | undefined
+  if (found.width !== undefined) {
+    framed('width')
+    width = readScale('width', found.width, lineNo)
+  }
+  if (found.height !== undefined) {
+    framed('height')
+    height = readScale('height', found.height, lineNo)
+  }
+  const style = { fill, space, width, height }
 
   const tokens = text.split(/\s+/).filter(Boolean)
 
   // Nothing to show: an empty frame, for the state at this point to be drawn
   // in by hand. `window` alone says it; `window blank` says it out loud.
-  const empty = (qubits: number[]): ViewGate => {
+  const empty = (qubits: number[]): ViewGate & GateStyle => {
     if (!boxed) {
       throw new ParseError(
         'an empty view would only break the circuit open — use "window blank" for an empty frame',
@@ -693,7 +708,7 @@ function parseView(arg: string, lineNo: number, boxed = false, base?: number): V
         lineNo,
       )
     }
-    return { kind: 'view', qubits, blank: true, boxed: true, fill, space }
+    return { kind: 'view', qubits, blank: true, boxed: true, ...style }
   }
   if (!tokens.length) {
     if (boxed) return empty([])
@@ -702,19 +717,66 @@ function parseView(arg: string, lineNo: number, boxed = false, base?: number): V
   if (tokens.length === 1 && /^blank$/i.test(tokens[0])) return empty([])
 
   let qubits: number[] = []
-  let stateText = text
+  let from = 0
   if (tokens.length > 1 && RANGE.test(tokens[0])) {
     qubits = parseQubits([{ text: tokens[0], quoted: false }], lineNo)
-    stateText = text.slice(text.indexOf(tokens[0]) + tokens[0].length)
-    if (/^\s*blank\s*$/i.test(stateText)) return empty(qubits)
+    from = text.indexOf(tokens[0]) + tokens[0].length
+    if (/^\s*blank\s*$/i.test(text.slice(from))) return empty(qubits)
   }
 
+  // Where the state starts is counted, not inferred from what is left over:
+  // an option after it would otherwise shift every qubit onto the wrong
+  // character, and a click on one would edit the option instead.
+  const rest = text.slice(from)
+  const lead = rest.length - rest.trimStart().length
   return {
-    ...viewOf(stateText, qubits, lineNo, offsetOf(arg, stateText, base)),
+    ...viewOf(rest.trim(), qubits, lineNo, base === undefined ? undefined : base + from + lead),
     boxed: boxed || undefined,
-    fill,
-    space,
+    ...style,
   }
+}
+
+/**
+ * Take `name=value` options off a line, leaving spaces where they were.
+ *
+ * Blanked rather than cut, so everything after them stays exactly where it
+ * was. A window's qubits carry their place in the source — it is how one is
+ * clicked and changed — and cutting a word out of the middle of the line
+ * moved every qubit after it onto the wrong character.
+ */
+function takeOptions(
+  text: string,
+  names: string[],
+): { text: string; found: Record<string, string> } {
+  const found: Record<string, string> = {}
+  const option = new RegExp(`(^|\\s)(${names.join('|')})=(\\S*)`, 'gi')
+  const blanked = text.replace(option, (whole, lead: string, name: string, value: string) => {
+    found[name.toLowerCase()] = value
+    return lead + ' '.repeat(whole.length - lead.length)
+  })
+  return { text: blanked, found }
+}
+
+/** The smallest and largest multiple a gate may be drawn at. */
+const MIN_SCALE = 0.25
+const MAX_SCALE = 10
+
+/**
+ * Read `width=` or `height=`: a multiple of the size the gate would take.
+ *
+ * Bounded, because `width=100` is far likelier a slip than a figure anyone
+ * wants, and a gate a hundred times its size swallows the drawing whole.
+ */
+function readScale(name: string, value: string, lineNo: number): number {
+  const n = Number(value)
+  if (!value || !Number.isFinite(n) || n < MIN_SCALE || n > MAX_SCALE) {
+    throw new ParseError(
+      `${name}= takes a multiple of the gate's own size, from ${MIN_SCALE} to ${MAX_SCALE} — e.g. ${name}=2`,
+      0,
+      lineNo,
+    )
+  }
+  return n
 }
 
 /** Past this, `rows=` is far likelier a typo than a figure anyone wants. */
@@ -975,11 +1037,56 @@ function parseStatement(src: string, line: number, base?: number): Gate {
     const arg = src.slice(kw.length).trim()
     return parseView(arg, line, kw === 'window', offsetOf(src, arg, base))
   }
-  if (KEYWORDS.has(kw) || isTurn(kw)) return parseGate(src, line)
+  if (KEYWORDS.has(kw) || isTurn(kw)) return parseSizedGate(src, line)
   if (looksLikeGateName(src)) {
     throw new ParseError(`unknown gate "${src.split(/\s+/)[0]}"`, 0, line)
   }
+  refuseFrameOptions(src, line)
   return viewOf(src, [], line, base)
+}
+
+/**
+ * A state on a line of its own is drawn as exactly what it is: it has no
+ * frame to size or paint. Said in so many words, since otherwise the state
+ * parser gets the line and can only complain about the letter `w`.
+ */
+function refuseFrameOptions(src: string, line: number): void {
+  const option = /(^|\s)(width|height|rows|fill)=/i.exec(src)
+  if (!option) return
+  const name = option[2].toLowerCase()
+  throw new ParseError(
+    `${name}= needs a frame — write it as a window, e.g. "window ${src.slice(0, option.index).trim()} ${name}=…"`,
+    0,
+    line,
+  )
+}
+
+/**
+ * A gate, with any `width=` and `height=` written on it.
+ *
+ * Taken off before the gate is read, so no gate has to know about them, and
+ * put back on the result — which is the same thing whatever kind it is.
+ */
+function parseSizedGate(src: string, line: number): Gate {
+  const { text, found } = takeOptions(src, ['width', 'height'])
+  const gate = parseGate(text, line)
+  if (found.width === undefined && found.height === undefined) return gate
+  const width = found.width === undefined ? undefined : readScale('width', found.width, line)
+  const height = found.height === undefined ? undefined : readScale('height', found.height, line)
+  // `I 2 0` is a view of its qubit, drawn bare — the state itself, unframed.
+  if (gate.kind === 'view' && !gate.boxed) {
+    throw new ParseError(
+      `${width !== undefined ? 'width' : 'height'}= needs a frame — use "window" to show a state that can be sized`,
+      0,
+      line,
+    )
+  }
+  // A pipe is as wide as a pipe. Height is another matter: a taller pipe is
+  // how a layer is given room without anything being put in it.
+  if (width !== undefined && gate.kind === 'identity') {
+    throw new ParseError('I is a plain pipe, with no box to widen — height= gives it more room', 0, line)
+  }
+  return { ...gate, ...(width !== undefined ? { width } : {}), ...(height !== undefined ? { height } : {}) }
 }
 
 /** True when two gates would overlap if placed in the same layer. */
@@ -994,8 +1101,17 @@ function parseStatement(src: string, line: number, base?: number): Gate {
 const takesEveryWire = (gate: Gate): boolean =>
   gate.kind === 'view' && (!!gate.calculate || (!!gate.blank && !gate.qubits.length))
 
+/**
+ * A gate drawn wider than its own wires.
+ *
+ * It reaches over its neighbours' columns, so whatever stood on them in the
+ * same layer would be drawn underneath it. A layer of its own is the one
+ * arrangement where that cannot happen — the same rule a window keeps.
+ */
+const widened = (gate: Gate): boolean => (gate.width ?? 1) > 1
+
 function conflicts(a: Gate, b: Gate): boolean {
-  if (takesEveryWire(a) || takesEveryWire(b)) return true
+  if (takesEveryWire(a) || takesEveryWire(b) || widened(a) || widened(b)) return true
   const [a0, a1] = gateSpan(a)
   const [b0, b1] = gateSpan(b)
   return a0 <= b1 && b0 <= a1
@@ -1233,6 +1349,7 @@ export function parseCircuit(text: string): CircuitDoc {
       if (looksLikeGateName(line)) {
         throw new ParseError(`unknown gate "${line.split(/\s+/)[0]}"`, 0, lineNo)
       }
+      refuseFrameOptions(line, lineNo)
       if (!sawGate && !input && !pendingTail) {
         input = parseState(line, placeOf(line)).rows[0]
         inputLine = lineNo
@@ -1327,14 +1444,22 @@ export function parseCircuit(text: string): CircuitDoc {
     for (let a = 0; a < gates.length; a++) {
       for (let b = a + 1; b < gates.length; b++) {
         if (conflicts(gates[a], gates[b])) {
-          throw new ParseError('gates joined by ";" overlap and cannot share a layer', 0, lineNo)
+          throw new ParseError(
+            widened(gates[a]) || widened(gates[b])
+              ? 'a gate made wider takes a layer to itself, so it cannot share one with ";"'
+              : 'gates joined by ";" overlap and cannot share a layer',
+            0,
+            lineNo,
+          )
         }
       }
     }
 
     // A snapshot is a moment between gates, so a layer holding one is fenced
-    // off at both ends: nothing packs into it, and nothing packs past it.
-    const snapshot = gates.some((g) => g.kind === 'view')
+    // off at both ends: nothing packs into it, and nothing packs past it. A
+    // gate made wider is fenced the same way — it reaches over its neighbours'
+    // wires, and whatever packed in beside it would be drawn underneath.
+    const snapshot = gates.some((g) => g.kind === 'view' || widened(g))
     groups.push({
       gates,
       breakBefore: pendingBreak || snapshot,

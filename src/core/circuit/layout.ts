@@ -20,7 +20,7 @@ import { FLAT_ATTACH, type Attach } from '../render/theme'
 import { layoutState, type DialMode } from '../state/layout'
 import { layoutTable } from './table'
 import { layoutChart } from '../chart/layout'
-import type { CircuitDoc, Gate, Layer, ViewGate } from './ast'
+import type { CircuitDoc, Gate, GateStyle, Layer, ViewGate } from './ast'
 import { gateSpan } from './ast'
 import type { Factor, StateDoc, StateRow } from '../state/ast'
 import { qubitWidth } from '../state/ast'
@@ -188,11 +188,11 @@ function gateKey(gate: Gate, seen: Map<string, number>): string {
   return `${base}#${nth}`
 }
 
-/** How tall this gate's body is drawn. */
+/** How tall this gate's body is drawn, `height=` included. */
 const bodyHeight = (gate: Gate, m: Metrics): number =>
-  gate.kind === 'controlled' && gate.labelOnLink && gate.label
+  (gate.kind === 'controlled' && gate.labelOnLink && gate.label
     ? Math.max(m.gateHeight, linkLabelReach(m) + LINK_LABEL_PAD + m.gateHeight / 2)
-    : m.gateHeight
+    : m.gateHeight) * (gate.height ?? 1)
 
 interface Interval {
   y0: number
@@ -571,7 +571,9 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   const layerHeight = (layer: Layer): number =>
     Math.max(
       ...layer.gates.map((gate) =>
-        gate.kind === 'view' ? viewHeight(gate) + 2 * VIEW_PAD : bodyHeight(gate, m),
+        gate.kind === 'view'
+          ? (viewHeight(gate) + 2 * VIEW_PAD) * (gate.height ?? 1)
+          : bodyHeight(gate, m),
       ),
     )
 
@@ -633,7 +635,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   }
 
   /** Work out where a view goes, without committing it to the drawing. */
-  const measureView = (gate: ViewGate, top: number, height: number) => {
+  const measureView = (gate: ViewGate & GateStyle, top: number, height: number) => {
     const [q0, q1] = gateSpan(gate)
     const rows = viewRows(gate)
     const heights = rows.map((r) => stateHeight(liftCaption(r).row, q0, q1))
@@ -655,7 +657,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     // more. A cloud is easily wider than the wires it describes, and a frame
     // that did not grow would crop it.
     const spanW = colX(q1) - colX(q0) + m.pipeWidth + 2 * GATE_PAD_X
-    const w = Math.max(spanW, laid.content.w + 2 * VIEW_PAD)
+    const w = Math.max(spanW, laid.content.w + 2 * VIEW_PAD) * (gate.width ?? 1)
     // The contents are already centred on the span, so centring the frame there
     // too keeps the two concentric however far either has grown.
     const mid = (colX(q0) + colX(q1)) / 2 + attach.dx
@@ -763,15 +765,29 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
           ? Math.max(0, nameChip(gate.label, m).w - m.pipeWidth) / 2
           : 0
       const h = bodyHeight(gate, m)
+      // `width=` widens about the middle of the gate's own wires, so it still
+      // sits over them — just further out on either side.
+      const natural = colX(q1) - colX(q0) + m.pipeWidth + 2 * (GATE_PAD_X + named)
+      const w = natural * (gate.width ?? 1)
       const box: Box = {
-        x: gateX(q0) - m.pipeWidth / 2 - GATE_PAD_X - named,
+        x: gateX(q0) - m.pipeWidth / 2 - GATE_PAD_X - named - (w - natural) / 2,
         // Bottom-aligned within the band its neighbours occupy: a gate that
         // grew did so upwards, so its foot — and everything below it — stays
         // put. With every gate the same height, which is every layer carrying
         // no name, this is `y`.
         y: y + bodyBand - h,
-        w: colX(q1) - colX(q0) + m.pipeWidth + 2 * (GATE_PAD_X + named),
+        w,
         h,
+      }
+      // A wire the widened gate reaches across is not one it acts on, and
+      // should not look like it. Its pipe goes over the front, as it does over
+      // a window it is not part of.
+      if (w > natural) {
+        for (let q = 1; q <= doc.qubits; q++) {
+          if (q >= q0 && q <= q1) continue
+          const x = colX(q)
+          if (x > box.x && x < box.x + box.w) passesInFront.push({ q, y0: box.y, y1: box.y + box.h })
+        }
       }
       // Where an ordinary gate's wire would be: up from the foot, not the
       // middle, so the dots and the link line up across the row.

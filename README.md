@@ -102,6 +102,22 @@ blank 1-2 fill=salmon
 H 1 fill=#ffe9c7
 ```
 
+### Size
+
+`width=` and `height=` resize any gate, as a multiple of the size it would
+otherwise take — `width=2` is twice as wide. A gate made wider takes a layer to
+itself, so nothing is ever drawn underneath it, and the wires it reaches across
+run over its front so it still reads as acting only on its own. On a plain
+pipe, `height=` is how to give a layer room with nothing in it. Both work on a
+`window`; a bare `view` is the state itself, with no frame to size.
+
+```
+H 2 width=2.5
+box "Oracle" 1-3 width=1.4 height=2
+I 1 height=3                  # room, and nothing in it
+window blank width=2 rows=2
+```
+
 ### Empty windows
 
 `window blank` — or `window` on its own — draws a frame with nothing in it, for

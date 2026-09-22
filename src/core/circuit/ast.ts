@@ -145,9 +145,24 @@ export interface ViewGate {
   space?: number
 }
 
+/**
+ * How big a gate is drawn, as a multiple of the size it would otherwise take.
+ *
+ * Any gate can be given either. A multiple rather than a length because what a
+ * gate is naturally sized by — its wires, its label, what a window holds —
+ * differs from one kind to the next, and "twice as wide" means the same thing
+ * for all of them.
+ */
+export interface GateStyle {
+  /** Written `width=`. A gate made wider takes a layer to itself. */
+  width?: number
+  /** Written `height=`. On a plain pipe, it is how a layer is given more room. */
+  height?: number
+}
+
 export type Gate = (
   | SingleGate | IdentityGate | ControlledGate | SwapGate | MeasureGate | BoxGate | ViewGate
-) & {
+) & GateStyle & {
   /**
    * The source line this was written on.
    *

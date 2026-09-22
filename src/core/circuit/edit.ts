@@ -119,6 +119,15 @@ export interface Droppable {
    * write either.
    */
   shows?: string
+  /**
+   * Options written on the gate — `fill=`, `width=`, `height=` — put back on
+   * the end of the line as they were.
+   *
+   * Only a gate already in the drawing has any. Nothing about them is visible
+   * in where the gate sits, so without carrying them a gate picked up and put
+   * down again came back plain: a coloured box moved and lost its colour.
+   */
+  options?: string
 }
 
 /**
@@ -146,7 +155,7 @@ export function gateLine(gate: Droppable, wire: number, qubits: number): string 
   if (start + gate.wires - 1 > room) start = Math.max(1, room - gate.wires + 1)
   const wires = Array.from({ length: gate.wires }, (_, i) => start + i)
   if (gate.range) {
-    return [gate.head, gate.label, `${wires[0]}-${wires[wires.length - 1]}`, gate.tail]
+    return [gate.head, gate.label, `${wires[0]}-${wires[wires.length - 1]}`, gate.tail, gate.options]
       .filter(Boolean)
       .join(' ')
   }
@@ -159,7 +168,7 @@ export function gateLine(gate: Droppable, wire: number, qubits: number): string 
   const controls = wires.filter((w) => w !== target)
   const arrow = gate.arrow || (controls.length > 0 && at !== gate.wires - 1)
   const span = arrow ? [...controls, '->', target].join(' ') : wires.join(' ')
-  return [gate.head, gate.label, span, gate.tail].filter(Boolean).join(' ')
+  return [gate.head, gate.label, span, gate.tail, gate.options].filter(Boolean).join(' ')
 }
 
 /** Lines that only set something up, and that a gate belongs after rather than before. */
@@ -596,9 +605,16 @@ export function moveGate(
   // is the whole statement, and blanking `shows` for it would put the view back
   // as a bare `view` with no state to show.
   const rest = gate.kind === 'view' && written ? written.replace(/^\s*\S+\s*/, '').trim() : ''
+  // A gate's options travel the same way: read off what was written, since
+  // nothing about where it sits says what colour or size it was.
+  const options =
+    gate.kind !== 'view' && written
+      ? (written.match(/(?:^|\s)(?:fill|width|height)=\S+/gi) ?? []).map((o) => o.trim()).join(' ')
+      : ''
   return insertGate(cut.source, reduced, afterRemoval(target, cut.layerRemoved), {
     ...moved,
     ...(rest ? { shows: rest } : {}),
+    ...(options ? { options } : {}),
     arrow: written?.includes('->') || undefined,
   })
 }

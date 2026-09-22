@@ -145,6 +145,7 @@
         { code: 'view 2-3 00|11', text: 'A view of some qubits; the rest flow past' },
         { code: 'window 010', text: 'The same, framed with a pane; fill= colours the pane' },
         { code: 'window blank rows=2', text: 'An empty frame to draw in; rows= is its height, in rows of qubits' },
+        { code: 'H 1 width=2 height=1.5', text: 'Any gate or window, as a multiple of its size. Wider takes a layer to itself' },
         { code: 'I 2 0', text: 'An identity that shows what its qubit holds' },
       ],
     },
