@@ -195,13 +195,29 @@ const CIRCUIT_KEYWORDS = new Set([
  * A cheap first pass: a captioned state like `measure : 00|11` will be guessed
  * wrong, which `render` then corrects by falling back to the other parser.
  */
+/**
+ * A word that only a circuit would begin a line with.
+ *
+ * It can carry its brackets with it — `tabulate(p, a)`, `chart(p)` — and no
+ * state begins with a letter, so the word before one is enough.
+ */
+const isKeyword = (word: string): boolean =>
+  CIRCUIT_KEYWORDS.has(word) || CIRCUIT_KEYWORDS.has(word.split('(')[0])
+
 export function detectMode(source: string): 'state' | 'circuit' {
   for (const raw of source.split('\n')) {
     const line = raw.replace(/(^|\s)#.*$/, '').trim()
     if (!line) continue
     if (/^-{3,}$/.test(line)) return 'circuit'
     const first = line.split(/[\s;]+/)[0].toLowerCase()
-    if (CIRCUIT_KEYWORDS.has(first)) return 'circuit'
+    if (isKeyword(first)) return 'circuit'
+    // A caption can stand in front of anything — `Lab data: tabulate 0 = 48%`
+    // — so the word after one counts as much as the first. A state's caption
+    // is followed by a state, and no state begins with a letter.
+    const colon = line.indexOf(':')
+    if (colon > 0 && isKeyword(line.slice(colon + 1).trim().split(/[\s;]+/)[0].toLowerCase())) {
+      return 'circuit'
+    }
     // `RZ(45)` is one word, and a bracket is the last thing a state can start with.
     if (/^(rx|ry|rz|p)\(\s*-?[\d.]+\s*\)$/.test(first)) return 'circuit'
     // `HH` is a row of gates, not a keyword and not anything a state could be.

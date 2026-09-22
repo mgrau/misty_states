@@ -77,6 +77,7 @@ out calculate
 | `shape ^os` | Per-wire shapes |
 | `chart` | Bar chart of amplitudes or probabilities |
 | `tabulate` | Outcome table |
+| `tabulate 00 = 1/2, 11 = 1/2` | Outcome table written by hand |
 | `animate` | CSS animation |
 | `HH` | Shorthand: `H 1; H 2` |
 | `;` | Same layer: `H 1; X 2` |
@@ -115,6 +116,20 @@ says so. A measurement forward produces one row per outcome with its odds.
 `chart` draws a bar per basis state — amplitude (coloured, signed) by default,
 or `chart(probability)` (grey, unsigned). `tabulate` draws an outcome table.
 Both go where an output goes.
+
+A table can also be written out by hand — outcomes, `=`, then one value per
+column after the outcome, in the order the columns are written. Nothing is
+calculated: the values are drawn exactly as typed (`1/2`, `50%`, `0.48`), so a
+table can record lab data, show a wrong answer to discuss, or stand alone with
+no circuit at all. `_`, or no `=` at all, leaves a cell blank for a student.
+
+```
+tabulate 00 = 1/2, 11 = 1/2
+tabulate(outcome, amplitude, probability) 00 = 1 1/2, 11 = -1 1/2
+tabulate 0|1 = 50%, 0|-1 = 50%
+Lab data: tabulate 0 = 48%, 1 = 52% : 1000 shots
+tabulate 00, 01, 10, 11
+```
 
 ### Animation
 

@@ -252,6 +252,12 @@ export const EXAMPLES: Example[] = [
     ].join('\n'),
   },
   {
+    id: 'tabulate-by-hand',
+    title: 'Table — written by hand',
+    note: 'Outcomes and chances written out rather than worked out, and drawn exactly as typed: a count from the lab, an exercise, a wrong answer to talk through. Leave out the = for a blank cell.',
+    source: 'Lab data: tabulate 00 = 49%, 01 = 1%, 10 = 1%, 11 = 49% : 1000 shots',
+  },
+  {
     id: 'chart',
     title: 'Circuit — amplitudes as a plot',
     note: 'Every basis state gets a bar, empty ones included — a term that has cancelled is a bar that is not there, which is what makes interference visible. Blue above the axis, red below, deepening with the size of the term.',

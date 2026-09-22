@@ -1067,7 +1067,10 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
   const wanted = doc.layers.some((l) =>
     l.gates.some((g) => g.kind === 'view' && g.calculate),
   )
-  if (!wanted && !doc.calculateOutput && !doc.calculateInput && !doc.table && !doc.chart) {
+  // A table written out by hand asks for no arithmetic: it says what it says,
+  // and a circuit it sits under need not be one the simulator can follow.
+  const tableWanted = !!doc.table && !doc.table.given
+  if (!wanted && !doc.calculateOutput && !doc.calculateInput && !tableWanted && !doc.chart) {
     return doc
   }
 
@@ -1092,7 +1095,7 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
 
   // Refuses the same way `calculate` does when the arithmetic cannot be
   // followed — a table of nothing would be worse than being told why.
-  const table = doc.table ? { ...doc.table, lines: tableLines(doc, opts) } : undefined
+  const table = tableWanted ? { ...doc.table!, lines: tableLines(doc, opts) } : doc.table
   const chart = doc.chart
     ? { ...doc.chart, ...chartBars(doc, doc.layers.length, opts) }
     : undefined

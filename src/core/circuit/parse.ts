@@ -42,7 +42,7 @@ import { parseState } from '../state/parse'
 import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
 import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
-import type { ChartSpec, CircuitDoc, Gate, Layer, TableColumn, TableSpec, ViewGate } from './ast'
+import type { ChartSpec, CircuitDoc, Gate, Layer, TableColumn, TableLine, TableSpec, ViewGate } from './ast'
 import type { AnimationOptions } from './animate'
 import { gateSpan } from './ast'
 
@@ -391,7 +391,13 @@ function liftAnswer(line: string): { asked: boolean; line: string } {
   return { asked: false, line }
 }
 
-const TABLE_LINE = /^(?:tabulate|table)\s*(?:\(([^)]*)\))?\s*(?::\s*(.*?))?\s*$/i
+/**
+ * `tabulate`, its columns, rows written by hand, and a note.
+ *
+ * Rows stop at a colon because a colon is where a note begins, as it does on
+ * every other line — and nothing a row holds has any use for one.
+ */
+const TABLE_LINE = /^(?:tabulate|table)\b\s*(?:\(([^)]*)\))?\s*([^:]*?)\s*(?::\s*(.*?))?\s*$/i
 
 /** What a column may be called, beyond its own name. */
 const COLUMN_NAMES: Record<string, TableColumn['kind']> = {
@@ -442,10 +448,12 @@ function readTable(text: string, lineNo: number): TableSpec | null {
   const read = (src: string, caption?: string): TableSpec | null => {
     const hit = TABLE_LINE.exec(src)
     if (!hit) return null
+    const columns = hit[1] === undefined ? DEFAULT_COLUMNS : parseColumns(hit[1], lineNo)
     return {
-      columns: hit[1] === undefined ? DEFAULT_COLUMNS : parseColumns(hit[1], lineNo),
+      columns,
       caption,
-      note: hit[2] || undefined,
+      note: hit[3] || undefined,
+      ...(hit[2] ? { lines: parseRows(hit[2], columns, lineNo), given: true } : {}),
     }
   }
 
@@ -454,6 +462,73 @@ function readTable(text: string, lineNo: number): TableSpec | null {
 
   const { caption, rest } = splitCaption(trimmed)
   return read(rest, caption)
+}
+
+/**
+ * Rows written out by hand: `tabulate 00 = 1/2, 11 = 1/2`.
+ *
+ * Each is an outcome, then — after `=` — one value for each column that is not
+ * the outcome itself, in the order the columns were written. The values are
+ * drawn exactly as they are written. A table put together by hand is a claim:
+ * an exercise, a wrong answer to talk through, a measurement from the lab,
+ * cells left for a student. None of those is the arithmetic's to correct, and
+ * `1/2`, `50%` and `½` are all ways a person might want it said.
+ *
+ * `_`, or nothing after the outcome at all, leaves a cell empty — which is how
+ * a worksheet lists the possibilities and asks for the chances.
+ */
+function parseRows(text: string, columns: TableColumn[], lineNo: number): TableLine[] {
+  const values = columns.filter((c) => c.kind !== 'possibility')
+  return splitTopLevel(text, ',')
+    .map((row) => row.trim())
+    .filter(Boolean)
+    .map((row) => {
+      const eq = row.indexOf('=')
+      const outcome = (eq < 0 ? row : row.slice(0, eq)).trim()
+      const given = eq < 0 ? [] : row.slice(eq + 1).trim().split(/\s+/).filter(Boolean)
+      if (!outcome) {
+        throw new ParseError(`"${row}" has no outcome before its "="`, 0, lineNo)
+      }
+      if (given.length > values.length) {
+        throw new ParseError(
+          values.length === 1
+            ? `${outcome} has ${given.length} values, but the table has one column to put them in`
+            : `${outcome} has ${given.length} values, but the table has ${values.length} columns to put them in`,
+          0,
+          lineNo,
+        )
+      }
+      let state
+      try {
+        state = parseState(outcome).rows[0]
+      } catch (e) {
+        throw new ParseError(`"${outcome}" is not an outcome — ${(e as Error).message}`, 0, lineNo)
+      }
+      const cell = (kind: TableColumn['kind']) => {
+        const at = values.findIndex((c) => c.kind === kind)
+        const value = at < 0 ? undefined : given[at]
+        return value === undefined || value === '_' ? undefined : value
+      }
+      return { state, probability: cell('probability'), amplitude: cell('amplitude') }
+    })
+}
+
+/** Split on a separator, except inside brackets — a cloud may hold one. */
+function splitTopLevel(text: string, sep: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (c === '(') depth++
+    else if (c === ')') depth = Math.max(0, depth - 1)
+    else if (c === sep && depth === 0) {
+      parts.push(text.slice(start, i))
+      start = i + 1
+    }
+  }
+  parts.push(text.slice(start))
+  return parts
 }
 
 /**
@@ -1066,7 +1141,10 @@ export function parseCircuit(text: string): CircuitDoc {
       // is read here but does not become a view.
       const bareTable = readTable(line, lineNo)
       if (bareTable) {
-        if (!sawGate && !input) {
+        // Only a table that is worked out needs something to work it out from.
+        // One written by hand stands on its own — with no circuit above it at
+        // all, if that is the whole figure.
+        if (!bareTable.given && !sawGate && !input) {
           throw new ParseError(
             'tabulate is worked out from the input, so it cannot be the input',
             0,

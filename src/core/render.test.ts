@@ -56,6 +56,17 @@ describe('kind detection', () => {
     expect(detectMode('50%: 00(0|-1)')).toBe('state')
   })
 
+  it('knows a keyword that carries its brackets', () => {
+    // Once the only thing a table-only figure could start with, and once read
+    // as a state that begins with a `t`.
+    expect(detectMode('tabulate(outcome, probability) 0 = 1/2, 1 = 1/2')).toBe('circuit')
+    expect(detectMode('chart(probability)')).toBe('circuit')
+  })
+
+  it('looks past a caption to the keyword behind it', () => {
+    expect(detectMode('Lab data: tabulate 0 = 48%, 1 = 52%')).toBe('circuit')
+  })
+
   it('recovers when the guess is wrong', () => {
     // The caption starts with a gate keyword, so the cheap guess says circuit;
     // it does not parse as one, so rendering falls back to state.

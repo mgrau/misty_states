@@ -47,7 +47,7 @@ function cellFor(col: TableColumn, line: TableLine, opts: TableLayoutOptions): C
     case 'probability':
       return { kind: 'text', text: line.probability ?? '' }
     case 'amplitude':
-      return { kind: 'text', text: line.amplitude }
+      return { kind: 'text', text: line.amplitude ?? '' }
   }
 }
 

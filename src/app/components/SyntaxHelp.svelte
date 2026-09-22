@@ -182,6 +182,8 @@
       rows: [
         { code: 'tabulate', text: 'The outcomes as a table ("table" too)' },
         { code: 'tabulate(state, amp, p)', text: 'Which columns, and p="Chance" renames one' },
+        { code: 'tabulate 00 = 1/2, 11 = 1/2', text: 'Written by hand, drawn as typed — nothing is worked out' },
+        { code: 'tabulate 00, 01, 10, 11', text: 'Blank cells, for students to fill in' },
         { code: 'chart', text: 'A bar per basis state — signed amplitudes ("plot" too)' },
         { code: 'chart(probability)', text: 'The chances instead, all positive and uncoloured' },
       ],

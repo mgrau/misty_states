@@ -209,6 +209,93 @@ describe('drawing it', () => {
   })
 })
 
+/**
+ * A table written out by hand.
+ *
+ * Every row above is worked out; these are *said*. The outcomes and their
+ * chances are whatever the author writes — an exercise, a wrong answer to talk
+ * through, a count from the lab, cells left for a student — so the property
+ * here is the opposite one: nothing is calculated, corrected or reduced, and
+ * what was written is what is drawn.
+ */
+describe('written by hand', () => {
+  const rows = (src: string) => doc(src).table!.lines!
+
+  it('lists outcomes and their chances, as written', () => {
+    const lines = rows('tabulate 00 = 1/2, 11 = 1/2')
+    expect(lines.map((l) => l.probability)).toEqual(['1/2', '1/2'])
+    expect(doc('tabulate 00 = 1/2, 11 = 1/2').table!.given).toBe(true)
+  })
+
+  it('draws the numbers however they were put', () => {
+    expect(rows('tabulate 0 = 48%, 1 = 52%').map((l) => l.probability)).toEqual(['48%', '52%'])
+    expect(rows('tabulate 0 = 0.9, 1 = 0.1').map((l) => l.probability)).toEqual(['0.9', '0.1'])
+  })
+
+  it('stands on its own, with no circuit above it', () => {
+    // A worked-out table has nothing to work from without one; this does.
+    expect(() => render('tabulate 0 = 1/2, 1 = 1/2')).not.toThrow()
+    expect(() => render('tabulate')).toThrow(/cannot be the input/)
+  })
+
+  it('works nothing out, even under a circuit that could be', () => {
+    const src = 'in 00\nH 1\nCNOT 1 -> 2\ntabulate 00 = 1/3, 11 = 2/3'
+    const table = resolveCalculations(doc(src), {}).table!
+    // A deliberately wrong table stays wrong: that may be the point of it.
+    expect(table.lines!.map((l) => l.probability)).toEqual(['1/3', '2/3'])
+  })
+
+  it('sits under a circuit the arithmetic cannot follow', () => {
+    expect(() => render('in 00\nbox "Oracle" 1-2\ntabulate 00 = 0.9, 11 = 0.1')).not.toThrow()
+  })
+
+  it('fills the columns in the order they were written', () => {
+    const lines = rows('tabulate(outcome, amplitude, probability) 00 = 1 1/2, 11 = -1 1/2')
+    expect(lines.map((l) => [l.amplitude, l.probability])).toEqual([['1', '1/2'], ['-1', '1/2']])
+    const flipped = rows('tabulate(probability, outcome, amplitude) 0 = 1/2 1')
+    expect([flipped[0].probability, flipped[0].amplitude]).toEqual(['1/2', '1'])
+  })
+
+  it('takes any state as an outcome, a cloud included', () => {
+    // An X measurement's outcomes are exactly these two.
+    const lines = rows('tabulate 0|1 = 1/2, 0|-1 = 1/2')
+    expect(lines).toHaveLength(2)
+    expect(lines[0].state.sides[0].factors[0].kind).toBe('cloud')
+  })
+
+  it('leaves a cell empty for a student to fill', () => {
+    expect(rows('tabulate 00, 01, 10, 11').map((l) => l.probability)).toEqual(
+      [undefined, undefined, undefined, undefined],
+    )
+    const some = rows('tabulate(outcome, amp, p) 0 = _ 1/3, 1 = 2')
+    expect([some[0].amplitude, some[0].probability]).toEqual([undefined, '1/3'])
+    expect([some[1].amplitude, some[1].probability]).toEqual(['2', undefined])
+  })
+
+  it('draws an empty cell as empty, not as a missing number', () => {
+    const cells = texts(layoutCircuit(doc('tabulate 00, 11')).prims).map((t) => t.text)
+    expect(cells).toEqual(['Possibility', 'Probability'])
+  })
+
+  it('takes a caption and a note, like any other line', () => {
+    const table = doc('Lab data: tabulate 0 = 48%, 1 = 52% : 1000 shots').table!
+    expect(table.caption).toBe('Lab data')
+    expect(table.note).toBe('1000 shots')
+    expect(table.lines).toHaveLength(2)
+  })
+
+  it('forgives a trailing comma', () => {
+    expect(rows('tabulate 0 = 1/2, 1 = 1/2,')).toHaveLength(2)
+  })
+
+  it('says what is wrong rather than guessing', () => {
+    expect(() => doc('tabulate 00 = 1/2 1/2')).toThrow(/2 values, but the table has one column/)
+    expect(() => doc('tabulate(outcome, amp, p) 0 = 1 2 3')).toThrow(/3 values, but the table has 2 columns/)
+    expect(() => doc('tabulate 0x = 1/2')).toThrow(/"0x" is not an outcome/)
+    expect(() => doc('tabulate = 1/2')).toThrow(/no outcome/)
+  })
+})
+
 describe('it changes nothing else', () => {
   it('leaves a circuit without one exactly as it was', () => {
     const src = 'in 00\nH 1\nCNOT 1 -> 2\nout calculate'

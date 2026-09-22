@@ -202,7 +202,8 @@ export interface TableColumn {
 export interface TableLine {
   state: StateRow
   probability?: string
-  amplitude: string
+  /** Always there once worked out; a table written by hand may leave it out. */
+  amplitude?: string
 }
 
 /** Written `tabulate`: the outcomes as a table rather than a stack of states. */
@@ -210,8 +211,14 @@ export interface TableSpec {
   columns: TableColumn[]
   caption?: string
   note?: string
-  /** Filled in by `resolveCalculations`; absent until the circuit is run. */
+  /**
+   * Filled in by `resolveCalculations`; absent until the circuit is run —
+   * unless the rows were written out by hand, in which case they are here from
+   * the start and nothing is worked out at all.
+   */
   lines?: TableLine[]
+  /** The rows were written, not calculated: `tabulate 00 = 1/2, 11 = 1/2`. */
+  given?: boolean
 }
 
 /**
