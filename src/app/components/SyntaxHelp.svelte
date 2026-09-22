@@ -144,6 +144,7 @@
         { code: '0(0|1)0', text: 'Between gates it is a view — the state at that point' },
         { code: 'view 2-3 00|11', text: 'A view of some qubits; the rest flow past' },
         { code: 'window 010', text: 'The same, framed with a pane; fill= colours the pane' },
+        { code: 'window blank rows=2', text: 'An empty frame to draw in; rows= is its height, in rows of qubits' },
         { code: 'I 2 0', text: 'An identity that shows what its qubit holds' },
       ],
     },

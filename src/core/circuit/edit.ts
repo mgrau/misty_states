@@ -633,7 +633,7 @@ export function asDroppable(gate: Gate): Droppable {
       return {
         head: gate.boxed ? 'window' : 'view',
         wires,
-        shows: gate.calculate ? 'calculate' : undefined,
+        shows: gate.calculate ? 'calculate' : gate.blank ? 'blank' : undefined,
       }
     case 'box':
       return {

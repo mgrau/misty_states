@@ -665,22 +665,60 @@ function parseView(arg: string, lineNo: number, boxed = false, base?: number): V
     text = (text.slice(0, option.index) + ' ' + text.slice(option.index + option[0].length)).trim()
   }
 
+  // Room, counted in rows of qubits. Only a frame has an inside to be tall;
+  // a bare view is the state itself, and is exactly as tall as that.
+  let space: number | undefined
+  const room = /(^|\s)rows=(\S*)/.exec(text)
+  if (room) {
+    if (!boxed) {
+      throw new ParseError('rows= needs a frame — use "window" rather than "view"', 0, lineNo)
+    }
+    const n = Number(room[2])
+    if (!Number.isInteger(n) || n < 1 || n > MAX_ROWS) {
+      throw new ParseError(`rows= takes a whole number of rows up to ${MAX_ROWS}, e.g. rows=3`, 0, lineNo)
+    }
+    space = n
+    text = (text.slice(0, room.index) + ' ' + text.slice(room.index + room[0].length)).trim()
+  }
+
   const tokens = text.split(/\s+/).filter(Boolean)
-  if (!tokens.length) throw new ParseError('view needs a state, e.g. view 00|11', 0, lineNo)
+
+  // Nothing to show: an empty frame, for the state at this point to be drawn
+  // in by hand. `window` alone says it; `window blank` says it out loud.
+  const empty = (qubits: number[]): ViewGate => {
+    if (!boxed) {
+      throw new ParseError(
+        'an empty view would only break the circuit open — use "window blank" for an empty frame',
+        0,
+        lineNo,
+      )
+    }
+    return { kind: 'view', qubits, blank: true, boxed: true, fill, space }
+  }
+  if (!tokens.length) {
+    if (boxed) return empty([])
+    throw new ParseError('view needs a state, e.g. view 00|11', 0, lineNo)
+  }
+  if (tokens.length === 1 && /^blank$/i.test(tokens[0])) return empty([])
 
   let qubits: number[] = []
   let stateText = text
   if (tokens.length > 1 && RANGE.test(tokens[0])) {
     qubits = parseQubits([{ text: tokens[0], quoted: false }], lineNo)
     stateText = text.slice(text.indexOf(tokens[0]) + tokens[0].length)
+    if (/^\s*blank\s*$/i.test(stateText)) return empty(qubits)
   }
 
   return {
     ...viewOf(stateText, qubits, lineNo, offsetOf(arg, stateText, base)),
     boxed: boxed || undefined,
     fill,
+    space,
   }
 }
+
+/** Past this, `rows=` is far likelier a typo than a figure anyone wants. */
+const MAX_ROWS = 20
 
 /** Build a view, checking that the state is as wide as the span it claims. */
 /**
@@ -953,7 +991,8 @@ function parseStatement(src: string, line: number, base?: number): Gate {
  * not overlap — when in truth it is about to cover everything. Nothing may sit
  * beside it.
  */
-const takesEveryWire = (gate: Gate): boolean => gate.kind === 'view' && !!gate.calculate
+const takesEveryWire = (gate: Gate): boolean =>
+  gate.kind === 'view' && (!!gate.calculate || (!!gate.blank && !gate.qubits.length))
 
 function conflicts(a: Gate, b: Gate): boolean {
   if (takesEveryWire(a) || takesEveryWire(b)) return true
@@ -1328,7 +1367,12 @@ export function parseCircuit(text: string): CircuitDoc {
   // whatever the register turns out to be, so it is filled in below rather than
   // counted here. Everything else sets the width, states included: `in 000`
   // over a single gate on wire 1 is still a three-qubit circuit.
-  const pending = gates.filter((g): g is ViewGate => g.kind === 'view' && !!g.calculate)
+  // An empty frame given no span is the same: it is room for the whole
+  // register, whatever width that turns out to be.
+  const pending = gates.filter(
+    (g): g is ViewGate =>
+      g.kind === 'view' && (!!g.calculate || (!!g.blank && !g.qubits.length)),
+  )
   const used = gates.filter((g) => !pending.includes(g as ViewGate)).flatMap((g) => gateSpan(g))
   const qubits = Math.max(
     declared,

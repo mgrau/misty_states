@@ -106,6 +106,13 @@ export const GATE_GALLERY: GateGroup[] = [
         source: 'qubits 2\nwindow ??',
         drop: { head: 'window', wires: 1, shows: 'calculate' },
       },
+      {
+        code: 'window blank',
+        name: 'Empty window',
+        text: 'A frame with nothing in it, for the state to be drawn in. rows=3 gives it room for three',
+        source: 'qubits 2\nwindow blank',
+        drop: { head: 'window', wires: 1, shows: 'blank' },
+      },
     ],
   },
   {

@@ -561,6 +561,14 @@ describe('moving a view that is already in the drawing', () => {
       .toBe('in 00\nH 1\nCNOT 1 2\nwindow calculate')
   })
 
+  it('keeps an empty frame empty, and keeps its room', () => {
+    expect(move('in 00\nH 1\nwindow blank rows=3\nCNOT 1 2', below))
+      .toBe('in 00\nH 1\nCNOT 1 2\nwindow blank rows=3')
+    // Written bare, it comes back saying what it is.
+    expect(move('in 00\nH 1\nwindow\nCNOT 1 2', below))
+      .toBe('in 00\nH 1\nCNOT 1 2\nwindow blank')
+  })
+
   it('does not fit a bare view with a frame it never had', () => {
     expect(move('in 00\nH 1\nview 00|11\nCNOT 1 2', below))
       .toBe('in 00\nH 1\nCNOT 1 2\nview 00|11')

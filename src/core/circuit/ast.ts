@@ -130,6 +130,19 @@ export interface ViewGate {
   boxed?: boolean
   /** Fill for the frame, when it should not be the default paper. */
   fill?: string
+  /**
+   * Written `window blank`, or `window` alone: a frame with nothing in it, for
+   * the state at that point to be drawn in by hand.
+   */
+  blank?: boolean
+  /**
+   * Written `rows=N`: at least this many rows of room, whatever the frame holds.
+   *
+   * A row is the height a plain row of qubits draws at, and rows are stacked
+   * with the gap a list of outcomes leaves between them — so an empty frame
+   * asked for two has exactly the room two outcomes would have taken.
+   */
+  space?: number
 }
 
 export type Gate = (

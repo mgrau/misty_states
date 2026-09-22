@@ -24,6 +24,7 @@ import type { CircuitDoc, Gate, Layer, ViewGate } from './ast'
 import { gateSpan } from './ast'
 import type { Factor, StateDoc, StateRow } from '../state/ast'
 import { qubitWidth } from '../state/ast'
+import { parseState } from '../state/parse'
 
 export interface CircuitLayoutOptions {
   metrics?: Metrics
@@ -303,6 +304,7 @@ function spreadOverColumns(pieces: { laid: Layout; mid: number }[], gap: number)
  * than something a source file can cause.
  */
 function viewRows(gate: ViewGate): StateRow[] {
+  if (gate.blank) return []
   if (!gate.rows?.length) throw new Error('a calculated view reached layout unresolved')
   return gate.rows
 }
@@ -568,14 +570,35 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
    */
   const layerHeight = (layer: Layer): number =>
     Math.max(
-      ...layer.gates.map((gate) => {
-        if (gate.kind !== 'view') return bodyHeight(gate, m)
-        const [q0, q1] = gateSpan(gate)
-        const rows = viewRows(gate).map((r) => stateHeight(liftCaption(r).row, q0, q1))
-        const stacked = rows.reduce((a, b) => a + b, 0) + ROW_GAP * (rows.length - 1)
-        return stacked + 2 * VIEW_PAD
-      }),
+      ...layer.gates.map((gate) =>
+        gate.kind === 'view' ? viewHeight(gate) + 2 * VIEW_PAD : bodyHeight(gate, m),
+      ),
     )
+
+  /**
+   * How much room `rows=N` is: N rows of plain qubits across the view's wires,
+   * with the gap a stack of outcomes leaves between them. Measured off a real
+   * row rather than worked out from the metrics, so it follows the qubit size
+   * and the shapes the way a drawn row would.
+   */
+  const roomFor = (n: number, q0: number, q1: number): number => {
+    const row = parseState('?'.repeat(q1 - q0 + 1)).rows[0]
+    return n * stateHeight(row, q0, q1) + ROW_GAP * (n - 1)
+  }
+
+  /**
+   * A view's inside: its rows stacked, or the room it asked for if that is
+   * more. Room is a floor, never a ceiling — a frame that cropped what it was
+   * showing would be lying about the state. An empty one has a row by default,
+   * which is the room a single state takes.
+   */
+  const viewHeight = (gate: ViewGate): number => {
+    const [q0, q1] = gateSpan(gate)
+    const rows = viewRows(gate).map((r) => stateHeight(liftCaption(r).row, q0, q1))
+    const stacked = rows.length ? rows.reduce((a, b) => a + b, 0) + ROW_GAP * (rows.length - 1) : 0
+    const room = gate.space ?? (gate.blank ? 1 : 0)
+    return Math.max(stacked, room ? roomFor(room, q0, q1) : 0)
+  }
 
   /**
    * Place every view in a layer, keeping them off each other.
@@ -617,8 +640,11 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     const stacked = heights.reduce((a, b) => a + b, 0) + ROW_GAP * (rows.length - 1)
     // Centred in the layer rather than pinned below its top, so a short state
     // still lines up with a taller one sharing the layer. With a layer of its
-    // own this leaves exactly VIEW_PAD of clear pipe above and below.
-    const laid = placeStack(rows, top + (height - stacked) / 2, q0, q1)
+    // own this leaves exactly VIEW_PAD of clear pipe above and below. An empty
+    // frame has nothing to place, and is exactly as wide as its wires.
+    const laid = rows.length
+      ? placeStack(rows, top + (height - stacked) / 2, q0, q1)
+      : { prims: [] as Prim[], box: { x: colX(q0), y: top, w: 0, h: 0 }, content: { x: 0, y: 0, w: 0, h: 0 } }
 
     // A frame is plumbed in like a gate: it takes the full layer, the pipes
     // meet it at the junction the theme describes, and its contents sit on the

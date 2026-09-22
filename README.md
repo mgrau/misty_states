@@ -71,6 +71,7 @@ out calculate
 | `out calculate` | Calculated output state |
 | `calculate` | The state at this point, worked out |
 | `window calculate` | The same, framed and plumbed in |
+| `window blank rows=2` | An empty frame, two rows tall |
 | `view 2-3 00\|11` | View of some qubits |
 | `header on` | Label columns with shapes |
 | `qubits 3` | Set register width (usually inferred) |
@@ -99,6 +100,21 @@ since a colour needs a frame to sit in.
 box "Oracle" 1-2 fill=#e6f0e6
 blank 1-2 fill=salmon
 H 1 fill=#ffe9c7
+```
+
+### Empty windows
+
+`window blank` — or `window` on its own — draws a frame with nothing in it, for
+the state at that point to be drawn in by hand. `rows=N` sets how tall a window
+is, counted in rows of qubits: a row is exactly the height a plain row of
+qubits takes, so `window blank rows=2` leaves precisely the room two measured
+outcomes would. On a window that does show something, `rows=` is a floor, never
+a ceiling — it adds room but never crops what is there.
+
+```
+window blank rows=2
+window 2-3 blank          # just wires 2 and 3
+window calculate rows=3   # the state, with room to spare
 ```
 
 ### Calculated states

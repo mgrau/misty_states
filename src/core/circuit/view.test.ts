@@ -364,6 +364,83 @@ describe('a window is a frame plumbed into the circuit', () => {
   })
 })
 
+/**
+ * An empty window, and how tall a window is.
+ *
+ * A frame with nothing in it is where the state at that point gets drawn by
+ * hand — on a worksheet, on a slide before the answer. What matters is that it
+ * is the *right size*: a row is exactly the height a plain row of qubits takes,
+ * so an empty frame asked for two rows has precisely the room two outcomes
+ * would have drawn in, and filling it in later does not move anything.
+ */
+describe('an empty window, and room for rows', () => {
+  const height = (src: string) => render(src, { check: false }).height
+  const around = (mid: string) => `in 00\nH 1\n${mid}\nCNOT 1 2`
+
+  it('is written as `window` alone, or `window blank`', () => {
+    for (const line of ['window', 'window blank', 'window BLANK']) {
+      const [v] = views(around(line))
+      expect(v.blank, line).toBe(true)
+      expect(v.boxed, line).toBe(true)
+      expect(v.rows, line).toBeUndefined()
+    }
+  })
+
+  it('covers the whole register unless told which wires', () => {
+    expect(views('in 000\nH 1\nwindow blank\nCNOT 1 2')[0].qubits).toEqual([1, 2, 3])
+    expect(views('in 000\nH 1\nwindow 2-3 blank\nCNOT 1 2')[0].qubits).toEqual([2, 3])
+  })
+
+  it('takes one row of room by default — the room a single state takes', () => {
+    expect(height(around('window blank'))).toBe(height(around('window ??')))
+  })
+
+  it('takes exactly the room its rows would, filled in', () => {
+    // The point of an empty frame: the answer drawn into it later fits.
+    const measured = (mid: string) => `in 00\nH 1\nmeasure 1\n${mid}\nCNOT 1 2`
+    expect(height(measured('window blank rows=2'))).toBe(height(measured('window calculate')))
+  })
+
+  it('grows by the same step for every row', () => {
+    const [one, two, three] = [1, 2, 3].map((n) => height(around(`window blank rows=${n}`)))
+    expect(two - one).toBeGreaterThan(0)
+    expect(three - two).toBeCloseTo(two - one, 6)
+  })
+
+  it('treats rows as a floor on a window with something in it, never a ceiling', () => {
+    const measured = (mid: string) => `in 00\nH 1\nmeasure 1\n${mid}\nCNOT 1 2`
+    const natural = height(measured('window calculate'))
+    // More room than it needs: taller.
+    expect(height(measured('window calculate rows=4'))).toBeGreaterThan(natural)
+    // Less than it needs: the state is not cropped to fit.
+    expect(height(measured('window calculate rows=1'))).toBe(natural)
+  })
+
+  it('draws a frame and nothing in it', () => {
+    const prims = layoutCircuit(resolveCalculations(doc(around('window blank rows=2')))).prims
+    expect(prims.some((p) => p.t === 'pane')).toBe(true)
+    // The input's two qubits, and not one more.
+    expect(prims.filter((p) => p.t === 'qubit')).toHaveLength(2)
+  })
+
+  it('takes a colour like any window', () => {
+    expect(render(around('window blank fill=#fff4d6'), { check: false }).svg).toContain('#fff4d6')
+  })
+
+  it('has nothing for the checker to find fault with', () => {
+    expect(() => render(around('window blank rows=2'), { check: true })).not.toThrow()
+  })
+
+  it('says what is wrong rather than guessing', () => {
+    // A bare view is the state itself; with none, it would only break the pipes.
+    expect(() => doc(around('view blank'))).toThrow(/window blank/)
+    expect(() => doc(around('view 00 rows=2'))).toThrow(/rows= needs a frame/)
+    for (const bad of ['rows=0', 'rows=-1', 'rows=1.5', 'rows=two', 'rows=', 'rows=21']) {
+      expect(() => doc(around(`window blank ${bad}`)), bad).toThrow(/whole number of rows/)
+    }
+  })
+})
+
 describe('showing a qubit where nothing is happening', () => {
   it('reads "I 2 0" as an identity that shows its value', () => {
     const [v] = views('H 1\nI 2 0\nH 1')
