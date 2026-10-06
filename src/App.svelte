@@ -1879,40 +1879,43 @@
       </div>
 
       <!--
-        Calculate and Animate, floating in the corner of the drawing.
+        Calculate and Animate, in the corner of the drawing.
 
-        Made to be pressed: big, coloured, glossy, where the eye ends up after
-        reading a circuit top to bottom. The pane itself ignores the pointer
-        here so a drag across the drawing is not caught by the empty space
-        between the buttons.
+        Tiles of the same make as the gate palette's — white, a slate edge that
+        darkens under the pointer — so they read as part of the app rather than
+        laid on top of it. Animate is a toggle, and pressed looks the way every
+        other pressed toggle here does. The pane ignores the pointer around them
+        so a drag across the drawing is not caught by the gap between.
       -->
-      <div class="pointer-events-none absolute right-4 bottom-4 z-10 flex items-center gap-3">
+      <div class="pointer-events-none absolute right-4 bottom-4 z-10 flex gap-2">
         <button
           type="button"
           onclick={flipAnimate}
           disabled={!!animateBlocked}
           aria-pressed={animated}
           title={animateBlocked ?? (animated ? 'Stop animating (removes `animate`)' : 'Watch the qubits move through the gates (adds `animate`)')}
-          class="quick-button pointer-events-auto {animateBlocked
-            ? 'quick-off'
-            : animated
-              ? 'quick-animate quick-pressed'
-              : 'quick-animate'}"
+          class="pointer-events-auto flex h-16 w-16 flex-col items-center justify-center gap-1
+                 rounded-lg border shadow-sm transition-colors
+                 disabled:cursor-not-allowed disabled:opacity-50
+                 {animated
+            ? 'border-slate-800 bg-slate-800 text-white hover:bg-slate-700'
+            : 'border-slate-300 bg-white text-slate-700 enabled:hover:border-slate-400 enabled:hover:bg-slate-50 enabled:hover:text-slate-900'}"
         >
-          <span class="quick-gloss" aria-hidden="true"></span>
-          <Icon name={animated ? 'pause' : 'play'} class="relative h-5 w-5" />
-          <span class="relative">Animate</span>
+          <Icon name={animated ? 'pause' : 'play'} class="h-6 w-6" />
+          <span class="text-[11px] font-medium">Animate</span>
         </button>
         <button
           type="button"
           onclick={addCalculate}
           disabled={!!calculateBlocked}
           title={calculateBlocked ?? 'Work out the state at the end of the circuit (adds `calculate`)'}
-          class="quick-button pointer-events-auto {calculateBlocked ? 'quick-off' : 'quick-calculate'}"
+          class="pointer-events-auto flex h-16 w-16 flex-col items-center justify-center gap-1
+                 rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm
+                 transition-colors enabled:hover:border-slate-400 enabled:hover:bg-slate-50
+                 enabled:hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <span class="quick-gloss" aria-hidden="true"></span>
-          <Icon name="equals" class="relative h-5 w-5" />
-          <span class="relative">Calculate</span>
+          <Icon name="equals" class="h-6 w-6" />
+          <span class="text-[11px] font-medium">Calculate</span>
         </button>
       </div>
     </section>
