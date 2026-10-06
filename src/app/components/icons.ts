@@ -15,6 +15,7 @@ export const ICONS = {
   /** An arrow coming up out of a tray: reopen a saved figure. */
   open: 'M10 12.5V4m0 0 3 3m-3-3-3 3M3.5 13v2.5A1.5 1.5 0 0 0 5 17h10a1.5 1.5 0 0 0 1.5-1.5V13',
   play: 'M6.5 4.5 15.5 10l-9 5.5z',
+  equals: 'M5 7.5h10M5 12.5h10',
   pause: 'M7.5 4.5v11m5-11v11',
   // Doubled chevrons for the steps and a barred one for the start, so the
   // three read apart at a glance rather than only by position.

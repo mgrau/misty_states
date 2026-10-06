@@ -24,6 +24,7 @@
   import MenuItems from './app/components/MenuItems.svelte'
   import type { MenuItem } from './app/components/menu'
   import { asDroppable, setAngle, type Edit } from './core/circuit/edit'
+  import { endsCalculated, isAnimated, toggleAnimate, withCalculate } from './app/quick-actions'
   import { createBoard, type CarryState } from './core/ui/board'
   import AngleDial from './app/components/AngleDial.svelte'
   import type { CircuitDoc, Gate } from './core/circuit/ast'
@@ -356,6 +357,41 @@
       return { ok: false as const, message: (err as Error).message }
     }
   })
+
+  /**
+   * Why the corner buttons cannot act, or null when they can.
+   *
+   * Said rather than hidden: a button that vanishes teaches nothing, and the
+   * reason (a measurement, a superposition going in) is worth knowing. The
+   * animation is tried for real, since only the renderer knows everything
+   * that stops one; it is cheap next to the drawing itself.
+   */
+  const calculateBlocked = $derived.by(() => {
+    if (!result.ok) return 'Fix the source first'
+    if (result.kind !== 'circuit') return 'Add a gate first: there is no circuit to work out yet'
+    if (endsCalculated(source)) return 'The circuit already ends with its state worked out'
+    return null
+  })
+  const animated = $derived(isAnimated(source))
+  const animateBlocked = $derived.by(() => {
+    if (!result.ok) return 'Fix the source first'
+    if (animated) return null
+    if (result.kind !== 'circuit') return 'Add a gate first: there is nothing to animate yet'
+    try {
+      render(toggleAnimate(source), { check: false })
+      return null
+    } catch (err) {
+      return `This one cannot be animated: ${(err as Error).message}`
+    }
+  })
+
+  /** Each is an ordinary edit to the source, so ⌘Z takes it back. */
+  const addCalculate = () => {
+    if (!calculateBlocked) source = withCalculate(source)
+  }
+  const flipAnimate = () => {
+    if (!animateBlocked) source = toggleAnimate(source)
+  }
 
   /**
    * How a GIF or MP4 is drawn, in one place so a saved one and a dragged one
@@ -1840,6 +1876,44 @@
             {@html svg}
           </div>
         </div>
+      </div>
+
+      <!--
+        Calculate and Animate, floating in the corner of the drawing.
+
+        Made to be pressed: big, coloured, glossy, where the eye ends up after
+        reading a circuit top to bottom. The pane itself ignores the pointer
+        here so a drag across the drawing is not caught by the empty space
+        between the buttons.
+      -->
+      <div class="pointer-events-none absolute right-4 bottom-4 z-10 flex items-center gap-3">
+        <button
+          type="button"
+          onclick={flipAnimate}
+          disabled={!!animateBlocked}
+          aria-pressed={animated}
+          title={animateBlocked ?? (animated ? 'Stop animating (removes `animate`)' : 'Watch the qubits move through the gates (adds `animate`)')}
+          class="quick-button pointer-events-auto {animateBlocked
+            ? 'quick-off'
+            : animated
+              ? 'quick-animate quick-pressed'
+              : 'quick-animate'}"
+        >
+          <span class="quick-gloss" aria-hidden="true"></span>
+          <Icon name={animated ? 'pause' : 'play'} class="relative h-5 w-5" />
+          <span class="relative">Animate</span>
+        </button>
+        <button
+          type="button"
+          onclick={addCalculate}
+          disabled={!!calculateBlocked}
+          title={calculateBlocked ?? 'Work out the state at the end of the circuit (adds `calculate`)'}
+          class="quick-button pointer-events-auto {calculateBlocked ? 'quick-off' : 'quick-calculate'}"
+        >
+          <span class="quick-gloss" aria-hidden="true"></span>
+          <Icon name="equals" class="relative h-5 w-5" />
+          <span class="relative">Calculate</span>
+        </button>
       </div>
     </section>
   </main>
