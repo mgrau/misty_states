@@ -24,7 +24,7 @@
   import MenuItems from './app/components/MenuItems.svelte'
   import type { MenuItem } from './app/components/menu'
   import { asDroppable, setAngle, type Edit } from './core/circuit/edit'
-  import { endsCalculated, isAnimated, toggleAnimate, withCalculate } from './app/quick-actions'
+  import { calculateDone, isAnimated, toggleAnimate, withCalculate } from './app/quick-actions'
   import { createBoard, type CarryState } from './core/ui/board'
   import AngleDial from './app/components/AngleDial.svelte'
   import type { CircuitDoc, Gate } from './core/circuit/ast'
@@ -369,7 +369,9 @@
   const calculateBlocked = $derived.by(() => {
     if (!result.ok) return 'Fix the source first'
     if (result.kind !== 'circuit') return 'Add a gate first: there is no circuit to work out yet'
-    if (endsCalculated(source)) return 'The circuit already ends with its state worked out'
+    const done = calculateDone(source)
+    if (done === 'calculated') return 'The circuit already ends with its state worked out'
+    if (done === 'written') return 'The circuit already ends with its output written in'
     return null
   })
   const animated = $derived(isAnimated(source))
@@ -387,7 +389,7 @@
 
   /** Each is an ordinary edit to the source, so ⌘Z takes it back. */
   const addCalculate = () => {
-    if (!calculateBlocked) source = withCalculate(source)
+    if (!calculateBlocked) source = withCalculate(source, result.ok ? (result.qubits ?? 1) : 1)
   }
   const flipAnimate = () => {
     if (!animateBlocked) source = toggleAnimate(source)
@@ -1908,7 +1910,7 @@
           type="button"
           onclick={addCalculate}
           disabled={!!calculateBlocked}
-          title={calculateBlocked ?? 'Work out the state at the end of the circuit (adds `calculate`)'}
+          title={calculateBlocked ?? 'Work out the state at the end of the circuit (adds `calculate`, and starts the qubits white if no input is given)'}
           class="pointer-events-auto flex h-16 w-16 flex-col items-center justify-center gap-1
                  rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm
                  transition-colors enabled:hover:border-slate-400 enabled:hover:bg-slate-50
