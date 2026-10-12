@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { piLabel } from '../angle'
+  import { piLabel, readAngle } from '../angle'
 
   /**
    * The angle of a rotation, as something to turn rather than something to type.
@@ -17,11 +17,12 @@
    * the source holds, so both are shown, but the ring is labelled the way the
    * subject is spoken.
    *
-   * The quarter turns are marked heavily and everything else lightly. That is
-   * not decoration: at a multiple of 90° every amplitude stays a whole number
-   * and the state is one the notation can draw, and anywhere else there are
-   * cosines in the arithmetic and it is not. The dial should say which side of
-   * that line you are on before you let go, not after.
+   * The quarter turns are marked heavily and everything else lightly: at a
+   * multiple of 90° every amplitude stays a whole number, which is worth seeing
+   * before you let go. Anything else is drawn too, with decimals.
+   *
+   * An angle no hand can land on — 22.5°, 3π/7 — can be typed instead: the
+   * readout under the dial is a field.
    */
   const {
     angle,
@@ -157,6 +158,23 @@
   const inPi = $derived(piLabel(turning))
 
   const exact = $derived(turning % 90 === 0)
+
+  /**
+   * What is in the box. It follows the dial except while it is being typed in,
+   * so turning shows the number and typing is never overwritten mid-word.
+   */
+  let typing = $state(false)
+  let draft = $state('')
+  const shown = $derived(typing ? draft : String(turning))
+  const wrong = $derived(typing && readAngle(draft) === null)
+
+  function typed() {
+    // Escape has already given up on it; closing must not then write it.
+    if (!typing) return
+    const deg = readAngle(draft)
+    typing = false
+    if (deg !== null) set(deg)
+  }
   const hand = $derived(pointAt(turning, R - 8))
 
   /*
@@ -226,7 +244,7 @@
       <path
         d="M {MID} {MID} L {pointAt(0, R).x} {pointAt(0, R).y}
            A {R} {R} 0 {turning > 180 ? 1 : 0} 1 {pointAt(turning, R).x} {pointAt(turning, R).y} Z"
-        fill={exact ? '#dbeafe' : '#fef3c7'}
+        fill="#dbeafe"
         stroke="none"
       />
     {/if}
@@ -261,27 +279,51 @@
 
     <line
       x1={MID} y1={MID} x2={hand.x} y2={hand.y}
-      stroke={exact ? '#1d4ed8' : '#b45309'}
+      stroke="#1d4ed8"
       stroke-width="2.5"
       stroke-linecap="round"
     />
-    <circle cx={MID} cy={MID} r="3" fill={exact ? '#1d4ed8' : '#b45309'} />
+    <circle cx={MID} cy={MID} r="3" fill="#1d4ed8" />
     <circle
       cx={pointAt(turning, R).x} cy={pointAt(turning, R).y} r={dragging ? 7 : 5.5}
-      fill="#ffffff" stroke={exact ? '#1d4ed8' : '#b45309'} stroke-width="2.5"
+      fill="#ffffff" stroke="#1d4ed8" stroke-width={exact ? 3.5 : 2.5}
     />
   </svg>
 
-  <div class="px-1 pb-0.5 text-center">
-    <div class="font-mono text-sm text-slate-700">{turning}° <span class="text-slate-400">=</span> {inPi}</div>
+  <div class="flex items-center justify-center gap-1 px-1 pb-0.5 font-mono text-sm text-slate-700">
     <!--
-      Said plainly, because it decides whether the figure downstream can be
-      drawn at all — not a matter of taste about the angle.
+      Looks like the readout until it is clicked. Keys stay in it: the arrows
+      that nudge the dial would otherwise move it out from under the typing.
     -->
-    <div class="text-[11px] leading-tight {exact ? 'text-slate-500' : 'text-amber-700'}">
-      {exact
-        ? 'a right angle, so every amplitude stays whole'
-        : 'leaves cosines, which a state cannot be drawn with'}
-    </div>
+    <input
+      type="text"
+      inputmode="decimal"
+      value={shown}
+      aria-label="Angle, in degrees or as a multiple of π"
+      title="Type degrees (22.5) or a multiple of π (3π/4); Enter to set"
+      size="6"
+      class="w-16 rounded border px-1 py-0.5 text-right outline-none
+             {wrong
+        ? 'border-red-400 bg-red-50'
+        : 'border-transparent hover:border-slate-300 focus:border-blue-500'}"
+      onfocus={(e) => {
+        draft = String(turning)
+        typing = true
+        ;(e.currentTarget as HTMLInputElement).select()
+      }}
+      oninput={(e) => (draft = (e.currentTarget as HTMLInputElement).value)}
+      onblur={typed}
+      onkeydown={(e) => {
+        if (e.key === 'Escape') {
+          typing = false
+          return
+        }
+        e.stopPropagation()
+        if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+      }}
+    />
+    <span>°</span>
+    <span class="text-slate-400">=</span>
+    <span>{inPi}</span>
   </div>
 </div>

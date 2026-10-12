@@ -25,3 +25,27 @@ export function piLabel(degrees: number): string {
   // `1π` and `π/1` both read as a mistake; `π` and `2π` are how it is written.
   return `${num === 1 ? '' : num === -1 ? '-' : num}π${den === 1 ? '' : `/${den}`}`
 }
+
+/**
+ * An angle as typed, in degrees, or null when it is not one.
+ *
+ * Read either way it is said: as degrees (`30`, `22.5°`, `-90`), or as a
+ * multiple of π (`π/4`, `3π/2`, `-pi/3`, `2pi`), since that is how the dial is
+ * labelled and how a problem set writes it. Rounded to a few places, because
+ * `3π/7` is a long decimal and the source only has to hold it, not recite it.
+ */
+export function readAngle(text: string): number | null {
+  const t = text.trim().toLowerCase().replace(/\s+/g, '').replace(/pi/g, 'π')
+  const round = (x: number) => Math.round(x * 1e4) / 1e4
+  const degrees = /^([-+]?(?:\d+\.?\d*|\.\d+))(?:°|deg)?$/.exec(t)
+  if (degrees) return round(Number(degrees[1]))
+  const pi = /^([-+]?)(\d+\.?\d*|\.\d+)?\*?π(?:\/(\d+\.?\d*))?$/.exec(t)
+  if (pi) {
+    const sign = pi[1] === '-' ? -1 : 1
+    const times = pi[2] === undefined ? 1 : Number(pi[2])
+    const over = pi[3] === undefined ? 1 : Number(pi[3])
+    if (!over) return null
+    return round((sign * times * 180) / over)
+  }
+  return null
+}
