@@ -59,6 +59,14 @@ describe('the way between them', () => {
   })
 })
 
+describe('the colours of the way', () => {
+  it('names each layer by the gate that drew it', () => {
+    expect(path('in 0\nH 1\nRY(30) 1\nX 1\nmeasure 1 Z\nI 1').tints).toEqual([
+      'H', 'RY', 'accent', 'measure', null,
+    ])
+  })
+})
+
 describe('keeping time with an animation', () => {
   const spans = [{ from: 1, to: 2 }, undefined, { from: 3, to: 5 }]
 

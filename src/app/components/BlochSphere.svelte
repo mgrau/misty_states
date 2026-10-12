@@ -13,8 +13,16 @@
    * another side.
    */
   import { blochAt, type BlochPath, type Vec3 } from '../../core/bloch'
+  import { render } from '../../core/index'
+  import { LIGHT_PALETTE, type ThemeId } from '../../core/render/theme'
+  import type { ShapeName } from '../../core/shapes'
 
-  const { path, at }: { path: BlochPath; at: number } = $props()
+  const {
+    path,
+    at,
+    theme,
+    shapeOrder,
+  }: { path: BlochPath; at: number; theme: ThemeId; shapeOrder: ShapeName[] } = $props()
 
   /** Where it is looked at from, in radians: round the vertical axis, and up from the equator. */
   let azimuth = $state((35 * Math.PI) / 180)
@@ -65,12 +73,40 @@
     ),
   )
 
-  const labels: { p: Vec3; text: string }[] = [
-    { p: [1.22, 0, 0], text: '0|1' },
-    { p: [-1.22, 0, 0], text: '0|-1' },
-    { p: [0, 1.2, 0], text: '0|i' },
-    { p: [0, -1.2, 0], text: '0|-i' },
+  /**
+   * The four even superpositions round the equator, drawn as the states they
+   * are — clouds, in the drawing's own style — rather than spelled out. Light,
+   * like the drawer they sit in.
+   */
+  const EQUATOR: { p: Vec3; source: string }[] = [
+    { p: [1.3, 0, 0], source: '0|1' },
+    { p: [-1.3, 0, 0], source: '0|-1' },
+    { p: [0, 1.32, 0], source: '0|i*1' },
+    { p: [0, -1.32, 0], source: '0|-i*1' },
   ]
+  /** How wide one is drawn, in the sphere's units; tall in proportion. */
+  const GLYPH_W = 46
+  const glyphs = $derived(
+    EQUATOR.flatMap(({ p, source }) => {
+      try {
+        const r = render(source, { theme, shapeOrder, dark: false, background: false })
+        const href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(r.svg)}`
+        return [{ p, source, href, w: GLYPH_W, h: (GLYPH_W * r.height) / r.width }]
+      } catch {
+        return []
+      }
+    }),
+  )
+
+  /** A gate's colour, as its chip is drawn; a layer that does nothing gets none. */
+  const tintColour = (key: string | null): string => {
+    if (!key) return '#94a3b8'
+    const chips = LIGHT_PALETTE.gateChip as Record<string, string>
+    if (chips[key]) return chips[key]
+    if (key === 'measure') return LIGHT_PALETTE.muted
+    if (key === 'accent') return LIGHT_PALETTE.accent
+    return LIGHT_PALETTE.ink
+  }
 
   const point = $derived(blochAt(path, at))
   const tip = $derived(view(point))
@@ -79,14 +115,31 @@
   const top = $derived(view([0, 0, 1.18]))
   const bottom = $derived(view([0, 0, -1.18]))
 
-  /** The way it came, sampled finely enough that a turn reads as a curve. */
+  /**
+   * The way it came, a piece per gate in that gate's colour, sampled finely
+   * enough that a turn reads as a curve.
+   */
   const trail = $derived.by(() => {
-    if (at <= 0) return ''
-    const n = Math.max(2, Math.ceil(at * 40))
-    return Array.from({ length: n + 1 }, (_, i) => {
-      const s = view(blochAt(path, (at * i) / n))
-      return `${i ? 'L' : 'M'}${s.x.toFixed(1)},${s.y.toFixed(1)}`
-    }).join('')
+    const pieces: { d: string; colour: string }[] = []
+    for (let k = 0; k < path.moves.length && k < at; k++) {
+      if (path.moves[k].kind === 'still') continue
+      const end = Math.min(at, k + 1)
+      const n = Math.max(2, Math.ceil((end - k) * 40))
+      const d = Array.from({ length: n + 1 }, (_, i) => {
+        const s = view(blochAt(path, k + ((end - k) * i) / n))
+        return `${i ? 'L' : 'M'}${s.x.toFixed(1)},${s.y.toFixed(1)}`
+      }).join('')
+      pieces.push({ d, colour: tintColour(path.tints[k]) })
+    }
+    return pieces
+  })
+
+  /** The tip takes the colour of the gate that last moved it. */
+  const tipColour = $derived.by(() => {
+    for (let k = Math.min(Math.ceil(at), path.moves.length) - 1; k >= 0; k--) {
+      if (path.moves[k].kind !== 'still') return tintColour(path.tints[k])
+    }
+    return '#ffffff'
   })
 
   const length = $derived(Math.hypot(...point))
@@ -137,29 +190,33 @@
       <path d={axis.near} fill="none" stroke="#94a3b8" stroke-width="1" />
     {/each}
 
-    {#each labels as label (label.text)}
-      {@const s = view(label.p)}
-      <text
-        x={s.x}
-        y={s.y}
-        text-anchor="middle"
-        dominant-baseline="middle"
-        class="fill-slate-500 text-[10px]"
-        opacity={s.front ? 1 : 0.5}>{label.text}</text
+    {#each glyphs as glyph (glyph.source)}
+      {@const s = view(glyph.p)}
+      <image
+        href={glyph.href}
+        x={s.x - glyph.w / 2}
+        y={s.y - glyph.h / 2}
+        width={glyph.w}
+        height={glyph.h}
+        opacity={s.front ? 1 : 0.45}
       >
+        <title>{glyph.source}</title>
+      </image>
     {/each}
     <!-- The poles in the course's own colours: white on top, black below. -->
     <circle cx={top.x} cy={top.y} r="7" fill="white" stroke="#0f172a" stroke-width="1.5" />
     <circle cx={bottom.x} cy={bottom.y} r="7" fill="#0f172a" stroke="#0f172a" stroke-width="1.5" />
 
-    <path d={trail} fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" opacity="0.7" />
+    {#each trail as piece, i (i)}
+      <path d={piece.d} fill="none" stroke={piece.colour} stroke-width="2.2" stroke-linecap="round" opacity="0.85" />
+    {/each}
 
     <!-- A drop to the equator, so where the arrow points in depth can be read. -->
     <line x1={tip.x} y1={tip.y} x2={foot.x} y2={foot.y} stroke="#64748b" stroke-width="1" stroke-dasharray="2 2" />
     <line x1={origin.x} y1={origin.y} x2={foot.x} y2={foot.y} stroke="#64748b" stroke-width="1" stroke-dasharray="2 2" />
 
     <line x1={origin.x} y1={origin.y} x2={tip.x} y2={tip.y} stroke="#0f172a" stroke-width="2.5" stroke-linecap="round" />
-    <circle cx={tip.x} cy={tip.y} r="5" fill="#f59e0b" stroke="#0f172a" stroke-width="1.5" opacity={tip.front ? 1 : 0.6} />
+    <circle cx={tip.x} cy={tip.y} r="5" fill={tipColour} stroke="#0f172a" stroke-width="1.5" opacity={tip.front ? 1 : 0.6} />
   </svg>
 
   <dl class="grid w-full grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-slate-600">

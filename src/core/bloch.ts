@@ -36,6 +36,27 @@ export interface BlochPath {
   points: Vec3[]
   /** How layer `k` takes `points[k]` to `points[k + 1]`. */
   moves: BlochMove[]
+  /**
+   * The colour layer `k` is drawn in, as a key: one of the palette's gate
+   * chips (`H`, `RY`, …), else `accent` for the X target or `measure`. Null
+   * for a layer that does nothing.
+   */
+  tints: (string | null)[]
+}
+
+/** The palette key a gate is drawn in, so the sphere's trail can match it. */
+function tintOf(gate: Gate | undefined): string | null {
+  if (!gate) return null
+  switch (gate.kind) {
+    case 'single':
+      return gate.label
+    case 'measure':
+      return 'measure'
+    case 'controlled':
+      return gate.targetGlyph === 'z' ? 'Z' : 'accent'
+    default:
+      return null
+  }
 }
 
 /** The point for one pure state, from its two amplitudes. */
@@ -133,11 +154,9 @@ export function blochPath(doc: CircuitDoc): BlochPath {
   }
   const points: Vec3[] = []
   for (let k = 0; k <= doc.layers.length; k++) points.push(pointAfter(doc, k))
-  const moves = doc.layers.map((layer) => {
-    const gate = layer.gates.find((g) => g.kind !== 'view')
-    return gate ? moveOf(gate) : ({ kind: 'still' } as const)
-  })
-  return { points, moves }
+  const gates = doc.layers.map((layer) => layer.gates.find((g) => g.kind !== 'view'))
+  const moves = gates.map((gate) => (gate ? moveOf(gate) : ({ kind: 'still' } as const)))
+  return { points, moves, tints: gates.map(tintOf) }
 }
 
 /**

@@ -761,7 +761,9 @@
   const bloch = $derived.by(() => {
     if (!result.ok && blochKept) return { ok: true as const, path: blochKept }
     try {
-      blochKept = blochOf(source)
+      // What the drawing is drawn from, preview and all, so turning a dial or
+      // dragging a gate moves the arrow as it moves the picture.
+      blochKept = blochOf(dragPreview?.source ?? source)
       return { ok: true as const, path: blochKept }
     } catch (err) {
       blochKept = null
@@ -2001,7 +2003,7 @@
   {#if blochOpen}
     <SidePanel title="Bloch sphere" onclose={() => (blochOpen = false)}>
       {#if bloch.ok}
-        <BlochSphere path={bloch.path} at={blochLayers} />
+        <BlochSphere path={bloch.path} at={blochLayers} {theme} {shapeOrder} />
       {:else}
         <p class="p-4 text-sm text-slate-500">
           A Bloch sphere shows a single qubit. {bloch.message[0].toUpperCase() + bloch.message.slice(1)}.
