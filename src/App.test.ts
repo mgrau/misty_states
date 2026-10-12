@@ -808,7 +808,7 @@ describe('the Bloch sphere', () => {
     flushSync()
     // Measured and not looked at: an even mixture, at the centre.
     expect(drawer()!.textContent).toMatch(/White\s*50%/)
-    expect(drawer()!.textContent).toMatch(/Length\s*0\.00/)
+    expect(drawer()!.textContent).toMatch(/Black\s*50%/)
   })
 
   it('says why, rather than closing, when the circuit grows a second wire', () => {

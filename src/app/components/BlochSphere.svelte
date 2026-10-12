@@ -226,10 +226,6 @@
     <dd class="tabular-nums">{pct(1 - white)}</dd>
     <dt class="text-slate-500">θ, φ</dt>
     <dd class="tabular-nums">{deg(polar)}, {deg(turn)}</dd>
-    <dt class="text-slate-500" title="1 on the surface; shorter once a measurement has been made and not looked at">
-      Length
-    </dt>
-    <dd class="tabular-nums">{length.toFixed(2)}</dd>
   </dl>
   <p class="text-[11px] leading-snug text-slate-400">Drag to turn it; double-click to put it back.</p>
 </div>
