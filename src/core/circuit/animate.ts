@@ -275,8 +275,11 @@ export function termRun(doc: CircuitDoc): Working[] {
       .filter((bits) => running.has(bits))
       .map((bits) => ({ bits, amp: plainAmp(running.get(bits)!) }))
     // Dividing out the common factor is a step of its own: `2*0` and `0` are
-    // the same state, and watching the 2 go is watching that being said.
-    const divisor = summed.reduce((g, t) => gcd(g, t.amp), 0) || 1
+    // the same state, and watching the 2 go is watching that being said. Only
+    // between whole numbers: a turn by an angle leaves amplitudes with no
+    // common factor, and `gcd` on floats returns noise that blows them up.
+    const whole = summed.every((t) => Number.isInteger(t.amp))
+    const divisor = (whole && summed.reduce((g, t) => gcd(g, t.amp), 0)) || 1
     const left = summed.map((t) => ({ bits: t.bits, amp: t.amp / divisor }))
     if (!left.length) {
       throw new NotClassicalError(
@@ -654,10 +657,25 @@ export function frameAt(
  * than a bare sign.
  */
 export function labelWidth(amp: number, m: Metrics): number {
-  const size = Math.abs(amp)
-  const digits = size === 1 ? 0 : textWidth(String(size), m.fontSize, false)
+  const text = magnitudeText(amp)
+  const digits = text ? textWidth(text, m.fontSize, false) : 0
   if (amp >= 0) return digits
   return digits + (digits ? m.signGap : 0) + m.barWidth * 2
+}
+
+/**
+ * The size of an amplitude as written in front of a moving row, or nothing
+ * where it is one.
+ *
+ * Three significant figures: a turn by an angle leaves amplitudes like
+ * `0.9238795325112867`, and every digit past the third is noise to someone
+ * watching it go by. Whole numbers — everything the course's own gates make —
+ * are written as they are, however long.
+ */
+export function magnitudeText(amp: number): string {
+  const size = Math.abs(amp)
+  const shown = Number.isInteger(size) ? size : Number(size.toPrecision(3))
+  return shown === 1 ? '' : String(shown)
 }
 
 /** Height of one term's row, including the air around it. */

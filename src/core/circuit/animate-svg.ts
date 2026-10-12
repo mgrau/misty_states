@@ -12,7 +12,7 @@
  */
 
 import type { Fade, TermTimeline, Timeline, Track } from './animate'
-import { GATE_FADE, MARK_FADE, fadeAt, labelWidth, rowAt } from './animate'
+import { GATE_FADE, MARK_FADE, fadeAt, labelWidth, magnitudeText, rowAt } from './animate'
 import type { CircuitGeometry, CircuitLayout } from './layout'
 import type { Metrics, Prim } from '../render/primitives'
 import { textWidth } from '../render/primitives'
@@ -275,8 +275,8 @@ export function rowPrims(
   }))
 
   const edge = geometry.columns[0] + dx - m.qubit / 2 - m.signGap
-  if (Math.abs(amp) !== 1) {
-    const text = String(Math.abs(amp))
+  const text = magnitudeText(amp)
+  if (text) {
     out.push({
       t: 'text',
       x: edge,
@@ -288,7 +288,7 @@ export function rowPrims(
     })
   }
   if (amp < 0) {
-    const back = Math.abs(amp) === 1 ? 0 : textWidth(String(Math.abs(amp)), m.fontSize, false) + m.signGap
+    const back = text ? textWidth(text, m.fontSize, false) + m.signGap : 0
     out.push({
       t: 'sign',
       x: edge - back - m.barWidth * 2,

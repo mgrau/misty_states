@@ -13,7 +13,7 @@ import { layoutCircuit } from './layout'
 import { resolveCalculations, simulate } from './simulate'
 import {
   buildTimeline, buildTermTimeline, classicalRun, frameAt, positionAt, activeAt, steps,
-  termRun, NotClassicalError, GATE_FADE, type TermTimeline,
+  termRun, NotClassicalError, GATE_FADE, magnitudeText, type TermTimeline,
 } from './animate'
 import { animatedSvg, animationBox, termFrameAt } from './animate-svg'
 import { render } from '../index'
@@ -415,6 +415,31 @@ describe('driving it from outside', () => {
  * and the handover from the brackets round each term's results to the one round
  * the whole state has to read as a handover rather than a dissolve.
  */
+describe('amplitudes from a turn by an angle', () => {
+  it('writes three significant figures, and whole numbers whole', () => {
+    expect(magnitudeText(0.9238795325112867)).toBe('0.924')
+    expect(magnitudeText(-0.3826834323650898)).toBe('0.383')
+    expect(magnitudeText(12345)).toBe('12345')
+    expect(magnitudeText(-1)).toBe('')
+    // Close enough to one to be written as one is written as one: not at all.
+    expect(magnitudeText(0.99999999)).toBe('')
+  })
+
+  it('leaves them alone rather than dividing out a factor they do not have', () => {
+    const [layer] = termRun(parseCircuit('in 0\nRY(45) 1\nanimate'))
+    expect(layer.left.map((t) => t.amp)).toEqual([
+      expect.closeTo(Math.cos(Math.PI / 8)),
+      expect.closeTo(Math.sin(Math.PI / 8)),
+    ])
+  })
+
+  it('draws no more digits than that', () => {
+    const svg = render('in 0\nRY(45) 1\nanimate').svg
+    const numbers = [...svg.matchAll(/>([-\d.]+)</g)].map((m) => m[1])
+    expect(new Set(numbers)).toEqual(new Set(['0.924', '0.383']))
+  })
+})
+
 describe('the brackets round a worked term', () => {
   const timelineOf = (src: string, inside: boolean) => {
     const doc = resolveCalculations(parseCircuit(src))
