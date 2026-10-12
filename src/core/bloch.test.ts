@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { blochAt, blochOf, blochPath, layersAt, type Vec3 } from './bloch'
 import { parseCircuit } from './circuit/parse'
+import { render } from './index'
 
 const path = (src: string) => blochPath(parseCircuit(src))
 const near = (v: Vec3) => v.map((x) => expect.closeTo(x, 9))
@@ -76,6 +77,30 @@ describe('keeping time with an animation', () => {
     expect(layersAt(spans, 2.5)).toBe(2)
     expect(layersAt(spans, 4)).toBeCloseTo(2.5)
     expect(layersAt(spans, 9)).toBe(3)
+  })
+})
+
+describe('keeping time with a real animation', () => {
+  it('has finished every layer by the last step, which is where playing stops', () => {
+    for (const src of [
+      'in 0|1\nRZ(45) 1',
+      'in 0\nH 1',
+      'in 0|1\nH 1\nRZ(90) 1',
+      'in 0\nX 1',
+      'in 0\nRY(30) 1\nH 1\nS 1',
+    ]) {
+      const animation = render(`${src}\nanimate`).animation!
+      const last = animation.steps[animation.steps.length - 1].t
+      expect(layersAt(animation.spans, last), src).toBe(animation.spans.length)
+    }
+  })
+
+  it('has finished each layer by its own last step, so stepping lands on the turned state', () => {
+    const animation = render('in 0|1\nH 1\nRZ(90) 1\nanimate').animation!
+    for (const [k] of animation.spans.entries()) {
+      const mine = animation.steps.filter((st) => st.layer === k).map((st) => st.t)
+      expect(layersAt(animation.spans, Math.max(...mine))).toBeGreaterThanOrEqual(k + 1)
+    }
   })
 })
 

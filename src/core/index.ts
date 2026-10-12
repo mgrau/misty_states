@@ -285,16 +285,26 @@ const stepAt = (doc: CircuitDoc, step: number | null | undefined): number =>
 /**
  * When each layer is at work: from the first thing entering it until what it
  * gave has settled — for a superposition, until it has been added up.
+ *
+ * Never past the layer's last step, though. Playing stops on the last step,
+ * and stepping lands on them, so a layer still at work after its last one
+ * would leave anything keeping time with it — the Bloch sphere — stopped
+ * short of where the layer takes it.
  */
-function spansOf(run: Prepared, layers: number): ({ from: number; to: number } | undefined)[] {
+function spansOf(
+  run: Prepared,
+  layers: number,
+  steps: AnimationStep[],
+): ({ from: number; to: number } | undefined)[] {
   return Array.from({ length: layers }, (_, k) => {
     const passes = run.timeline.passes.filter((p) => p.layer === k)
     if (!passes.length) return undefined
     const from = Math.min(...passes.map((p) => p.from))
-    const to = run.terms
+    const settled = run.terms
       ? (run.timeline.collects[k] ?? Math.max(...passes.map((p) => p.landed ?? p.to)))
       : Math.max(...passes.map((p) => p.to))
-    return { from, to }
+    const marks = steps.filter((st) => st.layer === k && st.t > from).map((st) => st.t)
+    return { from, to: marks.length ? Math.min(settled, Math.max(...marks)) : settled }
   })
 }
 
@@ -525,6 +535,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
         dirac,
       }
     }
+    const steps = run.terms ? termSteps(run.timeline) : animationSteps(run.timeline)
     const svg = run.terms
       ? animatedTermSvg(run.layout, run.timeline, run.box, theme, palette, metrics, {
           scale: opts.scale,
@@ -544,9 +555,9 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       dirac,
       animation: {
         duration: run.timeline.duration,
-        steps: run.terms ? termSteps(run.timeline) : animationSteps(run.timeline),
+        steps,
         loop: run.timeline.loop,
-        spans: spansOf(run, doc.layers.length),
+        spans: spansOf(run, doc.layers.length, steps),
       },
     }
   }
