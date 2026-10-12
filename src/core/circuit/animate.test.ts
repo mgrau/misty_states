@@ -13,7 +13,7 @@ import { layoutCircuit } from './layout'
 import { resolveCalculations, simulate } from './simulate'
 import {
   buildTimeline, buildTermTimeline, classicalRun, frameAt, positionAt, activeAt, steps,
-  termRun, NotClassicalError, GATE_FADE, magnitudeText, type TermTimeline,
+  termRun, NotClassicalError, GATE_FADE, ampLabel, magnitudeText, type TermTimeline,
 } from './animate'
 import { animatedSvg, animationBox, termFrameAt } from './animate-svg'
 import { render } from '../index'
@@ -427,7 +427,7 @@ describe('amplitudes from a turn by an angle', () => {
 
   it('leaves them alone rather than dividing out a factor they do not have', () => {
     const [layer] = termRun(parseCircuit('in 0\nRY(45) 1\nanimate'))
-    expect(layer.left.map((t) => t.amp)).toEqual([
+    expect(layer.left.map((t) => t.amp.re)).toEqual([
       expect.closeTo(Math.cos(Math.PI / 8)),
       expect.closeTo(Math.sin(Math.PI / 8)),
     ])
@@ -437,6 +437,37 @@ describe('amplitudes from a turn by an angle', () => {
     const svg = render('in 0\nRY(45) 1\nanimate').svg
     const numbers = [...svg.matchAll(/>([-\d.]+)</g)].map((m) => m[1])
     expect(new Set(numbers)).toEqual(new Set(['0.924', '0.383']))
+  })
+})
+
+describe('a phase in front of a term', () => {
+  it('is written the way the still drawing writes it', () => {
+    expect(ampLabel({ re: 0, im: 1 })).toEqual({ text: 'i', negative: false })
+    expect(ampLabel({ re: 0, im: -2 })).toEqual({ text: '2i', negative: true })
+    expect(ampLabel({ re: -3, im: 0 })).toEqual({ text: '3', negative: true })
+    expect(ampLabel({ re: Math.SQRT1_2, im: -Math.SQRT1_2 })).toEqual({
+      text: '(0.707-0.707i)',
+      negative: false,
+    })
+    expect(ampLabel({ re: 1, im: 1 })).toEqual({ text: '(1+i)', negative: false })
+  })
+
+  it('no longer stops a turn about Z from animating', () => {
+    for (const src of ['in 0|1\nRZ(90) 1', 'in 0|1\nRZ(45) 1', 'in 0\nH 1\nS 1\nH 1', 'in 0|1\nY 1']) {
+      const r = render(`${src}\nanimate`)
+      expect(r.animation, src).toBeDefined()
+    }
+  })
+
+  it('writes the phase it leaves', () => {
+    const svg = render('in 0|1\nRZ(90) 1\nanimate').svg
+    expect([...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1])).toContain('i')
+  })
+
+  it('takes even a single term into the queue, where there is room to write it', () => {
+    // A lone travelling qubit has nowhere to put an `i`.
+    const svg = render('in 1\nRZ(90) 1\nanimate').svg
+    expect([...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1])).toContain('i')
   })
 })
 

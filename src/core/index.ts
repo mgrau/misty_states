@@ -312,8 +312,12 @@ function prepareAnimation(
   // A single term is one row of qubits on the wires, which is what the
   // travelling animation already draws — so the simpler picture is kept for it,
   // individual qubits and crossing swaps and all. Only a state with more than
-  // one term needs the queue.
-  if (!working.some((w) => w.going.length > 1 || w.gave.length > 1)) {
+  // one term needs the queue — or one whose term carries a phase, which a lone
+  // travelling qubit has nowhere to write.
+  const phased = working.some((w) =>
+    [...w.going, ...w.gave, ...w.left].some((t) => t.amp.im !== 0),
+  )
+  if (!phased && !working.some((w) => w.going.length > 1 || w.gave.length > 1)) {
     const timeline = buildTimeline(doc, layout.geometry, { inside, ...doc.animate })
     return { terms: false, timeline, layout, box: animationBox(layout, timeline, metrics) }
   }

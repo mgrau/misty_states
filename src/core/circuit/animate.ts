@@ -20,14 +20,16 @@
 
 import type { CircuitDoc, Gate } from './ast'
 import { gateQubits } from './ast'
-import { ONE, ZERO, add as cxAdd, cx, isReal, isZero, show, type Cx } from './complex'
+import {
+  ONE, ZERO, add as cxAdd, commonFactor, eq, isReal, isZero, over, show, type Cx,
+} from './complex'
 import type { CircuitGeometry, CircuitLayout } from './layout'
 import type { Metrics, Prim } from '../render/primitives'
-import { textWidth } from '../render/primitives'
+import { monoWidth } from '../render/primitives'
 import type { ShapeName } from '../shapes'
 import type { Box } from '../svg'
 import {
-  amplitudesOf, gcd, SimulationError, simulateBranches, traceGate,
+  amplitudesOf, SimulationError, simulateBranches, traceGate,
   type Amplitudes, type Contribution,
 } from './simulate'
 
@@ -142,10 +144,15 @@ export class NotClassicalError extends Error {}
 
 /* -- Working a superposition through, a term at a time -------------------- */
 
-/** One term of a state: a row of qubits and what stands in front of it. */
+/**
+ * One term of a state: a row of qubits and what stands in front of it.
+ *
+ * Complex, because a turn about Z leaves a phase in front of a term — `i`, or
+ * `0.71+0.71i` — and that is as much a thing to watch arrive as a minus sign.
+ */
 export interface Term {
   bits: string
-  amp: number
+  amp: Cx
 }
 
 /** What happens at one layer: each term worked in turn, then the tidying up. */
@@ -186,7 +193,7 @@ export const MAX_TERMS = 8
 const termsOf = (amps: Amplitudes): Term[] =>
   [...amps]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([bits, amp]) => ({ bits, amp: plainAmp(amp) }))
+    .map(([bits, amp]) => ({ bits, amp }))
 
 /**
  * An amplitude as a single number, or a refusal.
@@ -232,11 +239,11 @@ export function termRun(doc: CircuitDoc): Working[] {
       )
     }
 
-    const amps: Amplitudes = new Map(terms.map((t) => [t.bits, cx(t.amp)]))
+    const amps: Amplitudes = new Map(terms.map((t) => [t.bits, t.amp]))
     // Gates in a layer act on disjoint wires, so they commute and can be
     // applied one after another. Only the layer as a whole is shown, so the
     // contributions are of the layer, not of each gate within it.
-    let gave: Contribution[] = terms.map((t) => ({ from: t.bits, to: t.bits, amp: cx(t.amp) }))
+    let gave: Contribution[] = terms.map((t) => ({ from: t.bits, to: t.bits, amp: t.amp }))
     let running = amps
     for (const gate of acting) {
       const step = traceGate(running, gate)
@@ -273,14 +280,13 @@ export function termRun(doc: CircuitDoc): Working[] {
     for (const c of gave) if (!seen.includes(c.to)) seen.push(c.to)
     const summed = seen
       .filter((bits) => running.has(bits))
-      .map((bits) => ({ bits, amp: plainAmp(running.get(bits)!) }))
+      .map((bits) => ({ bits, amp: running.get(bits)! }))
     // Dividing out the common factor is a step of its own: `2*0` and `0` are
     // the same state, and watching the 2 go is watching that being said. Only
     // between whole numbers: a turn by an angle leaves amplitudes with no
     // common factor, and `gcd` on floats returns noise that blows them up.
-    const whole = summed.every((t) => Number.isInteger(t.amp))
-    const divisor = (whole && summed.reduce((g, t) => gcd(g, t.amp), 0)) || 1
-    const left = summed.map((t) => ({ bits: t.bits, amp: t.amp / divisor }))
+    const divisor = commonFactor(summed.map((t) => t.amp))
+    const left = summed.map((t) => ({ bits: t.bits, amp: over(t.amp, divisor) }))
     if (!left.length) {
       throw new NotClassicalError(
         `every term cancels at layer ${at + 1}, leaving no state to draw`,
@@ -656,11 +662,28 @@ export function frameAt(
  * that, so the two together are what has to fit — `-12` needs a good deal more
  * than a bare sign.
  */
-export function labelWidth(amp: number, m: Metrics): number {
-  const text = magnitudeText(amp)
-  const digits = text ? textWidth(text, m.fontSize, false) : 0
-  if (amp >= 0) return digits
+export function labelWidth(amp: Cx, m: Metrics): number {
+  const { text, negative } = ampLabel(amp)
+  const digits = text ? monoWidth(text, m.fontSize) : 0
+  if (!negative) return digits
   return digits + (digits ? m.signGap : 0) + m.barWidth * 2
+}
+
+/**
+ * What is written in front of a moving row: some text, and whether a minus
+ * stands in front of that.
+ *
+ * Real and purely imaginary amplitudes keep the minus as the drawn bar the
+ * rest of the figure uses, with `i` written after the size the way the still
+ * drawing writes it. One with both parts has no single sign to pull out, so it
+ * is written whole, in brackets.
+ */
+export function ampLabel(amp: Cx): { text: string; negative: boolean } {
+  if (amp.im === 0) return { text: magnitudeText(amp.re), negative: amp.re < 0 }
+  if (amp.re === 0) return { text: `${magnitudeText(amp.im)}i`, negative: amp.im < 0 }
+  const re = `${amp.re < 0 ? '-' : ''}${magnitudeText(amp.re) || '1'}`
+  const im = `${amp.im < 0 ? '-' : '+'}${magnitudeText(amp.im)}i`
+  return { text: `(${re}${im})`, negative: false }
 }
 
 /**
@@ -707,7 +730,7 @@ export const bandHeight = (m: Metrics) => rowHeight(m) + m.cloudPadY * 2
  */
 export interface RowTrack {
   bits: string
-  amp: number
+  amp: Cx
   stops: { t: number; x: number; y: number; alpha: number }[]
 }
 
@@ -809,7 +832,7 @@ export function buildTermTimeline(
   const widest = working.reduce(
     (w, layer) =>
       [...layer.going, ...layer.summed, ...layer.left, ...layer.gave].reduce(
-        (n, t) => Math.max(n, labelWidth(typeof t.amp === 'number' ? t.amp : t.amp.re, m)),
+        (n, t) => Math.max(n, labelWidth(t.amp, m)),
         w,
       ),
     0,
@@ -852,7 +875,7 @@ export function buildTermTimeline(
   const bandY = (band: number) => geometry.bands[band].y + geometry.bands[band].h / 2
   const travel = (from: number, to: number) => Math.abs(to - from) / (TRAVEL_RATE * speed)
 
-  const open = (bits: string, amp: number, t: number, x: number, y: number, alpha: number) => {
+  const open = (bits: string, amp: Cx, t: number, x: number, y: number, alpha: number) => {
     const track: RowTrack = { bits, amp, stops: [{ t, x, y, alpha }] }
     rows.push(track)
     return track
@@ -961,7 +984,7 @@ export function buildTermTimeline(
   working.forEach((layer, k) => {
     const gate = geometry.layers[k]
     const gateY = gate.y + gate.h / 2
-    const landed: { track: RowTrack; to: string; amp: number }[] = []
+    const landed: { track: RowTrack; to: string; amp: Cx }[] = []
     /** When each landed row got to its place, for bracketing it as it arrives. */
     const landedAt: number[] = []
     const outOffsets = spread(layer.gave.length)
@@ -1010,7 +1033,7 @@ export function buildTermTimeline(
       const shift = outOffsets[first] - within[0]
 
       const made = gave.map((c, j) => {
-        const track = open(c.to, plainAmp(c.amp), enter, within[j], leaveY, 0)
+        const track = open(c.to, c.amp, enter, within[j], leaveY, 0)
         move(track, acts - span, within[j], leaveY, 0)
         move(track, acts + span, within[j], leaveY, 1)
         move(track, now, within[j], leaveY, 1)
@@ -1024,7 +1047,7 @@ export function buildTermTimeline(
       for (const m of made) {
         move(m.track, now + away, within[m.slot - first], bandY(k + 1))
         move(m.track, now + away + sideways, outOffsets[m.slot], bandY(k + 1))
-        landed.push({ track: m.track, to: m.c.to, amp: plainAmp(m.c.amp) })
+        landed.push({ track: m.track, to: m.c.to, amp: m.c.amp })
         landedAt.push(now + away + sideways)
       }
 
@@ -1117,14 +1140,14 @@ export function buildTermTimeline(
     const survivors: RowTrack[] = []
     for (const [to, list] of groups) {
       const slot = targets.get(to)
-      const sum = list.reduce((n, item) => n + item.amp, 0)
+      const sum = list.reduce((n, item) => cxAdd(n, item.amp), ZERO)
       const home = slot === undefined ? at(list[0].track).x : homes[slot]
-      const alone = list.length === 1 && sum !== 0
+      const alone = list.length === 1 && !isZero(sum)
       for (const item of list) {
         move(item.track, flatEnd, at(item.track).x, at(item.track).y)
         move(item.track, mergeEnd, home, bandY(k + 1), alone ? 1 : 0)
       }
-      if (sum === 0 || slot === undefined) continue
+      if (isZero(sum) || slot === undefined) continue
       if (alone) {
         survivors[slot] = list[0].track
         continue
@@ -1135,7 +1158,7 @@ export function buildTermTimeline(
     }
     // Dividing out the common factor, when there is one to divide out.
     now = mergeEnd
-    const shrinks = layer.summed.some((t, i) => t.amp !== layer.left[i].amp)
+    const shrinks = layer.summed.some((t, i) => !eq(t.amp, layer.left[i].amp))
     if (shrinks) {
       const reduceEnd = now + REDUCE / speed
       const finals = spread(layer.left.length)

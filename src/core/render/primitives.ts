@@ -378,6 +378,19 @@ export function textWidth(text: string, size: number, bold = false, serif = fals
 }
 
 /**
+ * How wide a run of text is in the monospaced face.
+ *
+ * Every character the same width, which is the point of the face, and the
+ * monospace stack's faces (SF Mono, Menlo, Consolas, DejaVu Sans Mono) all
+ * advance six tenths of an em. Measured with the proportional table instead,
+ * `(0.707+0.707i)` came out a third short, since its points, brackets and `i`
+ * are narrow there and full width here.
+ */
+export function monoWidth(text: string, size: number): number {
+  return [...text].length * 0.6 * size
+}
+
+/**
  * How wide the chip behind a label is drawn.
  *
  * Shared, because two places need to agree on it and they are not near each

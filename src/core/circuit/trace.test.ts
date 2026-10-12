@@ -39,8 +39,11 @@ const collect = (list: { to: string; amp: Cx }[]): Amplitudes => {
 const landedBy = (t: { passes: { landed?: number; to: number }[] }) =>
   Math.max(...t.passes.map((p) => p.landed ?? p.to)) + 0.01
 
-const shown = (t: { bits: string; amp: number }) =>
-  `${t.amp < 0 ? '-' : ''}${Math.abs(t.amp) > 1 ? `${Math.abs(t.amp)}*` : ''}${t.bits}`
+/** Real parts only: every circuit traced here keeps its amplitudes real. */
+const re = (t: { amp: { re: number } }) => t.amp.re
+
+const shown = (t: { bits: string; amp: { re: number } }) =>
+  `${re(t) < 0 ? '-' : ''}${Math.abs(re(t)) > 1 ? `${Math.abs(re(t))}*` : ''}${t.bits}`
 
 describe('tracing one gate', () => {
   it('splits a term the way a Hadamard does', () => {
@@ -134,8 +137,8 @@ describe('working a circuit through', () => {
       const theirs = simulate(doc, doc.layers.length)
       // Compared as states: the simulator reduces by the common factor and this
       // does not, so the two agree up to that scale.
-      const scale = ours[0].amp / (theirs.get(ours[0].bits)?.re ?? 1)
-      expect(new Map(ours.map((t) => [t.bits, cx(t.amp / scale)])), src).toEqual(theirs)
+      const scale = re(ours[0]) / (theirs.get(ours[0].bits)?.re ?? 1)
+      expect(new Map(ours.map((t) => [t.bits, cx(re(t) / scale)])), src).toEqual(theirs)
     }
   })
 
@@ -191,7 +194,7 @@ describe('animating a superposition', () => {
       timeline: buildTermTimeline(working, layout.geometry, DEFAULT_METRICS),
     }
   }
-  const look = (r: { bits: string; amp: number }) => `${r.amp > 0 ? '+' : ''}${r.amp}${r.bits}`
+  const look = (r: { bits: string; amp: { re: number } }) => `${re(r) > 0 ? '+' : ''}${re(r)}${r.bits}`
 
   it('gives each stage a band of its own, one row tall', () => {
     // The terms of a state stand side by side the way the notation writes
@@ -304,7 +307,7 @@ describe('animating a superposition', () => {
     // They sit in the same gap: the bar between two terms, the sign in front of
     // the right-hand one. Too tight and the bar is drawn straight through it.
     const { timeline } = built('in 0|1\nH 1')
-    const negative = timeline.rows.find((r) => r.amp < 0)!
+    const negative = timeline.rows.find((r) => re(r) < 0)!
     // Where it stands once the brackets have been dropped, not where it was
     // made — at the gate every term shares one place.
     const x = rowAt(negative, landedBy(timeline)).x
@@ -413,7 +416,7 @@ describe('animating a superposition', () => {
 
   it('adds two that land together and leaves their sum', () => {
     const { timeline } = built('in 0|1\nH 1')
-    const sum = timeline.rows.find((r) => r.amp === 2)!
+    const sum = timeline.rows.find((r) => re(r) === 2)!
     const first = sum.stops[0]
     expect(first.alpha).toBe(0)
     // It shows up, and then gives way to itself with the factor divided out.
@@ -423,7 +426,7 @@ describe('animating a superposition', () => {
     // the start rather than by what they show.
     const flattened = landedBy(timeline)
     const made = timeline.rows.filter((r) => r.stops[0].t > 0 && r.stops[0].t < flattened)
-    const merged = made.filter((r) => r.bits === '0' && r.amp === 1)
+    const merged = made.filter((r) => r.bits === '0' && re(r) === 1)
     expect(merged).toHaveLength(2)
     for (const row of merged) {
       expect(row.stops[row.stops.length - 1].y).toBe(first.y)
@@ -437,7 +440,7 @@ describe('animating a superposition', () => {
     const opposites = timeline.rows.filter(
       (r) => r.stops[0].t > 0 && r.stops[0].t < flat && r.bits === '1',
     )
-    expect(opposites.map((r) => r.amp).sort()).toEqual([-1, 1])
+    expect(opposites.map(re).sort()).toEqual([-1, 1])
     for (const row of opposites) {
       expect(row.stops[row.stops.length - 1].alpha).toBe(0)
     }

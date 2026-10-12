@@ -12,10 +12,11 @@
  */
 
 import type { Fade, TermTimeline, Timeline, Track } from './animate'
-import { GATE_FADE, MARK_FADE, fadeAt, labelWidth, magnitudeText, rowAt } from './animate'
+import { GATE_FADE, MARK_FADE, ampLabel, fadeAt, labelWidth, rowAt } from './animate'
 import type { CircuitGeometry, CircuitLayout } from './layout'
+import type { Cx } from './complex'
 import type { Metrics, Prim } from '../render/primitives'
-import { textWidth } from '../render/primitives'
+import { monoWidth } from '../render/primitives'
 import type { Palette, Theme } from '../render/theme'
 import { el, g, n } from '../svg'
 import type { Box } from '../svg'
@@ -259,7 +260,7 @@ export function animationBox(layout: CircuitLayout, timeline: Timeline, m: Metri
  */
 export function rowPrims(
   bits: string,
-  amp: number,
+  amp: Cx,
   y: number,
   geometry: CircuitGeometry,
   m: Metrics,
@@ -275,7 +276,7 @@ export function rowPrims(
   }))
 
   const edge = geometry.columns[0] + dx - m.qubit / 2 - m.signGap
-  const text = magnitudeText(amp)
+  const { text, negative } = ampLabel(amp)
   if (text) {
     out.push({
       t: 'text',
@@ -287,8 +288,8 @@ export function rowPrims(
       mono: true,
     })
   }
-  if (amp < 0) {
-    const back = text ? textWidth(text, m.fontSize, false) + m.signGap : 0
+  if (negative) {
+    const back = text ? monoWidth(text, m.fontSize) + m.signGap : 0
     out.push({
       t: 'sign',
       x: edge - back - m.barWidth * 2,
