@@ -802,10 +802,9 @@ export function buildTermTimeline(
   const columns = geometry.columns
   const middle = (columns[0] + columns[columns.length - 1]) / 2
   const termW = columns[columns.length - 1] - columns[0] + m.qubit
-  // Wide enough for the bar between two terms *and* whatever amplitude is
-  // written in front of the right-hand one, which sits in the same gap. Sized
-  // from the amplitudes this run actually produces rather than from a guess:
-  // a bare minus needs little, `-12` needs a lot, and a bar drawn through a
+  // Room for whatever amplitude is written in front of a term. Sized from the
+  // amplitudes this run actually produces rather than from a guess: a bare
+  // minus needs little, `-12` or `0.966` a lot, and a bar drawn through a
   // coefficient is the sort of thing only a wide state shows up.
   const widest = working.reduce(
     (w, layer) =>
@@ -815,13 +814,40 @@ export function buildTermTimeline(
       ),
     0,
   )
-  const between = m.termGap * 2 + m.barWidth + (m.signGap + widest) * 2
+  /**
+   * A term's slot is its amplitude and then its qubits, and the amplitude is
+   * only ever on the left. Reserving room for it on both sides of the bar, as
+   * this once did, left each term sitting at the left of its space and the
+   * first one's amplitude hanging out of the cloud.
+   */
+  const label = widest ? widest + m.signGap : 0
+  const slot = label + termW
+  // Wide enough for the bar, and for two brackets side by side — the results
+  // of neighbouring terms, each held in its own — to stand apart rather than
+  // run their puffs into each other.
+  const between = Math.max(m.termGap * 2 + m.barWidth, m.cloudPadX * 2 + m.termGap)
 
-  /** Where each term of an `n`-term state stands, as an offset from the wires. */
+  /**
+   * Where each term of an `n`-term state stands, as an offset of its qubits
+   * from the wires. The slots are centred, amplitudes and all; a lone term
+   * stands on the wires, which is where it goes through a gate.
+   */
   const spread = (n: number): number[] => {
-    const total = n * termW + (n - 1) * between
-    return Array.from({ length: n }, (_, i) => -total / 2 + termW / 2 + i * (termW + between) )
+    if (n === 1) return [0]
+    const total = n * slot + (n - 1) * between
+    return Array.from({ length: n }, (_, i) => -total / 2 + label + termW / 2 + i * (slot + between))
   }
+
+  /** The bar between two neighbouring terms, centred in the gap between their slots. */
+  const barX = (left: number, right: number) => middle + (left + termW / 2 + right - termW / 2 - label) / 2
+
+  /** A box round the slots of terms standing at `first`..`last`, amplitudes included. */
+  const around = (first: number, last: number, y: number): Box => ({
+    x: middle + first - termW / 2 - label,
+    y: y - m.qubit / 2,
+    w: last - first + termW + label,
+    h: m.qubit,
+  })
 
   const bandY = (band: number) => geometry.bands[band].y + geometry.bands[band].h / 2
   const travel = (from: number, to: number) => Math.abs(to - from) / (TRAVEL_RATE * speed)
@@ -862,18 +888,10 @@ export function buildTermTimeline(
       { t: full, x: 0, y: 0, alpha: 1 },
       { t: full + 0.25, x: 0, y: 0, alpha: 0 },
     ]
-    clouds.push({
-      box: {
-        x: middle + offsets[0] - termW / 2,
-        y: y - m.qubit / 2,
-        w: offsets[n - 1] - offsets[0] + termW,
-        h: m.qubit,
-      },
-      stops,
-    })
+    clouds.push({ box: around(offsets[0], offsets[n - 1], y), stops })
     for (let i = 0; i + 1 < n; i++) {
       bars.push({
-        x: middle + (offsets[i] + offsets[i + 1]) / 2,
+        x: barX(offsets[i], offsets[i + 1]),
         cy: y,
         h: m.qubit * 0.9,
         stops: stops.map((s) => ({ ...s })),
@@ -915,12 +933,7 @@ export function buildTermTimeline(
     }
     const settled = path.length ? path[path.length - 1] : at_
 
-    const box = {
-      x: middle + outBand[from] - termW / 2,
-      y: y - m.qubit / 2,
-      w: outBand[from + n - 1] - outBand[from] + termW,
-      h: m.qubit,
-    }
+    const box = around(outBand[from], outBand[from + n - 1], y)
     const tail = (to: number): Fade[] => [
       { t: Math.max(settled, to), x: 0, y: 0, alpha: 1 },
       { t: Math.max(settled, to) + 0.25, x: 0, y: 0, alpha: 0 },
@@ -1070,7 +1083,7 @@ export function buildTermTimeline(
       clouds.push({ box: bracket.box, stops })
       for (let i = bracket.from; i + 1 < bracket.from + bracket.n; i++) {
         bars.push({
-          x: middle + (outOffsets[i] + outOffsets[i + 1]) / 2,
+          x: barX(outOffsets[i], outOffsets[i + 1]),
           cy: bandY(k + 1),
           h: m.qubit * 0.9,
           stops: stops.map((st) => ({ ...st })),

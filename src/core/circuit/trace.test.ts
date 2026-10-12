@@ -271,9 +271,11 @@ describe('animating a superposition', () => {
     // run actually produces.
     const gapOf = (src: string) => {
       const { timeline } = built(src)
-      const xs = [...new Set(timeline.rows.map((r) => rowAt(r, landedBy(timeline)).x))]
-        .sort((a, b) => a - b)
-      return xs[1] - xs[0]
+      const xs = timeline.rows
+        .map((r) => rowAt(r, landedBy(timeline)))
+        .filter((at) => at.alpha > 0.9)
+        .map((at) => at.x)
+      return Math.max(...xs) - Math.min(...xs)
     }
     expect(gapOf('in 10*0|1\nX 1')).toBeGreaterThan(gapOf('in 2*0|1\nX 1'))
     expect(gapOf('in 2*0|1\nX 1')).toBeGreaterThan(gapOf('in 0|1\nX 1'))

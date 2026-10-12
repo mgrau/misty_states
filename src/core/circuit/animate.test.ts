@@ -501,8 +501,12 @@ describe('the brackets round a worked term', () => {
           )
           if (held.length < 2) continue
           const xs = held.map((q) => (q.t === 'qubit' ? q.cx : 0))
-          const middle = (Math.min(...xs) + Math.max(...xs)) / 2
-          worst = Math.max(worst, Math.abs(middle - (c.content.x + c.content.w / 2)))
+          // Its right edge is the last qubit's; its left edge leaves the first
+          // one room for an amplitude, which stands to the left of a term.
+          const q = DEFAULT_METRICS.qubit / 2
+          const right = Math.abs(c.content.x + c.content.w - (Math.max(...xs) + q))
+          expect(c.content.x).toBeLessThan(Math.min(...xs) - q)
+          worst = Math.max(worst, right)
           checked++
         }
       }
