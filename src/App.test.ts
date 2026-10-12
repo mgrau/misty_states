@@ -777,6 +777,50 @@ describe('undo and redo', () => {
   })
 })
 
+describe('the Bloch sphere', () => {
+  const button = () =>
+    host.querySelector('button[aria-label="Bloch sphere"]') as HTMLButtonElement
+  const drawer = () => host.querySelector('aside[aria-label="Bloch sphere"]')
+
+  it('is only offered for one qubit', () => {
+    boot()
+    setSource('in 00\nH 1')
+    expect(button().disabled).toBe(true)
+    expect(button().title).toMatch(/one qubit/)
+    setSource('in 0\nH 1')
+    expect(button().disabled).toBe(false)
+  })
+
+  it('slides in beside the drawing, which stays', () => {
+    boot()
+    setSource('in 0\nH 1')
+    expect(drawer()).toBeNull()
+    button().click()
+    flushSync()
+    expect(drawer()?.querySelector('svg[aria-label="Bloch sphere"]')).not.toBeNull()
+    expect(diagram()).not.toBeNull()
+  })
+
+  it('reads the state at the end of the circuit', () => {
+    boot()
+    setSource('in 0\nH 1\nmeasure 1 Z')
+    button().click()
+    flushSync()
+    // Measured and not looked at: an even mixture, at the centre.
+    expect(drawer()!.textContent).toMatch(/White\s*50%/)
+    expect(drawer()!.textContent).toMatch(/Length\s*0\.00/)
+  })
+
+  it('says why, rather than closing, when the circuit grows a second wire', () => {
+    boot()
+    setSource('in 0\nH 1')
+    button().click()
+    flushSync()
+    setSource('in 00\nH 1')
+    expect(drawer()!.textContent).toMatch(/single qubit/)
+  })
+})
+
 describe('settings panel', () => {
   const openSettings = () => {
     const btn = [...host.querySelectorAll('button')].find((b) =>

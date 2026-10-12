@@ -125,3 +125,22 @@ if (typeof globalThis.requestAnimationFrame !== 'function') {
     pending.delete(id)
   }
 }
+
+/**
+ * jsdom has no `matchMedia`, and `svelte/motion` asks it about reduced motion
+ * as soon as it is imported. Answering "no preference" to every query is what
+ * a default browser would say.
+ */
+if (typeof window !== 'undefined' && !window.matchMedia) {
+  window.matchMedia = (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList
+}

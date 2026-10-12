@@ -1,6 +1,9 @@
 <script lang="ts">
   import { flushSync, untrack } from 'svelte'
   import { render } from './core/index'
+  import { blochOf, layersAt, type BlochPath } from './core/bloch'
+  import { Tween } from 'svelte/motion'
+  import { cubicInOut } from 'svelte/easing'
   import type { ThemeId } from './core/render/theme'
   import { DEFAULT_SHAPE_ORDER, SHAPE_NAMES, type ShapeName } from './core/shapes'
   import { EXAMPLES, DEFAULT_EXAMPLE } from './core/examples'
@@ -19,6 +22,7 @@
   import SyntaxHelp from './app/components/SyntaxHelp.svelte'
   import SettingsPanel from './app/components/SettingsPanel.svelte'
   import SidePanel from './app/components/SidePanel.svelte'
+  import BlochSphere from './app/components/BlochSphere.svelte'
   import GatePalette from './app/components/GatePalette.svelte'
   import MenuButton from './app/components/MenuButton.svelte'
   import MenuItems from './app/components/MenuItems.svelte'
@@ -738,6 +742,56 @@
 
   const hasAnswer = $derived(result.ok ? !!result.hasAnswer : false)
 
+  /* -- Bloch sphere ------------------------------------------------------- */
+
+  /**
+   * The drawer with one qubit's state on a sphere.
+   *
+   * Its own switch rather than another `panel`: settings and the reference are
+   * consulted, but this is a second picture of the drawing, and it is worth
+   * keeping open beside either of them.
+   */
+  let blochOpen = $state(false)
+  /**
+   * The last path that went with a drawing. While the source does not draw,
+   * the drawing stays on its last good version, and so does the sphere — two
+   * pictures of two different circuits side by side would contradict each other.
+   */
+  let blochKept: BlochPath | null = null
+  const bloch = $derived.by(() => {
+    if (!result.ok && blochKept) return { ok: true as const, path: blochKept }
+    try {
+      blochKept = blochOf(source)
+      return { ok: true as const, path: blochKept }
+    } catch (err) {
+      blochKept = null
+      return { ok: false as const, message: (err as Error).message }
+    }
+  })
+
+  /** Steps glide rather than jump, so stepping shows each gate turning the sphere. */
+  const blochStep = new Tween(0, { duration: 450, easing: cubicInOut })
+  $effect(() => {
+    const target = stepOn && canStep ? stepAt : null
+    untrack(() => {
+      if (target !== null) blochStep.target = target
+    })
+  })
+
+  /**
+   * How many layers in the sphere is, fractionally.
+   *
+   * An animation's own clock where there is one, so the arrow turns while the
+   * qubits are inside the gate; the stepper's position where that is on; and
+   * otherwise the end, which is the state a still drawing is the circuit of.
+   */
+  const blochLayers = $derived.by(() => {
+    if (!bloch.ok) return 0
+    if (animation?.spans) return layersAt(animation.spans, at)
+    if (stepOn && canStep) return blochStep.current
+    return bloch.path.moves.length
+  })
+
   /** How many layers there are to step through; 0 when there is nothing to. */
   const layerCount = $derived(result.ok ? (result.layers ?? 0) : 0)
   const dirac = $derived(result.ok ? result.dirac : undefined)
@@ -1308,6 +1362,27 @@
     <div class="ml-auto flex items-center gap-1.5">
       <button
         type="button"
+        onclick={() => (blochOpen = !blochOpen)}
+        disabled={!blochOpen && !bloch.ok}
+        title={bloch.ok ? 'Show the qubit on a Bloch sphere' : `Only for one qubit: ${bloch.message}`}
+        aria-label="Bloch sphere"
+        aria-pressed={blochOpen}
+        class="flex items-center gap-1.5 rounded border px-2 py-1 text-xs transition-colors
+               disabled:cursor-not-allowed disabled:opacity-40
+               {blochOpen
+          ? 'border-slate-800 bg-slate-800 text-white'
+          : 'border-slate-300 bg-white text-slate-700 enabled:hover:bg-slate-50'}"
+      >
+        <svg viewBox="0 0 20 20" class="h-3.5 w-3.5" aria-hidden="true">
+          <circle cx="10" cy="10" r="7.4" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <ellipse cx="10" cy="10" rx="7.4" ry="2.6" fill="none" stroke="currentColor" stroke-width="1.1" />
+          <path d="M10 10L14 5.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+        </svg>
+        Bloch
+      </button>
+
+      <button
+        type="button"
         onclick={() => show('syntax')}
         aria-label="Syntax reference"
         aria-pressed={panel === 'syntax'}
@@ -1360,7 +1435,7 @@
     style="--misty-pane: {paneWidth}px;"
     class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-0
            lg:grid-cols-[var(--misty-pane)_minmax(0,1fr)] lg:grid-rows-none
-           {panel ? 'hidden sm:grid' : ''}"
+           {panel || blochOpen ? 'hidden sm:grid' : ''}"
   >
     <!-- Editor ------------------------------------------------------------ -->
     <!--
@@ -1922,6 +1997,18 @@
       </div>
     </section>
   </main>
+
+  {#if blochOpen}
+    <SidePanel title="Bloch sphere" onclose={() => (blochOpen = false)}>
+      {#if bloch.ok}
+        <BlochSphere path={bloch.path} at={blochLayers} />
+      {:else}
+        <p class="p-4 text-sm text-slate-500">
+          A Bloch sphere shows a single qubit. {bloch.message[0].toUpperCase() + bloch.message.slice(1)}.
+        </p>
+      {/if}
+    </SidePanel>
+  {/if}
 
   <SettingsPanel
     open={panel === 'settings'}

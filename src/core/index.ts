@@ -178,6 +178,12 @@ export interface RenderResult {
     steps: AnimationStep[]
     /** Whether the file repeats of its own accord. */
     loop: boolean
+    /**
+     * When each layer of the circuit is being worked, by layer; empty where a
+     * layer has nothing passing through it. What a picture of the state beside
+     * the drawing keeps time with.
+     */
+    spans: ({ from: number; to: number } | undefined)[]
   }
 }
 
@@ -275,6 +281,22 @@ const stepAt = (doc: CircuitDoc, step: number | null | undefined): number =>
   step === null || step === undefined
     ? doc.layers.length
     : Math.max(0, Math.min(doc.layers.length - 1, Math.round(step)))
+
+/**
+ * When each layer is at work: from the first thing entering it until what it
+ * gave has settled — for a superposition, until it has been added up.
+ */
+function spansOf(run: Prepared, layers: number): ({ from: number; to: number } | undefined)[] {
+  return Array.from({ length: layers }, (_, k) => {
+    const passes = run.timeline.passes.filter((p) => p.layer === k)
+    if (!passes.length) return undefined
+    const from = Math.min(...passes.map((p) => p.from))
+    const to = run.terms
+      ? (run.timeline.collects[k] ?? Math.max(...passes.map((p) => p.landed ?? p.to)))
+      : Math.max(...passes.map((p) => p.to))
+    return { from, to }
+  })
+}
 
 function prepareAnimation(
   doc: CircuitDoc,
@@ -520,6 +542,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
         duration: run.timeline.duration,
         steps: run.terms ? termSteps(run.timeline) : animationSteps(run.timeline),
         loop: run.timeline.loop,
+        spans: spansOf(run, doc.layers.length),
       },
     }
   }
