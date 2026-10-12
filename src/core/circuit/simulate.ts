@@ -582,8 +582,9 @@ const CERTAIN: Frac = { n: 1, d: 1 }
 
 function frac(n: number, d: number): Frac {
   // Only reduced where there is something to reduce: a ratio of cosines has no
-  // common factor, and `gcd` on floats would return noise.
-  if (!Number.isInteger(n) || !Number.isInteger(d)) return { n, d }
+  // common factor, and `gcd` on floats would return noise. It is divided out
+  // instead, so a run of measurements cannot shrink both parts towards zero.
+  if (!Number.isInteger(n) || !Number.isInteger(d)) return { n: n / d, d: 1 }
   const g = gcd(n, d) || 1
   return { n: n / g, d: d / g }
 }
@@ -614,7 +615,9 @@ export interface Branch {
 export function oddsLabel(odds: Frac, exact = false): string {
   const percent = (odds.n * 100) / odds.d
   if (Number.isInteger(percent)) return `${percent}%`
-  return exact ? `${odds.n}/${odds.d}` : `${Math.round(percent)}%`
+  // A chance worked out from an angle has no fraction to write exactly.
+  const whole = Number.isInteger(odds.n) && Number.isInteger(odds.d)
+  return exact && whole ? `${odds.n}/${odds.d}` : `${Math.round(percent)}%`
 }
 
 /**
@@ -644,18 +647,43 @@ function measureWire(branch: Branch, qubit: number): Branch[] {
  *
  * Two routes to `1` — through white and through black on an earlier
  * measurement — are one possibility once the record of the route is gone, so
- * their chances add. Same state means same up to scale and overall phase,
- * which is all `canonical` leaves. The first route's amplitudes are kept; they
- * evolve identically from here, so which one stands for the outcome is moot.
+ * their chances add. Same state means same up to scale and overall phase.
+ * The first route's amplitudes are kept; they evolve identically from here, so
+ * which one stands for the outcome is moot.
  */
 function mergeBranches(branches: Branch[]): Branch[] {
   const byState = new Map<string, Branch>()
   for (const branch of branches) {
-    const key = JSON.stringify(canonical(branch.amps))
+    const key = stateKey(branch.amps)
     const seen = byState.get(key)
     byState.set(key, seen ? { ...seen, odds: plus(seen.odds, branch.odds) } : branch)
   }
   return [...byState.values()]
+}
+
+/**
+ * A state as a string two routes to it will share.
+ *
+ * Not `canonical`, which only divides out whole factors: an angle leaves
+ * amplitudes like `0.73` and `0.125` for what is one state, and arithmetic
+ * by different routes leaves them differing in the last bits. So the state is
+ * scaled to unit length, turned so its first term is positive and real, and
+ * rounded well past anything a figure could show.
+ */
+function stateKey(amps: Amplitudes): string {
+  const terms = sorted(amps)
+  const [, first] = terms[0]
+  // Dividing by `first` and multiplying back by `|first|`, then by the length,
+  // in one step: multiply by conj(first) / (|first| · length).
+  const k = Math.sqrt(abs2(first) * weight(amps))
+  const round = (x: number) => Math.round(x * 1e9) / 1e9 || 0
+  return JSON.stringify(
+    terms.map(([bits, a]) => [
+      bits,
+      round((a.re * first.re + a.im * first.im) / k),
+      round((a.im * first.re - a.re * first.im) / k),
+    ]),
+  )
 }
 
 /** Turn computed amplitudes into a state row ready to be drawn. */

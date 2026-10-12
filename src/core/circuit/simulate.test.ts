@@ -21,7 +21,8 @@ import { parseCircuit } from './parse'
 import { cx, show } from './complex'
 import { layoutCircuit } from './layout'
 import {
-  amplitudesOf, canonical, resolveCalculations, simulate, stateFrom, SimulationError,
+  amplitudesOf, canonical, resolveCalculations, simulate, simulateBranches, stateFrom,
+  SimulationError,
   type Amplitudes,
 } from './simulate'
 import { parseState } from '../state/parse'
@@ -363,6 +364,21 @@ describe('measuring — one state becomes several', () => {
       { odds: '50%', state: '0' },
       { odds: '50%', state: '1' },
     ])
+  })
+
+  it('adds up routes through an angle, whose amplitudes are not whole', () => {
+    // The quantum Zeno effect: four small turns, each watched. Each flips with
+    // chance sin²(22.5°), so black ends at (1 - cos⁴(45°)) / 2 = 3/8, where
+    // unwatched the turns would add to 180° and land on black for certain.
+    const zeno = 'in 0' + '\nRY(45) 1\nmeasure 1 Z'.repeat(4) + '\nout calculate'
+    const branches = simulateBranches(parseCircuit(zeno), 8).branches
+    expect(branches.map((b) => b.odds.n / b.odds.d)).toEqual([
+      expect.closeTo(5 / 8),
+      expect.closeTo(3 / 8),
+    ])
+    // No fraction to write exactly, so a percentage either way.
+    expect(outcomes(zeno, true).map((o) => o.state)).toEqual(['0', '1'])
+    expect(outcomes(zeno, true).map((o) => o.odds)).toEqual(outcomes(zeno).map((o) => o.odds))
   })
 
   it('drops an outcome that cannot happen', () => {
