@@ -347,6 +347,24 @@ describe('measuring — one state becomes several', () => {
     expect(all.map((o) => o.state)).toEqual(['000', '010', '100', '110'])
   })
 
+  it('adds up routes that end in the same state', () => {
+    // Each of the four histories is 25%, but only two endings can be told apart.
+    expect(outcomes('in 0\nH 1\nmeasure 1 Z\nH 1\nmeasure 1 Z\nout calculate')).toEqual([
+      { odds: '50%', state: '0' },
+      { odds: '50%', state: '1' },
+    ])
+  })
+
+  it('adds routes whose chances differ', () => {
+    // 9/13 and 4/13, each then split evenly: 9/26 + 4/26 either way.
+    expect(
+      outcomes('in 3*0|2*1\nmeasure 1 Z\nH 1\nmeasure 1 Z\nout calculate', true),
+    ).toEqual([
+      { odds: '50%', state: '0' },
+      { odds: '50%', state: '1' },
+    ])
+  })
+
   it('drops an outcome that cannot happen', () => {
     // Nothing in this state has a black circle, so there is no such branch.
     expect(outcomes('in 00|01\nmeasure 1 Z\nout calculate')).toHaveLength(1)

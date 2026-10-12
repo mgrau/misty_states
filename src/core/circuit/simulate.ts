@@ -590,6 +590,8 @@ function frac(n: number, d: number): Frac {
 
 const times = (a: Frac, b: Frac): Frac => frac(a.n * b.n, a.d * b.d)
 
+const plus = (a: Frac, b: Frac): Frac => frac(a.n * b.d + b.n * a.d, a.d * b.d)
+
 /** Sum of squared amplitudes — the weight the Born rule divides through. */
 function weight(amps: Amplitudes): number {
   let total = 0
@@ -635,6 +637,25 @@ function measureWire(branch: Branch, qubit: number): Branch[] {
     out.push({ amps: kept, odds: times(branch.odds, frac(weight(kept), total)) })
   }
   return out
+}
+
+/**
+ * Gather histories that ended in the same state into one outcome.
+ *
+ * Two routes to `1` — through white and through black on an earlier
+ * measurement — are one possibility once the record of the route is gone, so
+ * their chances add. Same state means same up to scale and overall phase,
+ * which is all `canonical` leaves. The first route's amplitudes are kept; they
+ * evolve identically from here, so which one stands for the outcome is moot.
+ */
+function mergeBranches(branches: Branch[]): Branch[] {
+  const byState = new Map<string, Branch>()
+  for (const branch of branches) {
+    const key = JSON.stringify(canonical(branch.amps))
+    const seen = byState.get(key)
+    byState.set(key, seen ? { ...seen, odds: plus(seen.odds, branch.odds) } : branch)
+  }
+  return [...byState.values()]
 }
 
 /** Turn computed amplitudes into a state row ready to be drawn. */
@@ -772,7 +793,7 @@ function simulateFrom(doc: CircuitDoc, layers: number) {
           )
         }
         measured = true
-        branches = branches.flatMap((b) => measureWire(b, gate.qubit))
+        branches = mergeBranches(branches.flatMap((b) => measureWire(b, gate.qubit)))
         continue
       }
       branches = branches.map((b) => ({ ...b, amps: applyGate(b.amps, gate) }))
