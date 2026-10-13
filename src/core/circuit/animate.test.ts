@@ -13,7 +13,7 @@ import { layoutCircuit } from './layout'
 import { resolveCalculations, simulate } from './simulate'
 import {
   buildTimeline, buildTermTimeline, classicalRun, frameAt, positionAt, activeAt, steps,
-  termRun, NotClassicalError, GATE_FADE, ampLabel, magnitudeText, type TermTimeline,
+  termRun, NotClassicalError, GATE_FADE, ampLabel, fadeAt, magnitudeText, type TermTimeline,
 } from './animate'
 import { animatedSvg, animationBox, termFrameAt } from './animate-svg'
 import { render } from '../index'
@@ -563,5 +563,58 @@ describe('the brackets round a worked term', () => {
     // Never both: the handover is a sequence, and two clouds fading through
     // each other says nothing about which became which.
     expect(together).toBe(0)
+  })
+})
+
+describe('the cloud round a state between gates', () => {
+  const run = (src: string) => {
+    const doc = resolveCalculations(parseCircuit(src))
+    const banded = layoutCircuit(doc, {
+      metrics: DEFAULT_METRICS,
+      shapeOrder: DEFAULT_SHAPE_ORDER,
+      attach: THEMES.solid.attach,
+      bareEnds: true,
+      bands: new Array(doc.layers.length + 1).fill(120),
+    })
+    const timeline = buildTermTimeline(termRun(doc), banded.geometry, DEFAULT_METRICS)
+    const band = (b: number) => banded.geometry.bands[b].y + banded.geometry.bands[b].h / 2
+    /** How solidly band `b` is clouded at `t`: the most opaque cloud over it. */
+    const cover = (b: number, t: number) =>
+      Math.max(
+        0,
+        ...timeline.clouds
+          .filter((c) => Math.abs(c.box.y + c.box.h / 2 - band(b)) < 1)
+          .map((c) => {
+            const f = fadeAt(c, t)
+            return Math.abs(f.y) < 1 ? f.alpha : 0
+          }),
+      )
+    return { timeline, cover }
+  }
+
+  it('holds steady after H rather than blinking out and back in', () => {
+    const { timeline, cover } = run('0\nH 1\nCNOT 1 2\nanimate')
+    const h = timeline.passes.filter((p) => p.layer === 0)
+    const cnot = timeline.passes.filter((p) => p.layer === 1)
+    // From the results landing until the first of them sets off for the CNOT.
+    for (let t = Math.max(...h.map((p) => p.landed!)); t < cnot[0].from - 0.6; t += 0.02) {
+      expect(cover(1, t), `t=${t.toFixed(2)}`).toBeGreaterThan(0.99)
+    }
+  })
+
+  it('does not stop for tidying that has nothing to tidy', () => {
+    const { timeline } = run('0\nH 1\nCNOT 1 2\nanimate')
+    const landed = Math.max(...timeline.passes.filter((p) => p.layer === 0).map((p) => p.landed!))
+    // Nothing to flatten, add or divide: the state is collected as it lands,
+    // after only the beat that follows any term.
+    expect(timeline.collects[0] - landed).toBeLessThan(0.2)
+  })
+
+  it('is waiting below the CNOT for the first term to move into', () => {
+    const { timeline, cover } = run('0\nH 1\nCNOT 1 2\nanimate')
+    const [first] = timeline.passes.filter((p) => p.layer === 1)
+    expect(cover(2, first.landed!)).toBeGreaterThan(0.99)
+    // Up as the first term leaves the gate, not after the last has arrived.
+    expect(cover(2, first.to + 0.01)).toBeGreaterThan(0.99)
   })
 })

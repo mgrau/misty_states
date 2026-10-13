@@ -966,6 +966,24 @@ export function buildTermTimeline(
 
   /** Where the band being filled puts each of its terms. */
   let bandOffsets: number[] = []
+
+  /**
+   * Put up a bracket made during a layer, now that it is known how long it
+   * stays: until `until`, then fading.
+   */
+  const addBracket = (bracket: (typeof brackets)[number], until: number) => {
+    const stops = [...bracket.steps, ...bracket.tail(until)]
+    clouds.push({ box: bracket.box, stops })
+    const y = bracket.box.y + m.qubit / 2
+    for (let i = bracket.from; i + 1 < bracket.from + bracket.n; i++) {
+      bars.push({
+        x: barX(bandOffsets[i], bandOffsets[i + 1]),
+        cy: y,
+        h: m.qubit * 0.9,
+        stops: stops.map((st) => ({ ...st })),
+      })
+    }
+  }
   /** Brackets made during a layer, finished off once it is known when they go. */
   const brackets: {
     box: Box
@@ -992,6 +1010,8 @@ export function buildTermTimeline(
     brackets.length = 0
     const arrived = k === 0 ? 0 : collects[k - 1]
     let lastOut = now
+    /** When the first of this layer's results comes out of the gate. */
+    let firstOut: number | null = null
 
     layer.going.forEach((term, i) => {
       const row = waiting[i]
@@ -1020,6 +1040,7 @@ export function buildTermTimeline(
 
       const enter = now
       now += dwell / speed
+      firstOut ??= now
       const span = (now - enter) * 0.12
       const acts = (enter + now) / 2
       move(row, acts - span, 0, meetY, 1)
@@ -1097,38 +1118,37 @@ export function buildTermTimeline(
      * at once would leave the answer looking like it arrived by magic.
      */
     const allLanded = now
-    const flatEnd = allLanded + FLATTEN / speed
-    const mergeEnd = flatEnd + COLLECT / speed
 
-    // The brackets made during the layer go as soon as the flattening starts.
-    for (const bracket of brackets) {
-      const stops = [...bracket.steps, ...bracket.tail(allLanded)]
-      clouds.push({ box: bracket.box, stops })
-      for (let i = bracket.from; i + 1 < bracket.from + bracket.n; i++) {
-        bars.push({
-          x: barX(outOffsets[i], outOffsets[i + 1]),
-          cy: bandY(k + 1),
-          h: m.qubit * 0.9,
-          stops: stops.map((st) => ({ ...st })),
-        })
-      }
+    // Which of the tidying steps actually change the picture. Only those take
+    // any time: one with nothing to do is a pause in which nothing happens.
+    const nested = brackets.length > 1
+      || (brackets.length === 1 && brackets[0].n < layer.gave.length)
+    const combined = layer.summed.length !== layer.gave.length
+    const flatEnd = allLanded + (nested ? FLATTEN / speed : 0)
+    const mergeEnd = flatEnd + (combined ? COLLECT / speed : 0)
+    /** Until when the results stand as they landed, before the sum takes over. */
+    const gaveUntil = layer.summed.length > 1 ? flatEnd : mergeEnd
+
+    if (nested) {
+      // Several brackets: they go as soon as the flattening starts, and the
+      // bracket round the lot arrives only once they have — that hand-over
+      // *is* the flattening step. Twice the fade: once for the inner brackets
+      // to go, and again for the outer one to arrive; `cloud` rises *into* the
+      // time it is given, so anything less would start it while the others
+      // were still there.
+      for (const bracket of brackets) addBracket(bracket, allLanded)
+      cloud(k + 1, layer.gave.length, allLanded + BRACKET_FADE * 2, gaveUntil)
+    } else if (brackets.length === 1) {
+      // One bracket round everything the gate gave is already the bracket
+      // round the state. Handing over to another in the same place would only
+      // blink it out and back in; it simply stays.
+      addBracket(brackets[0], gaveUntil)
+    } else {
+      // Each term gave one: there is nothing to bracket on the way out, so the
+      // state's own bracket is put up as the first result leaves the gate, for
+      // the rest to move into — not once they have all arrived.
+      cloud(k + 1, layer.gave.length, firstOut ?? allLanded, gaveUntil)
     }
-
-    // The bracket round the lot, arriving only once the inner ones have gone —
-    // that hand-over *is* the flattening step. It in turn hands over to the
-    // bracket round the sum when there is one; when the whole thing collapses
-    // to a single term there is nothing to hand over to, so it stays up until
-    // the adding is done.
-    // Twice the fade: once for the inner brackets to go, and again for the
-    // outer one to arrive. `cloud` rises *into* the time it is given, so
-    // anything less would start it while the others were still there.
-    const flattened = brackets.length ? allLanded + BRACKET_FADE * 2 : allLanded
-    cloud(
-      k + 1,
-      layer.gave.length,
-      flattened,
-      layer.summed.length > 1 ? flatEnd : mergeEnd,
-    )
 
     const homes = spread(layer.summed.length)
     const targets = new Map(layer.summed.map((term, i) => [term.bits, i] as const))
@@ -1143,9 +1163,11 @@ export function buildTermTimeline(
       const sum = list.reduce((n, item) => cxAdd(n, item.amp), ZERO)
       const home = slot === undefined ? at(list[0].track).x : homes[slot]
       const alone = list.length === 1 && !isZero(sum)
-      for (const item of list) {
-        move(item.track, flatEnd, at(item.track).x, at(item.track).y)
-        move(item.track, mergeEnd, home, bandY(k + 1), alone ? 1 : 0)
+      if (combined || !alone) {
+        for (const item of list) {
+          move(item.track, flatEnd, at(item.track).x, at(item.track).y)
+          move(item.track, mergeEnd, home, bandY(k + 1), alone ? 1 : 0)
+        }
       }
       if (isZero(sum) || slot === undefined) continue
       if (alone) {
@@ -1186,9 +1208,6 @@ export function buildTermTimeline(
     // Only the stages that do something. A single term giving two results has
     // no brackets to drop and nothing to add up: stopping on those would be
     // stopping twice on the same picture.
-    const nested = brackets.length > 1
-      || (brackets.length === 1 && brackets[0].n < layer.gave.length)
-    const combined = layer.summed.length !== layer.gave.length
     tidies.push([
       ...(nested ? [{ t: flatEnd, phase: 'flatten' as const }] : []),
       ...(combined ? [{ t: mergeEnd, phase: 'merge' as const }] : []),
