@@ -167,7 +167,6 @@ describe('working a circuit through', () => {
   it('passes on what the arithmetic cannot follow', () => {
     expect(() => run('in ?\nX 1')).toThrow(/has no value/)
     expect(() => run('in 00\nbox "Oracle" 1-2')).toThrow(/is a drawing/)
-    expect(() => run('in 0\nT 1')).toThrow(/turns by an eighth/)
   })
 
   it('says so when everything cancels', () => {

@@ -98,6 +98,7 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
       if (gate.label === 'Z') return embed(n, { [gate.qubit]: Z2 })
       if (gate.label === 'Y') return embed(n, { [gate.qubit]: Y2 })
       if (gate.label === 'S') return embed(n, { [gate.qubit]: S2 })
+      if (gate.label === 'T') return embed(n, { [gate.qubit]: turn2('P', 45) })
       throw new Error(`reference: ${gate.label} has no matrix here`)
 
     case 'controlled': {

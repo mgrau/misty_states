@@ -54,7 +54,6 @@ describe('which circuits can move', () => {
   it('passes it on when the arithmetic itself cannot follow the circuit', () => {
     expect(() => laid('in ?\nX 1')).toThrow(/has no value/)
     expect(() => laid('in 00\nbox "Oracle" 1-2')).toThrow(/is a drawing/)
-    expect(() => laid('in 0\nT 1')).toThrow(/turns by an eighth/)
   })
 
   it('allows every gate that keeps the state a single one', () => {
@@ -457,6 +456,14 @@ describe('a phase in front of a term', () => {
       const r = render(`${src}\nanimate`)
       expect(r.animation, src).toBeDefined()
     }
+  })
+
+  it('animates T, an eighth of a turn', () => {
+    for (const src of ['in 0|1\nT 1', 'in 1\nT 1', 'in 0\nH 1\nT 1\nH 1']) {
+      expect(render(`${src}\nanimate`).animation, src).toBeDefined()
+    }
+    const svg = render('in 1\nT 1\nanimate').svg
+    expect([...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1])).toContain('(0.707+0.707i)')
   })
 
   it('writes the phase it leaves', () => {

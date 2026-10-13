@@ -8,10 +8,9 @@
  * because the Gaussian integers are closed under everything the notation can
  * currently express — `X`, `Y`, `Z`, `S`, `H` and every controlled form of them.
  *
- * What is *not* in here is `T`, whose `e^{iπ/4}` needs a square root of two.
- * That wants the eighth roots of unity, `Z[ζ₈]`, which is a bigger type and a
- * bigger change to the probabilities — `|z|²` stops being an integer. Left for
- * when `T` is wanted; nothing here forecloses it.
+ * What is *not* exact is `T`, whose `e^{iπ/4}` needs a square root of two.
+ * That would want the eighth roots of unity, `Z[ζ₈]`; instead it goes through
+ * the same floats a written angle does, as `P(45)`.
  *
  * The other reason for whole numbers: `|a + bi|² = a² + b²` is an integer, so
  * the Born rule, the odds fractions and the exact-fraction display all keep

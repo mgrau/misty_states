@@ -198,6 +198,13 @@ const oneWire = (q: number, m: [Cx, Cx, Cx, Cx]): Spread => {
  * `[[1, -i], [-i, 1]]` and every entry is whole.
  */
 function turnOf(label: string, qubit: number, angle: number): Spread {
+  // Products of rounded cosines leave dust — `-1 + 3e-16i` after four eighth
+  // turns — which would otherwise be drawn as a phase rather than a minus.
+  const spread = turnSpread(label, qubit, angle)
+  return (bits, amp, emit) => spread(bits, amp, (to, gave) => emit(to, cx(tidy(gave.re), tidy(gave.im))))
+}
+
+function turnSpread(label: string, qubit: number, angle: number): Spread {
   const half = (angle * Math.PI) / 360
   let c = Math.cos(half)
   let s = Math.sin(half)
@@ -260,6 +267,9 @@ function spreadOf(gate: Gate): Spread | null {
       if (gate.label === 'S') {
         return (bits, amp, emit) => emit(bits, bits[gate.qubit - 1] === '1' ? mul(amp, I) : amp)
       }
+      // An eighth turn, half an S. Its e^{iπ/4} needs a root of two, which only
+      // the float amplitudes a written angle brings can hold — so it is one.
+      if (gate.label === 'T') return turnOf('P', gate.qubit, 45)
       if (gate.angle !== undefined) return turnOf(gate.label, gate.qubit, gate.angle)
       // A flip and a quarter turn each way: white goes to black turned one way,
       // black to white turned the other.
@@ -267,9 +277,7 @@ function spreadOf(gate: Gate): Spread | null {
         return (bits, amp, emit) =>
           emit(flip(bits, gate.qubit), mul(amp, bits[gate.qubit - 1] === '0' ? I : neg(I)))
       }
-      throw new SimulationError(
-        `${gate.label} turns by an eighth, which these amplitudes cannot hold`,
-      )
+      throw new SimulationError(`${gate.label} has no operation to apply`)
 
     case 'controlled': {
       const on = (bits: string) => gate.controls.every((c) => bits[c - 1] === '1')

@@ -282,8 +282,8 @@ export interface Edit {
  * What this drop could be written as, best first.
  *
  * Usually one thing. A view that calculates is the exception: the arithmetic
- * cannot follow every circuit — a custom box does not say what it does, and a
- * T turns by an eighth — so a window dropped into one of those falls back to
+ * cannot follow every circuit — a custom box does not say what it does — so a
+ * window dropped into one of those falls back to
  * showing unknowns, which is a question rather than a failure.
  */
 function bodies(gate: Droppable, target: DropTarget, qubits: number): string[] {

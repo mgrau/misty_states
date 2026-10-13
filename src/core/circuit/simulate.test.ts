@@ -154,6 +154,19 @@ describe('the gates', () => {
     expect(outputOf('in 1010\nCSWAP 1 2 -> 3 4')).toBe('1010')
   })
 
+  it('turns the black half an eighth with T, so two make an S and four a Z', () => {
+    expect(outputOf('in 0\nT 1')).toBe('0')
+    expect(outputOf('in 0\nH 1\nT 1\nT 1')).toBe(outputOf('in 0\nH 1\nS 1'))
+    expect(outputOf('in 0\nH 1\nT 1\nT 1\nT 1\nT 1')).toBe('0|-1')
+    // Back through H, an eighth turn leaves white and black unevenly likely.
+    const doc = parseCircuit('in 0\nH 1\nT 1\nH 1')
+    const [white, black] = ['0', '1'].map((b) => {
+      const a = simulate(doc, doc.layers.length).get(b)!
+      return a.re ** 2 + a.im ** 2
+    })
+    expect(white / (white + black)).toBeCloseTo((2 + Math.SQRT2) / 4)
+  })
+
   it('does nothing on an identity', () => {
     expect(outputOf('in 01\nI 1')).toBe('01')
   })
@@ -231,10 +244,7 @@ describe('writing the answer out', () => {
 describe('what it will not do, it says', () => {
   const fails = (src: string) => () => outputOf(src)
 
-  it('turns a quarter exactly, and refuses an eighth', () => {
-    // S and Y are quarter turns, which Gaussian integers hold exactly; T is an
-    // eighth, which wants a root of two they do not have.
-    expect(fails('in 0\nT 1')).toThrow(/turns by an eighth/)
+  it('turns a quarter exactly', () => {
     expect(shown('in 1\nS 1\nS 1')).toBe('1')
     expect(shown('in 0\nY 1\nY 1')).toBe('0')
   })

@@ -144,8 +144,6 @@ describe('what a row is', () => {
   it('refuses what it cannot follow, saying which and why', () => {
     expect(() => resolved('in ??\nH 1\ntabulate')).toThrow(/nothing to calculate from/)
     expect(() => resolved('in 00\nbox "Oracle" 1-2\ntabulate')).toThrow(/is a drawing/)
-    // S is fine now — it is T that still wants a root of two.
-    expect(() => resolved('in 0\nT 1\ntabulate')).toThrow(/turns by an eighth/)
   })
 })
 

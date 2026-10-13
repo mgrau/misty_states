@@ -77,6 +77,12 @@ describe('circuits', () => {
     expect(verdict('in 00\nH 1\nCNOT 1 -> 2\nout 00|01')).toBe('wrong')
   })
 
+  it('follows a T, now that an eighth turn can be held', () => {
+    expect(verdict('in 0\nT 1\nout 0')).toBe('ok')
+    expect(verdict('in 0|1\nT 1\nT 1\nout 0|i*1')).toBe('ok')
+    expect(verdict('in 0|1\nT 1\nout 0|i*1')).toBe('wrong')
+  })
+
   it('checks a state shown part-way through as well', () => {
     const good = 'in 001\nSWAP 2 3\n010\nCNOT 2 -> 1; X 3\nout 111'
     expect(check(good)!.checked).toBe(2)
@@ -117,7 +123,6 @@ describe('what it stays quiet about', () => {
   it('says nothing about a drawing it cannot follow', () => {
     quiet('in 00\nblank 1-2\nout 00|11')
     quiet('in 00\nbox "Oracle" 1-2\nout 00|11')
-    quiet('in 0\nT 1\nout 0')
     quiet('("???") = 0')
   })
 
