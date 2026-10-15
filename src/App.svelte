@@ -373,11 +373,11 @@
   const calculateBlocked = $derived.by(() => {
     if (!result.ok) return 'Fix the source first'
     if (result.kind !== 'circuit') return 'Add a gate first: there is no circuit to work out yet'
-    const done = calculateDone(source)
-    if (done === 'calculated') return 'The circuit already ends with its state worked out'
-    if (done === 'written') return 'The circuit already ends with its output written in'
+    if (calculateDone(source) === 'written') return 'The circuit already ends with its output written in'
     return null
   })
+  /** The end is worked out, so the button is pressed in and pressing it takes that away. */
+  const calculated = $derived(result.ok && calculateDone(source) === 'calculated')
   const animated = $derived(isAnimated(source))
   const animateBlocked = $derived.by(() => {
     if (!result.ok) return 'Fix the source first'
@@ -1987,11 +1987,17 @@
           type="button"
           onclick={addCalculate}
           disabled={!!calculateBlocked}
-          title={calculateBlocked ?? 'Work out the state at the end of the circuit (adds `calculate`, and starts the qubits white if no input is given)'}
+          aria-pressed={calculated}
+          title={calculateBlocked ??
+            (calculated
+              ? 'Take the worked-out state off the end of the circuit'
+              : 'Work out the state at the end of the circuit (adds `calculate`, and starts the qubits white if no input is given)')}
           class="pointer-events-auto flex h-16 w-16 flex-col items-center justify-center gap-1
-                 rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm
-                 transition-colors enabled:hover:border-slate-400 enabled:hover:bg-slate-50
-                 enabled:hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                 rounded-lg border shadow-sm transition-colors
+                 disabled:cursor-not-allowed disabled:opacity-50
+                 {calculated
+            ? 'border-slate-800 bg-slate-800 text-white hover:bg-slate-700'
+            : 'border-slate-300 bg-white text-slate-700 enabled:hover:border-slate-400 enabled:hover:bg-slate-50 enabled:hover:text-slate-900'}"
         >
           <Icon name="equals" class="h-6 w-6" />
           <span class="text-[11px] font-medium">Calculate</span>

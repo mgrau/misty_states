@@ -16,12 +16,25 @@ describe('the Calculate button', () => {
     expect(withCalculate('in 0\nH 1\nout ?  # for the student')).toBe('in 0\nH 1\nout calculate')
   })
 
-  it('has nothing to add once the circuit already ends worked out', () => {
+  it('takes the worked-out end away again when it is already there', () => {
     for (const end of ['calculate', 'calc', 'out calculate', 'window calculate']) {
       const source = `in 0\nH 1\n${end}`
       expect(endsCalculated(source)).toBe(true)
-      expect(withCalculate(source)).toBe(source)
+      expect(calculateDone(source)).toBe('calculated')
+      expect(withCalculate(source)).toBe('in 0\nH 1')
     }
+  })
+
+  it('is a toggle: pressed twice, the source is back where it was', () => {
+    for (const source of ['in 00\nH 1\nCNOT 1 -> 2', '0\nH\nCNOT', 'in 0\nH 1\nanimate']) {
+      expect(withCalculate(withCalculate(source, 2), 2)).toBe(source)
+    }
+  })
+
+  it('finds the end worked out with something after it, or a note on it', () => {
+    expect(withCalculate('in 0\nH 1\ncalculate\nanimate')).toBe('in 0\nH 1\nanimate')
+    expect(withCalculate('in 0\nH 1\ncalculate : the answer')).toBe('in 0\nH 1')
+    expect(calculateDone('in 0\nH 1\ncalculate\nanimate')).toBe('calculated')
   })
 
   it('looks past comments and blank lines to find where the circuit ends', () => {
@@ -76,10 +89,21 @@ describe('Calculate with no input to start from', () => {
     expect(withCalculate(source, 2)).toBe(source)
   })
 
-  it('still has work to do when the end is worked out but the input is not given', () => {
-    expect(calculateDone('H 1\ncalculate')).toBe(null)
-    expect(withCalculate('H 1\ncalculate', 1)).toBe('in 0\nH 1\ncalculate')
-    expect(calculateDone('in 0\nH 1\ncalculate')).toBe('calculated')
+  it('takes the worked-out end away even where the input is not written', () => {
+    expect(calculateDone('H 1\ncalculate')).toBe('calculated')
+    expect(withCalculate('H 1\ncalculate', 1)).toBe('H 1')
+  })
+
+  it('counts a state on the first line as the input, written `in` or not', () => {
+    expect(withCalculate('0\nH\nCNOT', 2)).toBe('0\nH\nCNOT\ncalculate')
+    expect(withCalculate('00|11\nCNOT 1 2', 2)).toBe('00|11\nCNOT 1 2\ncalculate')
+    expect(withCalculate('??\nH 1', 2)).toBe('00\nH 1\ncalculate')
+  })
+
+  it('reads a bare state at the end as the output', () => {
+    expect(calculateDone('0\nH 1\n0|1')).toBe('written')
+    expect(withCalculate('0\nH 1\n0|1')).toBe('0\nH 1\n0|1')
+    expect(withCalculate('0\nH 1\n?')).toBe('0\nH 1\ncalculate')
   })
 
   it('always gives a source the renderer can calculate', () => {

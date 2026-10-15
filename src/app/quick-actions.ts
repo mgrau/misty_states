@@ -6,6 +6,18 @@
  * any other change. Nothing here draws; the drawing follows the source.
  */
 
+import { parseCircuit } from '../core/circuit/parse'
+import type { CircuitDoc } from '../core/circuit/ast'
+
+/** The circuit, as the renderer reads it — or null where it does not read. */
+function readDoc(source: string): CircuitDoc | null {
+  try {
+    return parseCircuit(source)
+  } catch {
+    return null
+  }
+}
+
 /** The statement a line holds, without its comment or surrounding space. */
 function statement(line: string): string {
   const hash = line.indexOf('#')
@@ -29,6 +41,30 @@ function ending(lines: string[]): { at: number; kind: 'calculated' | 'blank' | '
   const last = at === -1 ? '' : statement(lines[at])
   if (CALCULATED.test(last)) return { at, kind: 'calculated' }
   if (/^out\b/.test(last)) return { at, kind: last.includes('?') ? 'blank' : 'written' }
+
+  // Read the way the renderer reads it, which the last line alone does not
+  // say: `calculate` followed by `animate`, or with a note after it, still
+  // works out the end, and a bare state on the last line is the output.
+  const doc = readDoc(lines.join('\n'))
+  if (!doc) return { at, kind: 'none' }
+  const final = doc.layers[doc.layers.length - 1]
+  const view = final?.gates.length === 1 ? final.gates[0] : undefined
+  if (view?.kind === 'view' && view.calculate && view.line) {
+    return { at: view.line - 1, kind: 'calculated' }
+  }
+  const from = (test: RegExp) => {
+    for (let i = lines.length - 1; i >= 0; i--) if (test.test(statement(lines[i]))) return i
+    return -1
+  }
+  if (doc.calculateOutput) {
+    const found = from(/^(?:(?:out|window)\s+)?calc(?:ulate)?\b/)
+    if (found >= 0) return { at: found, kind: 'calculated' }
+  }
+  if (doc.output?.length) {
+    // The last line that is not about the figure as a whole.
+    const found = from(/^(?!animate\b|header\b|labels\b|shapes?\b|qubits\b)\S/)
+    if (found >= 0) return { at: found, kind: statement(lines[found]).includes('?') ? 'blank' : 'written' }
+  }
   return { at, kind: 'none' }
 }
 
@@ -42,22 +78,30 @@ function ending(lines: string[]): { at: number; kind: 'calculated' | 'blank' | '
  */
 function input(lines: string[]): { at: number; kind: 'given' | 'unknown' | 'none' } {
   const at = lines.findIndex((line) => /^in\b/.test(statement(line)))
-  if (at === -1) return { at, kind: 'none' }
-  return { at, kind: statement(lines[at]).includes('?') ? 'unknown' : 'given' }
+  if (at !== -1) return { at, kind: statement(lines[at]).includes('?') ? 'unknown' : 'given' }
+  // A state on the first line is the input as surely as one written `in`.
+  const doc = readDoc(lines.join('\n'))
+  if (doc?.calculateInput) return { at: -1, kind: 'given' }
+  if (doc?.input && doc.inputLine) {
+    const line = doc.inputLine - 1
+    return { at: line, kind: statement(lines[line]).includes('?') ? 'unknown' : 'given' }
+  }
+  return { at: -1, kind: 'none' }
 }
 
 /** Lines that set the circuit up rather than say anything about it. */
 const PREAMBLE = /^(?:shape|qubits|header)\b/
 
 /**
- * Whether Calculate has nothing left to do: the input is given, and the
- * circuit already ends on a state, worked out or written in.
+ * How the circuit ends, as far as Calculate is concerned: worked out already
+ * (pressing it again takes that away), written in by hand with the input
+ * given (nothing for it to do), or neither.
  */
 export function calculateDone(source: string): 'calculated' | 'written' | null {
   const lines = source.split('\n')
-  if (input(lines).kind !== 'given') return null
   const end = ending(lines).kind
-  return end === 'calculated' || end === 'written' ? end : null
+  if (end === 'calculated') return end
+  return end === 'written' && input(lines).kind === 'given' ? end : null
 }
 
 /** Kept for callers that only ask whether the end is already worked out. */
@@ -82,10 +126,21 @@ export function endsCalculated(source: string): boolean {
  * blank output (`out ??`) becomes `out calculate`, since a `calculate` after
  * it would draw the answer above the question marks. An output written in by
  * hand is left as it is.
+ *
+ * Pressed when the end is already worked out, it takes that `calculate` away
+ * again — wherever it is, so long as it is what works out the end — and
+ * leaves the input as it is.
  */
 export function withCalculate(source: string, qubits = 1): string {
   const lines = source.split('\n')
   const end = ending(lines)
+
+  // Already worked out: the button is a toggle, and this takes it away.
+  if (end.kind === 'calculated') {
+    lines.splice(end.at, 1)
+    return lines.join('\n').replace(/\s+$/, '')
+  }
+
   const given = input(lines)
 
   if (given.kind !== 'given') {
@@ -109,7 +164,9 @@ export function withCalculate(source: string, qubits = 1): string {
   // The input may have moved the ending down a line; find it again.
   const after = ending(lines)
   if (after.kind === 'blank') {
-    lines[after.at] = `${indentOf(lines[after.at])}out calculate`
+    // `out ??` keeps its `out`; a bare `??` stays bare.
+    const out = /^out\b/.test(statement(lines[after.at])) ? 'out ' : ''
+    lines[after.at] = `${indentOf(lines[after.at])}${out}calculate`
     return lines.join('\n')
   }
   if (after.kind === 'none') return `${lines.join('\n').replace(/\s+$/, '')}\ncalculate`
