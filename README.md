@@ -67,6 +67,10 @@ out calculate
 | `box "U" 1-3` | Custom labelled box |
 | `blank 1-2` | Empty frame for students |
 | `box "U" 1-3 fill=#e6f0e6` | Painted a colour — `#rrggbb` or a name |
+| `"Prep" { … }` | A labelled frame round some gates |
+| `def oracle { … }` | Gates defined once, on wires 1 and up |
+| `oracle 2-3` | A definition used: framed, on wires 2 and 3 |
+| `oracle 2-3 collapsed` | The same as one box, still calculated |
 | `in 00\|11` | Input state above the circuit |
 | `out calculate` | Calculated output state |
 | `calculate` | The state at this point, worked out |
@@ -138,6 +142,42 @@ H 2 width=2.5
 box "Oracle" 1-3 width=1.4 height=2
 I 1 height=3                  # room, and nothing in it
 window blank width=2 rows=2
+```
+
+### Frames and definitions
+
+Braces draw a frame round the gates between them, with an optional label
+first. The frame covers the wires its gates use; a range takes in more.
+`fill=` colours the inside and `border=` the edge (`border=none` for none).
+A frame is only a drawing: the gates in it calculate and animate as they would
+without it. Nothing outside packs into a frame's layers, and frames nest.
+
+```
+"Prep" {
+  H 1
+  CNOT 1 -> 2
+}
+"Oracle" 1-3 fill=#fef3c7 border=#d97706 {
+  CNOT 1 -> 3
+}
+```
+
+`def` writes gates once, on wires numbered from 1, and the name then stands
+for them. A use names where those wires go, in order — or none, to leave them
+where they were written. It is drawn as its gates in a frame labelled with the
+name (or the quoted label after it), or with `collapsed` as a single box that
+still does what its gates do. A definition can be written anywhere in the
+source and can use another.
+
+```
+def oracle "U_f" fill=#fef3c7 {
+  CNOT 1 -> 2
+  H 2
+}
+in 000
+oracle 1-2
+oracle 2-3 collapsed
+calculate
 ```
 
 ### Empty windows

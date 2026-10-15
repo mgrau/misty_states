@@ -602,6 +602,40 @@ export function afterRemoval(target: DropTarget, layerRemoved: number | undefine
  * a gate cannot be inserted beside itself, and a layer that only held it is not
  * there to be inserted into.
  */
+/**
+ * Fold a frame into one box, or open a box back out into its frame.
+ *
+ * Both are the one word `collapsed` on the line that made it: before the
+ * brace of a frame written inline, or after the wires of a definition's use.
+ * Found outside any quoted label, so a frame called "collapsed" stays one.
+ */
+export function toggleFold(source: string, line: number): Edit | null {
+  const lines = source.split('\n')
+  const text = lines[line - 1]
+  if (text === undefined) return null
+  const hash = text.search(/(^|\s)#/)
+  const code = hash < 0 ? text : text.slice(0, hash)
+  const comment = hash < 0 ? '' : text.slice(hash)
+  const indent = /^\s*/.exec(code)![0]
+  const body = code.trim()
+  if (!body) return null
+  // Quoted labels blanked out, so only the word itself is found.
+  const masked = body.replace(/"[^"]*"/g, (q) => '"' + ' '.repeat(q.length - 2) + '"')
+  const word = /(^|\s)collapsed(?=\s|\{|$)/i.exec(masked)
+  let next: string
+  if (word) {
+    const from = word.index + word[1].length
+    next = (body.slice(0, from) + body.slice(from + 'collapsed'.length)).replace(/\s{2,}/g, ' ').trim()
+  } else if (/\{$/.test(body)) {
+    next = body.replace(/\s*\{$/, '').trim()
+    next = next ? `${next} collapsed {` : 'collapsed {'
+  } else {
+    next = `${body} collapsed`
+  }
+  lines[line - 1] = indent + next + (comment ? ` ${comment.trim()}` : '')
+  return { source: lines.join('\n'), line }
+}
+
 export function moveGate(
   source: string,
   doc: CircuitDoc,

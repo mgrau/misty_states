@@ -137,6 +137,13 @@ export interface Attach {
    * so there the pipes are simply painted first, and gate shadows fall on them.
    */
   paintBottomUp: boolean
+  /**
+   * How far an extruded box's top and side stand out from its front face.
+   *
+   * Absent for a flat theme. A frame drawn round gates has to clear the
+   * extrusion as well as the face, or the gates poke out of it.
+   */
+  extrude?: { dx: number; dy: number }
 }
 
 export const FLAT_ATTACH: Attach = {

@@ -69,3 +69,9 @@ body.dragging {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* A frame folds when clicked, and its folded box opens again. */
+[data-preview] [data-key^='frame:'],
+[data-preview] [data-key^='folded:'] {
+  cursor: pointer;
+}

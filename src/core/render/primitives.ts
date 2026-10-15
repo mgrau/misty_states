@@ -166,6 +166,23 @@ export interface PanePrim {
   tone?: number
 }
 
+/**
+ * The box drawn round a run of gates: `"Prep" { … }`.
+ *
+ * Flat in every theme and painted first, so it reads as a patch of the page
+ * the gates stand on rather than another object among them. Its label is an
+ * ordinary text primitive, placed by the layout like any other.
+ */
+export interface FramePrim {
+  t: 'frame'
+  box: Box
+  fill?: string
+  /** A colour, or `none` for no outline; the palette decides when absent. */
+  border?: string
+  /** The small tab its label is written on, rather than the frame itself. */
+  tab?: boolean
+}
+
 export interface MeasureBoxPrim {
   t: 'measurebox'
   box: Box
@@ -237,7 +254,7 @@ export interface LinkPrim {
 export type Prim = (
   | QubitPrim | CloudPrim | BarPrim | TextPrim | SignPrim | DialPrim | PipePrim
   | GateBoxPrim | PanePrim | MeasureBoxPrim | ControlPrim | TargetPrim | SwapPrim | LinkPrim
-  | RulePrim
+  | RulePrim | FramePrim
 ) & {
   opacity?: number
   /**
@@ -298,6 +315,7 @@ export function translatePrims(prims: Prim[], dx: number, dy: number): Prim[] {
       case 'gatebox':
       case 'pane':
       case 'measurebox':
+      case 'frame':
         return { ...p, box: { ...p.box, x: p.box.x + dx, y: p.box.y + dy } }
     }
   })

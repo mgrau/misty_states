@@ -64,6 +64,8 @@ const EASE = 'cubic-bezier(0.35,0,0.65,1)'
 
 const behind = (p: Prim, inside: boolean): boolean =>
   p.t === 'pipe' ||
+  // A frame is the ground everything stands on, its label's tab excepted.
+  (p.t === 'frame' && !p.tab) ||
   (inside && (p.t === 'gatebox' || p.t === 'measurebox' || p.t === 'pane'))
 
 /** A percentage of the way through the run, clamped and rounded. */

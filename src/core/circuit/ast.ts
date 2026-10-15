@@ -90,6 +90,19 @@ export interface BoxGate {
   fill?: string
   /** Draw as an empty frame for students to fill in. */
   blank?: boolean
+  /**
+   * What it does, when it is a definition used collapsed: `oracle 1-2 collapsed`.
+   *
+   * Drawn as one box, worked out from these — already on the circuit's wires,
+   * in the order they are applied. A box without them is only a drawing.
+   */
+  body?: Gate[]
+  /**
+   * The line whose `collapsed` folds this, where clicking it should open it
+   * out again. Absent for one folded inside a definition: that line is the
+   * definition's, and every use of it would open.
+   */
+  fold?: number
 }
 
 /**
@@ -172,6 +185,15 @@ export type Gate = (
    * put it there.
    */
   line?: number
+  /**
+   * Put there by a definition or a collapsed frame, not written on a line of
+   * its own.
+   *
+   * Its `line` is the line that used the definition, which holds more than
+   * this gate — so it cannot be picked up and moved alone without taking the
+   * rest with it.
+   */
+  bound?: boolean
 }
 
 /** Every qubit a gate touches, used for layer packing and span width. */
@@ -283,6 +305,31 @@ export interface ChartSpec {
   complete?: boolean
 }
 
+/**
+ * A labelled frame drawn round a run of gates: `"Prep" { … }`, or a definition
+ * used expanded.
+ *
+ * Only a drawing — the gates inside are gates like any others. It is laid out
+ * from the layers and wires it covers rather than carried on the gates, since a
+ * frame is a region of the drawing and not a thing that happens.
+ */
+export interface Frame {
+  label?: string
+  fill?: string
+  /** A colour, or `none` for no outline. */
+  border?: string
+  /** The wires it covers, first and last. */
+  qubits: [number, number]
+  /** The layers it covers, first and last. */
+  layers: [number, number]
+  /** How many frames deep the deepest one inside it goes; 0 for none. */
+  inner: number
+  /** The line that opened it. */
+  line?: number
+  /** The line to write `collapsed` on to fold it; see `BoxGate.fold`. */
+  fold?: number
+}
+
 export interface CircuitDoc {
   kind: 'circuit'
   qubits: number
@@ -327,6 +374,8 @@ export interface CircuitDoc {
   /** Written `answer` on the input or the output line. */
   answerInput?: boolean
   answerOutput?: boolean
+  /** Frames drawn round runs of gates, outermost first. */
+  frames?: Frame[]
   /** Per-wire shape override; defaults to position order. */
   shapePicks?: ShapePick[]
   /**

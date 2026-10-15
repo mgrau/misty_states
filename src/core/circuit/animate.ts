@@ -603,6 +603,8 @@ function gatePart(p: Prim): { y: number; fade: number } | null {
  */
 const isBehind = (p: Prim, inside: boolean): boolean =>
   p.t === 'pipe' ||
+  // A frame is the ground everything stands on, its label's tab excepted.
+  (p.t === 'frame' && !p.tab) ||
   (inside && (p.t === 'gatebox' || p.t === 'measurebox' || p.t === 'pane'))
 
 /**

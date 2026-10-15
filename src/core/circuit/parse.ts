@@ -42,7 +42,7 @@ import { parseState } from '../state/parse'
 import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
 import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
-import type { ChartSpec, CircuitDoc, Gate, GateStyle, Layer, TableColumn, TableLine, TableSpec, ViewGate } from './ast'
+import type { ChartSpec, CircuitDoc, Frame, Gate, GateStyle, Layer, TableColumn, TableLine, TableSpec, ViewGate } from './ast'
 import type { AnimationOptions } from './animate'
 import { gateSpan } from './ast'
 
@@ -1312,6 +1312,23 @@ const takesEveryWire = (gate: Gate): boolean =>
  */
 const widened = (gate: Gate): boolean => (gate.width ?? 1) > 1
 
+/** Gates on one line share a layer, so they must stay off each other's wires. */
+function refuseOverlaps(gates: Gate[], lineNo: number): void {
+  for (let a = 0; a < gates.length; a++) {
+    for (let b = a + 1; b < gates.length; b++) {
+      if (conflicts(gates[a], gates[b])) {
+        throw new ParseError(
+          widened(gates[a]) || widened(gates[b])
+            ? 'a gate made wider takes a layer to itself, so it cannot share one with ";"'
+            : 'gates joined by ";" overlap and cannot share a layer',
+          0,
+          lineNo,
+        )
+      }
+    }
+  }
+}
+
 function conflicts(a: Gate, b: Gate): boolean {
   if (takesEveryWire(a) || takesEveryWire(b) || widened(a) || widened(b)) return true
   const [a0, a1] = gateSpan(a)
@@ -1326,6 +1343,8 @@ interface Group {
   note?: string
   /** The source line it was written on, so a layer can say where it came from. */
   line: number
+  /** The frames it was written inside, outermost first. */
+  frames?: number[]
 }
 
 /**
@@ -1335,8 +1354,10 @@ interface Group {
  * any qubit in its span — so gates pack tightly sideways but never float above
  * something they depend on. `---` pushes the floor down to the next free layer.
  */
-function schedule(groups: Group[]): Layer[] {
+function schedule(groups: Group[]): { layers: Layer[]; at: number[] } {
   const layers: Layer[] = []
+  /** Which layer each group went into, before the empty ones are dropped. */
+  const placed: number[] = []
   const frontier = new Map<number, number>()
   let floor = 0
 
@@ -1352,6 +1373,7 @@ function schedule(groups: Group[]): Layer[] {
     }
 
     while (layers.length <= target) layers.push({ gates: [], lines: [] })
+    placed.push(target)
     layers[target].gates.push(...group.gates)
     layers[target].lines.push(group.line)
     // Two groups can land in the same layer — `;` merges them and the packer
@@ -1365,7 +1387,191 @@ function schedule(groups: Group[]): Layer[] {
     }
   }
 
-  return layers.filter((l) => l.gates.length)
+  // Every layer a group went into has its gates, so only layers nothing went
+  // into are dropped — and the count of those below a group is how far it moves.
+  const renumber: number[] = []
+  let kept = 0
+  for (const layer of layers) {
+    renumber.push(kept)
+    if (layer.gates.length) kept++
+  }
+  return { layers: layers.filter((l) => l.gates.length), at: placed.map((t) => renumber[t]) }
+}
+
+
+/* ------------------------------------------------------------- frames --- */
+
+/** How a frame is drawn: what it says, and in what colours. */
+interface FrameStyle {
+  label?: string
+  fill?: string
+  border?: string
+}
+
+/** A line that opens a frame ends with `{`; one that closes it is `}` alone. */
+const OPENS = /\{\s*$/
+const CLOSES = /^\}$/
+
+/**
+ * Read the line that opens a frame: `"Prep" 1-3 fill=#fef3c7 border=none {`.
+ *
+ * Everything is optional. The wires are only for taking in wires the gates
+ * inside never touch, so a definition — written on its own wires — has none.
+ */
+function readFrameOpen(
+  text: string,
+  lineNo: number,
+  allowWires: boolean,
+): FrameStyle & { qubits?: [number, number]; collapsed: boolean } {
+  const tokens = tokenize(text.replace(OPENS, ''), lineNo)
+  const word = tokens.findIndex((t) => !t.quoted && t.text.toLowerCase() === 'collapsed')
+  const collapsed = word >= 0
+  if (collapsed) {
+    if (!allowWires) {
+      throw new ParseError('a definition is folded where it is used — write "collapsed" there', 0, lineNo)
+    }
+    tokens.splice(word, 1)
+  }
+  const fill = takeOption(tokens, 'fill', lineNo)
+  const border = takeOption(tokens, 'border', lineNo)
+  let label: string | undefined
+  if (tokens[0]?.quoted) label = tokens.shift()!.text
+  if (tokens.some((t) => t.quoted)) {
+    throw new ParseError('a frame takes one label, written first', 0, lineNo)
+  }
+  let qubits: [number, number] | undefined
+  if (tokens.length) {
+    if (!allowWires) {
+      throw new ParseError(
+        `unexpected "${tokens[0].text}" — a definition is written on its own wires, 1 and up`,
+        0,
+        lineNo,
+      )
+    }
+    const qs = parseQubits(tokens, lineNo)
+    qubits = [Math.min(...qs), Math.max(...qs)]
+  }
+  return { label, fill, border, qubits, collapsed }
+}
+
+/**
+ * Gates folded into one box: a definition used `collapsed`, or a frame written
+ * that way. It does what they do, in order, so it can still be calculated
+ * through; what it cannot do is measure, which would leave it no one result.
+ */
+function foldedBox(
+  label: string,
+  fill: string | undefined,
+  body: Gate[],
+  wires: [number, number] | undefined,
+  at: number,
+  where: string,
+): Gate {
+  if (!body.length) throw new ParseError(`${where} has nothing in it`, 0, at)
+  if (body.some((g) => g.kind === 'measure' || g.kind === 'view')) {
+    throw new ParseError(
+      `${where} measures or shows a state, so it cannot be one box — leave out "collapsed" to draw its gates`,
+      0,
+      at,
+    )
+  }
+  const spans = body.map(gateSpan)
+  const q0 = Math.min(...spans.map((sp) => sp[0]), wires?.[0] ?? Infinity)
+  const q1 = Math.max(...spans.map((sp) => sp[1]), wires?.[1] ?? -Infinity)
+  return {
+    kind: 'box',
+    label,
+    qubits: Array.from({ length: q1 - q0 + 1 }, (_, i) => q0 + i),
+    ...(fill !== undefined ? { fill } : {}),
+    body,
+    bound: true,
+  }
+}
+
+/** A body written once with `def` and used by name. */
+interface Definition {
+  name: string
+  style: FrameStyle
+  /** The lines between the braces, with the line each was written on. */
+  body: { text: string; line: number }[]
+  line: number
+}
+
+const DEF = /^def\s+([A-Za-z_][\w]*)\b(.*)$/i
+
+/**
+ * Lift every `def name { … }` out of the source.
+ *
+ * Read before anything else, so a definition can be used above the place it
+ * is written — where it goes in the text is about reading order, not about
+ * time, which is what the circuit's own lines are about.
+ */
+function readDefinitions(lines: string[]): { defs: Map<string, Definition>; skip: Set<number> } {
+  const defs = new Map<string, Definition>()
+  const skip = new Set<number>()
+  for (let i = 0; i < lines.length; i++) {
+    const head = lines[i].replace(/(^|\s)#.*$/, '').trim()
+    const found = DEF.exec(head)
+    if (!found) continue
+    const lineNo = i + 1
+    const name = found[1].toLowerCase()
+    if (!OPENS.test(head)) {
+      throw new ParseError(`def ${found[1]} needs a "{" to open its body`, 0, lineNo)
+    }
+    if (KEYWORDS.has(name) || isTurn(name) || isGateRun(name) || name === 'def') {
+      throw new ParseError(`"${found[1]}" already means something — pick another name`, 0, lineNo)
+    }
+    if (defs.has(name)) {
+      throw new ParseError(`${found[1]} is already defined on line ${defs.get(name)!.line}`, 0, lineNo)
+    }
+    const style = readFrameOpen(found[2], lineNo, false)
+    style.label ??= found[1]
+    skip.add(i)
+
+    const body: Definition['body'] = []
+    let depth = 1
+    let j = i + 1
+    for (; j < lines.length; j++) {
+      const text = lines[j].replace(/(^|\s)#.*$/, '').trim()
+      skip.add(j)
+      if (DEF.test(text)) {
+        throw new ParseError('a definition cannot hold another — write it outside', 0, j + 1)
+      }
+      if (CLOSES.test(text) && --depth === 0) break
+      if (OPENS.test(text)) depth++
+      if (text) body.push({ text, line: j + 1 })
+    }
+    if (j >= lines.length) throw new ParseError(`def ${found[1]} is never closed with "}"`, 0, lineNo)
+    if (!body.length) throw new ParseError(`def ${found[1]} has nothing in it`, 0, lineNo)
+    defs.set(name, { name: found[1], style, body, line: lineNo })
+  }
+  return { defs, skip }
+}
+
+/** A gate moved onto other wires: local wire `q` goes to `to(q)`. */
+function mapGate(gate: Gate, to: (q: number) => number): Gate {
+  switch (gate.kind) {
+    case 'single':
+    case 'identity':
+    case 'measure':
+      return { ...gate, qubit: to(gate.qubit) }
+    case 'controlled':
+      return { ...gate, controls: gate.controls.map(to), target: to(gate.target) }
+    case 'swap':
+      return {
+        ...gate,
+        qubits: [to(gate.qubits[0]), to(gate.qubits[1])],
+        ...(gate.controls ? { controls: gate.controls.map(to) } : {}),
+      }
+    case 'box':
+      return {
+        ...gate,
+        qubits: gate.qubits.map(to),
+        ...(gate.body ? { body: gate.body.map((g) => mapGate(g, to)) } : {}),
+      }
+    case 'view':
+      return { ...gate, qubits: gate.qubits.map(to) }
+  }
 }
 
 export function parseCircuit(text: string): CircuitDoc {
@@ -1405,15 +1611,223 @@ export function parseCircuit(text: string): CircuitDoc {
   /** The line that pending view was written on, held with it. */
   let pendingTailLine = 0
 
+  /** Frames opened so far, in the order they were opened; and those still open. */
+  const drafts: (FrameStyle & {
+    qubits?: [number, number]
+    line: number
+    parent?: number
+    used: boolean
+    fold?: number
+    /** Written `collapsed`: what goes in is gathered into one box when it closes. */
+    collapsed?: boolean
+    /** How many groups there were when it opened, so a fold knows which are its own. */
+    start: number
+    /** Folded away, along with everything inside it. */
+    dropped?: boolean
+  })[] = []
+  const frameStack: number[] = []
+
+  /** Every group goes in through here, so it knows which frames it is inside. */
+  const pushGroup = (group: Group) => {
+    for (const id of frameStack) drafts[id].used = true
+    groups.push(frameStack.length ? { ...group, frames: [...frameStack] } : group)
+  }
+
   /** A view takes a layer to itself: a snapshot sits between gates, not among them. */
   const pushView = (view: ViewGate, line: number) => {
     // Carrying the line it was written on, like every other gate does: that is
     // how one pointed at in the drawing is traced back to its text, and a view
     // written bare — a state line, or `calculate` by itself — is no different.
     // Without it such a view can be drawn but never moved or taken away again.
-    groups.push({ gates: [{ ...view, line }], breakBefore: true, line })
+    pushGroup({ gates: [{ ...view, line }], breakBefore: true, line })
     pendingBreak = true
   }
+
+  const pushGates = (gates: Gate[], line: number, caption?: string, note?: string) => {
+    // A snapshot is a moment between gates, so a layer holding one is fenced
+    // off at both ends: nothing packs into it, and nothing packs past it. A
+    // gate made wider is fenced the same way — it reaches over its neighbours'
+    // wires, and whatever packed in beside it would be drawn underneath.
+    const snapshot = gates.some((g) => g.kind === 'view' || widened(g))
+    pushGroup({ gates, breakBefore: pendingBreak || snapshot, caption, note, line })
+    pendingBreak = snapshot
+    if (gates.some((g) => g.kind !== 'view')) sawGate = true
+  }
+
+  /**
+   * A frame is fenced like a snapshot: nothing outside packs into its layers,
+   * and nothing inside floats up out of them. Otherwise a gate written after
+   * the frame on another wire would slide up beside the gates in it, and be
+   * drawn inside a box it was never written in.
+   */
+  const openFrame = (
+    style: FrameStyle,
+    qubits: [number, number] | undefined,
+    line: number,
+    fold?: number,
+    collapsed?: boolean,
+  ) => {
+    flushTail()
+    drafts.push({
+      ...style, qubits, line, fold, collapsed,
+      parent: frameStack[frameStack.length - 1], used: false, start: groups.length,
+    })
+    frameStack.push(drafts.length - 1)
+    pendingBreak = true
+  }
+
+  const closeFrame = (line: number) => {
+    flushTail()
+    const id = frameStack.pop()
+    if (id === undefined) throw new ParseError('this "}" closes nothing', 0, line)
+    const d = drafts[id]
+    if (!d.used) throw new ParseError('this frame has nothing in it', 0, d.line)
+    pendingBreak = true
+    if (!d.collapsed) return
+
+    // Everything written since it opened is its own — frames inside it too,
+    // which were opened after it and so are later in the list.
+    const taken = groups.splice(d.start)
+    for (let k = id; k < drafts.length; k++) drafts[k].dropped = true
+    const box = foldedBox(
+      d.label ?? '', d.fill, taken.flatMap((g) => g.gates), d.qubits, d.line, 'this frame',
+    )
+    pushGates([{ ...box, line: d.line, ...(d.fold !== undefined ? { fold: d.fold } : {}) }], d.line)
+    pendingBreak = true
+  }
+
+  /** Where a definition's gates go, so one walk serves drawing them and boxing them. */
+  interface Sink {
+    gates(gates: Gate[]): void
+    /** `fold` is the line that would fold it, where there is one. */
+    open(style: FrameStyle, qubits: [number, number] | undefined, fold?: number, collapsed?: boolean): void
+    close(): void
+    brk(): void
+  }
+
+  /** The wires a definition is written on, worked out the first time it is used. */
+  const widths = new Map<string, number>()
+  const widthOf = (def: Definition, chain: string[]): number => {
+    const key = def.name.toLowerCase()
+    const known = widths.get(key)
+    if (known !== undefined) return known
+    let n = 0
+    walk(def, (q) => q, 0, {
+      gates: (gs) => { for (const g of gs) n = Math.max(n, gateSpan(g)[1]) },
+      open: (_, qs) => { if (qs) n = Math.max(n, qs[1]) },
+      close: () => {},
+      brk: () => {},
+    }, chain)
+    widths.set(key, n)
+    return n
+  }
+
+  /**
+   * Read a definition's body onto the circuit's wires.
+   *
+   * Every gate is stamped with the line of the use rather than its own: that
+   * is the line that put it in this circuit, and the one to point back at.
+   */
+  const walk = (def: Definition, to: (q: number) => number, line: number, sink: Sink, chain: string[]) => {
+    const key = def.name.toLowerCase()
+    if (chain.includes(key)) {
+      throw new ParseError(`${def.name} uses itself, so it never ends`, 0, def.line)
+    }
+    const inside = [...chain, key]
+    for (const { text, line: at } of def.body) {
+      if (/^-{3,}$/.test(text)) { sink.brk(); continue }
+      if (CLOSES.test(text)) { sink.close(); continue }
+      if (OPENS.test(text)) {
+        const f = readFrameOpen(text, at, true)
+        const ends = f.qubits?.map(to)
+        // Folded or not as written in the definition, for every use alike — so
+        // no line here that a click could fold for this use alone.
+        sink.open(f, ends && [Math.min(...ends), Math.max(...ends)] as [number, number], undefined, f.collapsed)
+        continue
+      }
+      const word = text.split(/\s+/)[0].toLowerCase()
+      const inner = defs.get(word)
+      if (inner) {
+        use(inner, text.slice(word.length), at, line, to, sink, inside)
+        continue
+      }
+      const gates = placeGates(splitStatements(text, at).map((p) => p.text), at, () => undefined)
+      if (gates.some((g) => g.kind === 'view')) {
+        throw new ParseError('a definition holds gates — a state goes outside it', 0, at)
+      }
+      refuseOverlaps(gates, at)
+      sink.gates(gates.map((g) => ({ ...mapGate(g, to), line, bound: true })))
+    }
+  }
+
+  /**
+   * `oracle 2-3`, or `oracle 2-3 collapsed`.
+   *
+   * Its wires, in order, are where the definition's own 1, 2, … go; none at
+   * all leaves them where they were written. Collapsed it is a single box that
+   * still does what its gates do, so it can be calculated through.
+   */
+  const use = (
+    def: Definition,
+    arg: string,
+    at: number,
+    line: number,
+    outer: (q: number) => number,
+    sink: Sink,
+    chain: string[],
+  ) => {
+    const tokens = tokenize(arg, at)
+    const word = tokens.findIndex((t) => !t.quoted && t.text.toLowerCase() === 'collapsed')
+    const collapsed = word >= 0
+    if (collapsed) tokens.splice(word, 1)
+    const n = widthOf(def, chain)
+    const written = tokens.length ? parseQubits(tokens, at) : null
+    if (written && written.length !== n) {
+      throw new ParseError(
+        `${def.name} is written on ${n} wire${n === 1 ? '' : 's'}, so it needs ${n} here, not ${written.length}`,
+        0,
+        at,
+      )
+    }
+    if (written && new Set(written).size !== written.length) {
+      throw new ParseError(`${def.name} needs ${n} different wires`, 0, at)
+    }
+    const to = (q: number) => outer(written ? written[q - 1] : q)
+    // Only a use written in the circuit itself has a line of its own to fold;
+    // one inside another definition is written once for all its uses.
+    const fold = chain.length ? undefined : line
+
+    if (!collapsed) {
+      sink.open(def.style, undefined, fold)
+      walk(def, to, line, sink, chain)
+      sink.close()
+      return
+    }
+
+    const body: Gate[] = []
+    walk(def, to, line, {
+      gates: (gs) => body.push(...gs),
+      open: () => {},
+      close: () => {},
+      brk: () => {},
+    }, chain)
+    const wires = Array.from({ length: n }, (_, i) => to(i + 1))
+    const box = foldedBox(
+      def.style.label ?? def.name, def.style.fill, body,
+      [Math.min(...wires), Math.max(...wires)], at, def.name,
+    )
+    sink.gates([{ ...box, line, ...(fold !== undefined ? { fold } : {}) }])
+  }
+
+  /** The circuit itself, as somewhere a definition can be used. */
+  const top: Sink = {
+    gates: (gates) => pushGates(gates, gates[0]?.line ?? 0),
+    open: (style, qubits, fold, collapsed) => openFrame(style, qubits, lastLine, fold, collapsed),
+    close: () => closeFrame(lastLine),
+    brk: () => { flushTail(); pendingBreak = true },
+  }
+  /** The line being read, for a frame a definition opens on the circuit's behalf. */
+  let lastLine = 0
 
   const flushTail = () => {
     if (!pendingTail) return
@@ -1422,6 +1836,7 @@ export function parseCircuit(text: string): CircuitDoc {
   }
 
   const lines = text.split('\n')
+  const { defs, skip } = readDefinitions(lines)
   // Where each line begins in `text`, so that a state written on one can say
   // where each of its qubits was — which is what lets one be clicked and
   // changed rather than only read.
@@ -1430,6 +1845,8 @@ export function parseCircuit(text: string): CircuitDoc {
     const lineNo = i + 1
     const start = lineStart
     lineStart += lines[i].length + 1
+    if (skip.has(i)) continue
+    lastLine = lineNo
 
     const bare = lines[i].replace(/(^|\s)#.*$/, '')
     let line = bare.trim()
@@ -1474,6 +1891,13 @@ export function parseCircuit(text: string): CircuitDoc {
 
     if (/^-{3,}$/.test(line)) { flushTail(); pendingBreak = true; continue }
 
+    if (CLOSES.test(line)) { closeFrame(lineNo); continue }
+    if (OPENS.test(line)) {
+      const f = readFrameOpen(line, lineNo, true)
+      openFrame(f, f.qubits, lineNo, lineNo, f.collapsed)
+      continue
+    }
+
     // `answer` marks what the question asks for. It is stripped before
     // anything else looks at the line, so what follows is read exactly as it
     // would be without it — and position still decides whether that is the
@@ -1489,6 +1913,17 @@ export function parseCircuit(text: string): CircuitDoc {
     const kw = body.split(/\s+/)[0].toLowerCase()
     const arg = body.slice(kw.length).trim()
     const parts = splitStatements(body, lineNo).map((p) => p.text)
+
+    const named = parts.map((part) => defs.get(part.trim().split(/\s+/)[0].toLowerCase()))
+    if (parts.length > 1 && named.some(Boolean)) {
+      throw new ParseError(`${named.find(Boolean)!.name} takes a line of its own`, 0, lineNo)
+    }
+    const def = named[0]
+    if (def) {
+      flushTail()
+      use(def, arg, lineNo, lineNo, (q) => q, top, [])
+      continue
+    }
 
     // A whole line that is nothing but a state takes its meaning from position.
     // Anything joined by ';' is a statement among others, so it skips this and
@@ -1643,34 +2078,13 @@ export function parseCircuit(text: string): CircuitDoc {
     // layer — which is how a view of some qubits sits beside a held identity,
     // or beside a view of the others.
     const gates = placeGates(parts, lineNo, placeOf)
-    for (let a = 0; a < gates.length; a++) {
-      for (let b = a + 1; b < gates.length; b++) {
-        if (conflicts(gates[a], gates[b])) {
-          throw new ParseError(
-            widened(gates[a]) || widened(gates[b])
-              ? 'a gate made wider takes a layer to itself, so it cannot share one with ";"'
-              : 'gates joined by ";" overlap and cannot share a layer',
-            0,
-            lineNo,
-          )
-        }
-      }
-    }
+    refuseOverlaps(gates, lineNo)
+    pushGates(gates, lineNo, annotated?.caption, annotated?.note)
+  }
 
-    // A snapshot is a moment between gates, so a layer holding one is fenced
-    // off at both ends: nothing packs into it, and nothing packs past it. A
-    // gate made wider is fenced the same way — it reaches over its neighbours'
-    // wires, and whatever packed in beside it would be drawn underneath.
-    const snapshot = gates.some((g) => g.kind === 'view' || widened(g))
-    groups.push({
-      gates,
-      breakBefore: pendingBreak || snapshot,
-      caption: annotated?.caption,
-      note: annotated?.note,
-      line: lineNo,
-    })
-    pendingBreak = snapshot
-    if (gates.some((g) => g.kind !== 'view')) sawGate = true
+  if (frameStack.length) {
+    const open = drafts[frameStack[frameStack.length - 1]]
+    throw new ParseError('this "{" is never closed with "}"', 0, open.line)
   }
 
   // Nothing followed the last bare state line, so it is the output.
@@ -1706,15 +2120,65 @@ export function parseCircuit(text: string): CircuitDoc {
     used.length ? Math.max(...used) : 0,
     stateWidth(input),
     rowsWidth(output),
+    // A frame asked to take in wires nothing else touches still has them.
+    ...drafts.map((d) => d.qubits?.[1] ?? 0),
     1,
   )
   for (const view of pending) {
     view.qubits = Array.from({ length: qubits }, (_, i) => i + 1)
   }
 
-  const layers = schedule(groups)
+  const { layers, at } = schedule(groups)
+
+  /*
+   * What each frame covers, worked out now that the gates have layers. Inner
+   * frames are later in the list, so going backwards settles every frame
+   * before the one round it — which then takes in its wires as well, since an
+   * inner frame given extra wires has to fit inside the outer one.
+   */
+  const frames: (Frame | undefined)[] = []
+  const live = (k: number) => !drafts[k].dropped
+  for (let id = drafts.length - 1; id >= 0; id--) {
+    const d = drafts[id]
+    if (d.dropped) continue
+    const mine = groups.flatMap((g, i) => (g.frames?.includes(id) ? [i] : []))
+    const spans = mine.flatMap((i) => groups[i].gates.map(gateSpan))
+    for (let c = id + 1; c < drafts.length; c++) {
+      if (drafts[c].parent === id && live(c)) spans.push(frames[c]!.qubits)
+    }
+    let q0 = Math.min(...spans.map((sp) => sp[0]))
+    let q1 = Math.max(...spans.map((sp) => sp[1]))
+    if (d.qubits) {
+      if (q0 < d.qubits[0] || q1 > d.qubits[1]) {
+        throw new ParseError(
+          `something inside this frame is on a wire outside ${d.qubits[0]}-${d.qubits[1]}`,
+          0,
+          d.line,
+        )
+      }
+      ;[q0, q1] = d.qubits
+    }
+    const inner = drafts.reduce(
+      (most, c, k) => (c.parent === id && live(k) ? Math.max(most, frames[k]!.inner + 1) : most),
+      0,
+    )
+    const ls = mine.map((i) => at[i])
+    frames[id] = {
+      ...(d.label !== undefined ? { label: d.label } : {}),
+      ...(d.fill !== undefined ? { fill: d.fill } : {}),
+      ...(d.border !== undefined ? { border: d.border } : {}),
+      qubits: [q0, q1],
+      layers: [Math.min(...ls), Math.max(...ls)],
+      inner,
+      line: d.line,
+      ...(d.fold !== undefined ? { fold: d.fold } : {}),
+    }
+  }
+  const drawn = frames.filter((f): f is Frame => !!f)
+
   return {
     kind: 'circuit', qubits, layers, input, inputLine, output,
+    ...(drawn.length ? { frames: drawn } : {}),
     calculateOutput, calculateCaption, calculateNote, table, chart, animate, header, shapePicks,
     calculateInput: calculateInput || undefined,
     calculateInputCaption,

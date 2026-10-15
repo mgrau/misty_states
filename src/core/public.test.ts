@@ -79,6 +79,7 @@ describe('the published surfaces', () => {
       'simulateBranches',
       'stateFrom',
       'tabulate',
+      'toggleFold',
       'traceGate',
     ])
   })

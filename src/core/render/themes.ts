@@ -194,6 +194,7 @@ const isoSurface: Surface = {
     // the stub, so it runs longer to look the same length as the tail.
     topLeadExtra: 9,
     paintBottomUp: true,
+    extrude: { dx: ISO_DX, dy: ISO_DY },
   },
   defs: () => '',
   pipe: (cx, y0, y1, w, pal, m, openTop) => {
@@ -383,6 +384,16 @@ function makeTheme(
           return el('line', {
             x1: p.x0, y1: p.cy, x2: p.x1, y2: p.cy,
             stroke: pal.accent, 'stroke-width': m.stroke * 1.5, 'stroke-linecap': 'round',
+          })
+
+        // A tint of the accent unless told otherwise: enough to see the edge
+        // of the region, not so much that it competes with the gates in it.
+        case 'frame':
+          return el('rect', {
+            x: p.box.x, y: p.box.y, width: p.box.w, height: p.box.h, rx: p.tab ? 4 : 7,
+            fill: p.fill || mix(pal.paper, pal.accent, 0.07),
+            stroke: p.border === 'none' ? 'none' : p.border || mix(pal.paper, pal.accent, 0.45),
+            'stroke-width': m.stroke * 0.9,
           })
 
         // Flat in every theme, like the pane: a table is a piece of paper

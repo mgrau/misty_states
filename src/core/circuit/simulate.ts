@@ -301,6 +301,20 @@ function spreadOf(gate: Gate): Spread | null {
     }
 
     case 'box':
+      if (gate.body) {
+        // A definition drawn as one box: its gates in turn, each term carried
+        // through all of them before it is handed on.
+        const steps = gate.body.map(spreadOf).filter((f): f is Spread => !!f)
+        return (bits, amp, emit) => {
+          let terms: [string, Cx][] = [[bits, amp]]
+          for (const step of steps) {
+            const next: [string, Cx][] = []
+            for (const [b, a] of terms) step(b, a, (to, gave) => next.push([to, gave]))
+            terms = next
+          }
+          for (const [b, a] of terms) emit(b, a)
+        }
+      }
       throw new SimulationError(
         gate.label
           ? `“${gate.label}” is a drawing, so there is no operation to apply`

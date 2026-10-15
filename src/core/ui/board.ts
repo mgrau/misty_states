@@ -38,6 +38,7 @@ import type { CircuitDoc, Gate } from '../circuit/ast'
 import type { CircuitGeometry } from '../circuit/layout'
 import {
   cycleTarget, dropTarget, gateAt, insertGate, moveGate, nextQubit, qubitAt, removeGate, setQubit,
+  toggleFold,
 } from '../circuit/edit'
 import type { DropTarget, Droppable, Edit, QubitSpot } from '../circuit/edit'
 import { parseCircuit } from '../circuit/parse'
@@ -165,7 +166,7 @@ export function createBoard(host: BoardHost): Board {
    * carry it to — so it waits here only to find out whether the press was a
    * click.
    */
-  let pending: { gate?: Gate; spot?: QubitSpot; x: number; y: number } | null = null
+  let pending: { gate?: Gate; spot?: QubitSpot; fold?: number; x: number; y: number } | null = null
   let flipFrom: Map<string, DOMRect> | null = null
 
   /**
@@ -262,23 +263,45 @@ export function createBoard(host: BoardHost): Board {
     if (event.button !== 0 || carrying || !hold() || !held) return false
     const view = host.view()
     const at = toDiagram(event)
-    const gate = view?.geometry ? gateAt(held.doc, view.geometry, at) : undefined
+    let gate = view?.geometry ? gateAt(held.doc, view.geometry, at) : undefined
+    // A gate a definition put there is not on a line of its own, so it cannot
+    // be carried off alone. A click on it, or anywhere else in a frame, folds
+    // the frame; a click on a folded box opens it.
+    let fold: number | undefined
+    if (gate?.bound) {
+      fold = gate.kind === 'box' ? gate.fold : undefined
+      gate = undefined
+    }
     // Both, where both are there. Inside a window the two overlap by
     // construction — its qubits are drawn within it — and which one was meant
     // is decided by what the press turns into rather than by where it landed:
     // moved, it carries the window; released where it began, it flips the qubit
     // under it, that being the smaller and more particular of the two.
     const spot = qubitAt(view?.spots ?? [], at)
-    if (!gate && !spot) {
+    if (!gate && !spot && fold === undefined) fold = frameAt(view?.geometry, at)
+    if (!gate && !spot && fold === undefined) {
       held = null
       // Nothing here to edit — the press is the host's to do with as it likes,
       // which is how a drag-to-export can tell an empty grab from a gate.
       return false
     }
-    pending = { gate, spot, x: event.clientX, y: event.clientY }
+    pending = { gate, spot, fold, x: event.clientX, y: event.clientY }
     window.addEventListener('pointermove', onPendingMove)
     window.addEventListener('pointerup', clickGate, { once: true })
     return true
+  }
+
+  /**
+   * The line that folds the frame under a point: the innermost one that has
+   * such a line. A frame drawn inside a definition is written once for every
+   * use of it, so a click there folds the use it belongs to instead.
+   */
+  function frameAt(geometry: CircuitGeometry | undefined, at: { x: number; y: number }): number | undefined {
+    for (const f of [...(geometry?.frames ?? [])].reverse()) {
+      const { x, y, w, h } = f.box
+      if (f.fold !== undefined && at.x >= x && at.x <= x + w && at.y >= y && at.y <= y + h) return f.fold
+    }
+    return undefined
   }
 
   function onPendingMove(event: PointerEvent) {
@@ -328,6 +351,9 @@ export function createBoard(host: BoardHost): Board {
         // The one edit that needs nothing but the character it is written as.
         const written = setQubit(held.source, tapped.spot.at, nextQubit(tapped.spot.value))
         if (written) host.oncommit(written)
+      } else if (tapped.fold !== undefined) {
+        const folded = toggleFold(held.source, tapped.fold)
+        if (folded) host.oncommit(folded)
       } else if (tapped.gate) {
         const spun = cycleTarget(held.source, held.doc, tapped.gate)
         if (spun) host.oncommit(spun)

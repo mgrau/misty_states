@@ -192,7 +192,7 @@ const CIRCUIT_KEYWORDS = new Set([
   'h', 'x', 'y', 'z', 's', 't', 'i', 'id', 'identity', 'pete', 'not',
   'cnot', 'cx', 'cz', 'toffoli', 'ccnot', 'ccx', 'swap',
   'measure', 'm', 'box', 'gate', 'blank', 'tabulate', 'table', 'chart', 'plot', 'amplitude', 'amplitudes',
-  'probability', 'probabilities', 'animate', 'answer',
+  'probability', 'probabilities', 'animate', 'answer', 'def',
 ])
 
 /**
@@ -219,6 +219,8 @@ export function detectMode(source: string): 'state' | 'circuit' {
     const line = raw.replace(/(^|\s)#.*$/, '').trim()
     if (!line) continue
     if (/^-{3,}$/.test(line)) return 'circuit'
+    // A frame round some gates: a state never opens or closes a brace.
+    if (/\{$/.test(line) || line === '}') return 'circuit'
     const first = line.split(/[\s;]+/)[0].toLowerCase()
     if (isKeyword(first)) return 'circuit'
     // A caption can stand in front of anything — `Lab data: tabulate 0 = 48%`

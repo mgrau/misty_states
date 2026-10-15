@@ -73,6 +73,12 @@ function kron(a: Matrix, b: Matrix): Matrix {
   return out
 }
 
+function product(a: Matrix, b: Matrix): Matrix {
+  return a.map((row) =>
+    b[0].map((_, j) => row.reduce((acc, x, k) => add(acc, mul(x, b[k][j])), r(0))),
+  )
+}
+
 function sum(a: Matrix, b: Matrix): Matrix {
   return a.map((row, i) => row.map((v, j) => add(v, b[i][j])))
 }
@@ -148,8 +154,18 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
       return out
     }
 
+    case 'box': {
+      if (!gate.body) throw new Error('reference: not a unitary')
+      // Later gates multiply on the left: the first one applied is rightmost.
+      let out: Matrix | null = null
+      for (const inner of gate.body) {
+        const m = matrixOf(inner, n)
+        if (m) out = out ? product(m, out) : m
+      }
+      return out
+    }
+
     case 'measure':
-    case 'box':
       throw new Error('reference: not a unitary')
   }
 }

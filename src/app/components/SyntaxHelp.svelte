@@ -129,6 +129,16 @@
       ],
     },
     {
+      heading: 'Frames and definitions',
+      rows: [
+        { code: '"Prep" {  …  }', text: 'A labelled frame round the gates between the braces' },
+        { code: '"Prep" 1-3 fill=#fef3c7 border=#d97706 {', text: 'Take in more wires, and colour the inside and the edge (border=none for none)' },
+        { code: 'def oracle {  …  }', text: 'Gates written once, on wires 1 and up' },
+        { code: 'oracle 2-3', text: 'Used: drawn framed, its wires 1 and 2 moved onto 2 and 3' },
+        { code: 'oracle 2-3 collapsed', text: 'Drawn as one box, still calculated' },
+      ],
+    },
+    {
       heading: 'Layers',
       rows: [
         { code: 'H 1; H 2', text: '";" pins gates into the same layer' },

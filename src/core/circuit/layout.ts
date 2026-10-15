@@ -79,6 +79,11 @@ export interface CircuitGeometry {
   shapes: ShapeName[]
   /** Top and height of each band of clear pipe, when any were asked for. */
   bands: { y: number; h: number }[]
+  /**
+   * Each frame's box, outermost first, and the line that folds it — so a
+   * click on one can be told which line to rewrite.
+   */
+  frames?: { box: Box; fold?: number }[]
 }
 
 export interface CircuitLayout extends Layout {
@@ -126,6 +131,13 @@ const VIEW_PAD = 14
 const PANE_INSET = 8
 /** Between the outcomes of a measurement, stacked one above another. */
 const ROW_GAP = 12
+/**
+ * Clear space between a frame and what it holds, and between one frame and
+ * the frame round it.
+ */
+const FRAME_PAD = 10
+/** A frame's label, as a share of the gates' lettering: it names, it does not shout. */
+const FRAME_LABEL = 0.68
 
 /** Radius of a control dot and of a ⊕ target, as fractions of the pipe width. */
 const CONTROL_R = 0.22
@@ -180,7 +192,8 @@ function gateKey(gate: Gate, seen: Map<string, number>): string {
   const [q0, q1] = gateSpan(gate)
   const what =
     gate.kind === 'single' ? `${gate.kind}:${gate.label}`
-    : gate.kind === 'box' ? `${gate.kind}:${gate.label}`
+    // A folded box is told apart from a drawn one, being something to click.
+    : gate.kind === 'box' ? `${gate.body ? 'folded' : gate.kind}:${gate.label}`
     : gate.kind
   const base = `${what}@${q0}-${q1}`
   const nth = seen.get(base) ?? 0
@@ -558,6 +571,23 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   /** How many gates of each kind and span have been named so far. */
   const keys = new Map<string, number>()
 
+  /*
+   * Frames are made room for as the layers go down: their top before their
+   * first layer, their bottom after their last. Outermost first at the top and
+   * last at the bottom, so nested frames sit one inside the other. An extruded
+   * gate stands up out of its face, and the frame has to clear that too.
+   */
+  const frames = doc.frames ?? []
+  const frameTop = new Map<number, number>()
+  const frameBottom = new Map<number, number>()
+  const labelSize = m.fontSize * FRAME_LABEL
+  /** The tab a label is written on: inset from the corner, a little taller than its letters. */
+  const TAB_INSET = 5
+  const tabH = labelSize + 7
+  const labelRoom = (label?: string) => (label ? TAB_INSET + tabH - FRAME_PAD + 8 : 0)
+  const lift = -(attach.extrude?.dy ?? 0)
+  const reach = attach.extrude?.dx ?? 0
+
   let y = pipeTop + STUB_LEAD + attach.topLeadExtra
 
   /**
@@ -728,6 +758,14 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     // The bands between two gates are inside the circuit: what comes out of one
     // is on its way into the next, and the wires run past all the while.
     if (at > 0) bandBefore(at)
+    let opened = false
+    frames.forEach((f, i) => {
+      if (f.layers[0] !== at) return
+      frameTop.set(i, y)
+      y += FRAME_PAD + labelRoom(f.label)
+      opened = true
+    })
+    if (opened) y += lift
     const layerH = layerHeight(layer)
     layerGeometry.push({ y, h: layerH })
     const viewGates = layer.gates.filter((g): g is ViewGate => g.kind === 'view')
@@ -836,7 +874,56 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       if (layer.note) notes.push({ text: layer.note, cy, right: span.x + span.w })
     }
 
-    y += layerH + m.gateGap
+    y += layerH
+    for (let i = frames.length - 1; i >= 0; i--) {
+      if (frames[i].layers[1] !== at) continue
+      y += FRAME_PAD
+      frameBottom.set(i, y)
+    }
+    y += m.gateGap
+  })
+
+  /**
+   * Each frame as a box with its label tucked into the top-left corner.
+   *
+   * As wide as the gates on its wires would be, and a step further out for
+   * every frame inside it. A label too long for that widens it to the right,
+   * which is the side the label does not start from.
+   *
+   * The label is on a tab of the frame's own colours, laid over the pipes:
+   * wherever it went inside the frame some wire would run through it, and
+   * lettering under a pipe cannot be read.
+   */
+  const framed: Prim[] = []
+  const tabs: Prim[] = []
+  const frameBoxes: { box: Box; fold?: number }[] = []
+  frames.forEach((f, i) => {
+    const out = FRAME_PAD * (f.inner + 1)
+    const x0 = gateX(f.qubits[0]) - m.pipeWidth / 2 - GATE_PAD_X - out
+    let x1 = gateX(f.qubits[1]) + m.pipeWidth / 2 + GATE_PAD_X + out + reach
+    const tabW = f.label ? textWidth(f.label, labelSize, true) + 12 : 0
+    x1 = Math.max(x1, x0 + TAB_INSET + tabW + FRAME_PAD)
+    const top = frameTop.get(i)!
+    const box: Box = { x: x0, y: top, w: x1 - x0, h: frameBottom.get(i)! - top }
+    const key = `frame:${i}`
+    framed.push({ t: 'frame', box, fill: f.fill, border: f.border, key })
+    frameBoxes.push({ box, ...(f.fold !== undefined ? { fold: f.fold } : {}) })
+    if (f.label) {
+      const tab: Box = { x: x0 + TAB_INSET, y: top + TAB_INSET, w: tabW, h: tabH }
+      tabs.push({ t: 'frame', box: tab, fill: f.fill, border: f.border, tab: true, key })
+      tabs.push({
+        t: 'text',
+        x: tab.x + 6,
+        cy: tab.y + tabH / 2,
+        text: f.label,
+        size: labelSize,
+        anchor: 'start',
+        weight: 600,
+        ...(f.border && f.border !== 'none' ? { color: f.border } : {}),
+        key,
+      })
+    }
+    boxes.push(box)
   })
 
   const lastGateBottom = doc.layers.length ? y - m.gateGap : pipeTop
@@ -1034,7 +1121,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       ]
 
   return {
-    prims: [...stack, ...glyphs, ...caps],
+    prims: [...framed, ...stack, ...tabs, ...glyphs, ...caps],
     box: boxUnion(boxes),
     geometry: {
       columns: Array.from({ length: doc.qubits }, (_, i) => colX(i + 1)),
@@ -1043,6 +1130,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       pipeBottom,
       layers: layerGeometry,
       bands: bandGeometry,
+      ...(frameBoxes.length ? { frames: frameBoxes } : {}),
       startY,
       endY,
     },
