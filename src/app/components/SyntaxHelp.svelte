@@ -105,7 +105,7 @@
         { code: 'I 2', text: 'Identity — plain pipe, just holds a slot in the layer' },
         { code: 'SWAP 1 2', text: 'Swap two qubits' },
         { code: 'RZ(90) 1', text: 'A rotation in degrees — also RX, RY and P' },
-        { code: 'P(45) 1', text: 'Odd angles chart and write out, but cannot be drawn' },
+        { code: 'P(45) 1', text: 'A phase on the black half — T is P(45). Odd angles draw with rounded decimals' },
       ],
     },
     {

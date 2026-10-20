@@ -12,7 +12,7 @@
    * what makes a turn about a tilted axis look like one. Drag to look at it from
    * another side.
    */
-  import { blochAt, type BlochPath, type Vec3 } from '../../core/bloch'
+  import { blochAt, tintColour as tintOf, type BlochPath, type Vec3 } from '../../core/bloch'
   import { render } from '../../core/index'
   import { LIGHT_PALETTE, type ThemeId } from '../../core/render/theme'
   import type { ShapeName } from '../../core/shapes'
@@ -98,15 +98,8 @@
     }),
   )
 
-  /** A gate's colour, as its chip is drawn; a layer that does nothing gets none. */
-  const tintColour = (key: string | null): string => {
-    if (!key) return '#94a3b8'
-    const chips = LIGHT_PALETTE.gateChip as Record<string, string>
-    if (chips[key]) return chips[key]
-    if (key === 'measure') return LIGHT_PALETTE.muted
-    if (key === 'accent') return LIGHT_PALETTE.accent
-    return LIGHT_PALETTE.ink
-  }
+  /** A gate's colour, as its chip is drawn: the sphere sits on light paper whatever the theme. */
+  const tintColour = (key: string | null): string => tintOf(key, LIGHT_PALETTE)
 
   const point = $derived(blochAt(path, at))
   const tip = $derived(view(point))

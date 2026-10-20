@@ -1590,6 +1590,8 @@ export function parseCircuit(text: string): CircuitDoc {
   let answerOutput = false
   /** Which line the input state was written on, for anything editing the text. */
   let inputLine: number | undefined
+  /** The same for the output, worked out or written. */
+  let outputLine: number | undefined
   let table: TableSpec | undefined
   let chart: ChartSpec | undefined
   let calculateOutput = false
@@ -1780,6 +1782,11 @@ export function parseCircuit(text: string): CircuitDoc {
     const word = tokens.findIndex((t) => !t.quoted && t.text.toLowerCase() === 'collapsed')
     const collapsed = word >= 0
     if (collapsed) tokens.splice(word, 1)
+    // A quoted name says what this use is for, in place of the definition's.
+    const named = tokens.filter((t) => t.quoted)
+    if (named.length > 1) throw new ParseError(`${def.name} takes one label`, 0, at)
+    const style = named.length ? { ...def.style, label: named[0].text } : def.style
+    tokens.splice(0, tokens.length, ...tokens.filter((t) => !t.quoted))
     const n = widthOf(def, chain)
     const written = tokens.length ? parseQubits(tokens, at) : null
     if (written && written.length !== n) {
@@ -1798,7 +1805,7 @@ export function parseCircuit(text: string): CircuitDoc {
     const fold = chain.length ? undefined : line
 
     if (!collapsed) {
-      sink.open(def.style, undefined, fold)
+      sink.open(style, undefined, fold)
       walk(def, to, line, sink, chain)
       sink.close()
       return
@@ -1813,7 +1820,7 @@ export function parseCircuit(text: string): CircuitDoc {
     }, chain)
     const wires = Array.from({ length: n }, (_, i) => to(i + 1))
     const box = foldedBox(
-      def.style.label ?? def.name, def.style.fill, body,
+      style.label ?? def.name, style.fill, body,
       [Math.min(...wires), Math.max(...wires)], at, def.name,
     )
     sink.gates([{ ...box, line, ...(fold !== undefined ? { fold } : {}) }])
@@ -2056,6 +2063,7 @@ export function parseCircuit(text: string): CircuitDoc {
           if (asked) answerInput = true
         } else {
           calculateOutput = true
+          outputLine = lineNo
           calculateCaption = outCalc.caption
           calculateNote = outCalc.note
           if (asked) answerOutput = true
@@ -2069,6 +2077,7 @@ export function parseCircuit(text: string): CircuitDoc {
         if (asked) answerInput = true
       } else {
         output = [doc.rows[0]]
+        outputLine = lineNo
         if (asked) answerOutput = true
       }
       continue
@@ -2092,12 +2101,14 @@ export function parseCircuit(text: string): CircuitDoc {
     if (output || calculateOutput) flushTail()
     else if (pendingTail.calculate) {
       calculateOutput = true
+      outputLine = pendingTailLine
       calculateCaption = pendingTail.caption
       calculateNote = pendingTail.note
       if (pendingTail.answer) answerOutput = true
     }
     else {
       output = pendingTail.rows
+      outputLine = pendingTailLine
       if (pendingTail.answer) answerOutput = true
     }
     pendingTail = null
@@ -2170,14 +2181,13 @@ export function parseCircuit(text: string): CircuitDoc {
       qubits: [q0, q1],
       layers: [Math.min(...ls), Math.max(...ls)],
       inner,
-      line: d.line,
       ...(d.fold !== undefined ? { fold: d.fold } : {}),
     }
   }
   const drawn = frames.filter((f): f is Frame => !!f)
 
   return {
-    kind: 'circuit', qubits, layers, input, inputLine, output,
+    kind: 'circuit', qubits, layers, input, inputLine, output, outputLine,
     ...(drawn.length ? { frames: drawn } : {}),
     calculateOutput, calculateCaption, calculateNote, table, chart, animate, header, shapePicks,
     calculateInput: calculateInput || undefined,

@@ -370,14 +370,16 @@
    * animation is tried for real, since only the renderer knows everything
    * that stops one; it is cheap next to the drawing itself.
    */
+  /** Read once per change: it parses the source, and two things ask it. */
+  const calcEnd = $derived(result.ok ? calculateDone(source) : null)
   const calculateBlocked = $derived.by(() => {
     if (!result.ok) return 'Fix the source first'
     if (result.kind !== 'circuit') return 'Add a gate first: there is no circuit to work out yet'
-    if (calculateDone(source) === 'written') return 'The circuit already ends with its output written in'
+    if (calcEnd === 'written') return 'The circuit already ends with its output written in'
     return null
   })
   /** The end is worked out, so the button is pressed in and pressing it takes that away. */
-  const calculated = $derived(result.ok && calculateDone(source) === 'calculated')
+  const calculated = $derived(calcEnd === 'calculated')
   const animated = $derived(isAnimated(source))
   const animateBlocked = $derived.by(() => {
     if (!result.ok) return 'Fix the source first'
@@ -760,6 +762,12 @@
   let blochKept: BlochPath | null = null
   const bloch = $derived.by(() => {
     if (!result.ok && blochKept) return { ok: true as const, path: blochKept }
+    // The drawing has already said how many wires there are, and more than one
+    // is the usual answer: no need to parse and run it again to hear it.
+    if (result.ok && result.kind === 'circuit' && result.qubits !== undefined && result.qubits !== 1) {
+      blochKept = null
+      return { ok: false as const, message: `a Bloch sphere shows one qubit, and this circuit has ${result.qubits}` }
+    }
     try {
       // What the drawing is drawn from, preview and all, so turning a dial or
       // dragging a gate moves the arrow as it moves the picture.
@@ -1962,7 +1970,7 @@
 
         Tiles of the same make as the gate palette's — white, a slate edge that
         darkens under the pointer — so they read as part of the app rather than
-        laid on top of it. Animate is a toggle, and pressed looks the way every
+        laid on top of it. Both are toggles, and pressed looks the way every
         other pressed toggle here does. The pane ignores the pointer around them
         so a drag across the drawing is not caught by the gap between.
       -->

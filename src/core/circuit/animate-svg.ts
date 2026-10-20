@@ -12,7 +12,7 @@
  */
 
 import type { Fade, TermTimeline, Timeline, Track } from './animate'
-import { GATE_FADE, MARK_FADE, ampLabel, fadeAt, labelWidth, rowAt } from './animate'
+import { GATE_FADE, MARK_FADE, ampLabel, fadeAt, isBehind, labelWidth, rowAt } from './animate'
 import type { CircuitGeometry, CircuitLayout } from './layout'
 import type { Cx } from './complex'
 import type { Metrics, Prim } from '../render/primitives'
@@ -47,13 +47,6 @@ function belongsTo(p: Prim, layers: { y: number; h: number }[]): { layer: number
 }
 
 /**
- * What a travelling qubit passes in front of.
- *
- * Open gates: the pipe and the casing, so a faded box is something the qubit is
- * seen through. Closed: the pipe alone, so it goes behind the box and comes out
- * the other side.
- */
-/**
  * The curve applied between one keyframe and the next.
  *
  * Chosen to sit as close to the smooth step the sampled frames use as a cubic
@@ -62,11 +55,8 @@ function belongsTo(p: Prim, layers: { y: number; h: number }[]): { layer: number
  */
 const EASE = 'cubic-bezier(0.35,0,0.65,1)'
 
-const behind = (p: Prim, inside: boolean): boolean =>
-  p.t === 'pipe' ||
-  // A frame is the ground everything stands on, its label's tab excepted.
-  (p.t === 'frame' && !p.tab) ||
-  (inside && (p.t === 'gatebox' || p.t === 'measurebox' || p.t === 'pane'))
+/** What a travelling qubit passes in front of: the same rule the sampled frames use. */
+const behind = isBehind
 
 /** A percentage of the way through the run, clamped and rounded. */
 const pc = (t: number, duration: number) =>

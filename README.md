@@ -10,7 +10,7 @@ Type text, get an SVG. Everything runs client-side; nothing is uploaded.
 npm install
 npm run dev      # http://localhost:5173
 npm run build    # editor in dist/, library bundle in dist/lib/
-npm test         # ~1460 tests
+npm test         # ~1700 tests
 ```
 
 TypeScript, Svelte 5, Tailwind 4. The drawing library (`src/core/`) is pure,
@@ -166,8 +166,13 @@ without it. Nothing outside packs into a frame's layers, and frames nest.
 for them. A use names where those wires go, in order — or none, to leave them
 where they were written. It is drawn as its gates in a frame labelled with the
 name (or the quoted label after it), or with `collapsed` as a single box that
-still does what its gates do. A definition can be written anywhere in the
-source and can use another.
+still does what its gates do. A quoted label on a use names that use in place
+of the definition. A definition can be written anywhere in the source and can
+use another.
+
+In the editor, clicking a frame folds it — `collapsed` is written on the line
+that made it — and clicking the folded box opens it again. Gates a definition
+put there are moved with the line that uses it, not one at a time.
 
 ```
 def oracle "U_f" fill=#fef3c7 {
@@ -200,7 +205,9 @@ window calculate rows=3   # the state, with room to spare
 `calculate` (or `calc`) computes the state from the input and gates above it.
 The arithmetic is exact Gaussian integers — `H` is unnormalised so `H·H = 2I`
 and every amplitude stays whole. Rotations at non-right angles produce decimal
-coefficients rounded to two places.
+coefficients rounded to two places, and so does `T`, which is `P(45)` and is
+worked out in floating point the same way. Measurement outcomes that end in the
+same state are added together.
 
 `in calculate` runs the circuit backwards; a measurement cannot be undone and
 says so. A measurement forward produces one row per outcome with its odds.
@@ -229,10 +236,20 @@ tabulate 00, 01, 10, 11
 
 `animate` makes the state travel through the gates. A superposition is worked
 term by term: terms queue above a gate, go through one at a time, then
-identical terms merge and opposite ones cancel. The result is a self-contained
-SVG with CSS keyframes, no JavaScript.
+identical terms merge and opposite ones cancel. A phase (`S`, `T`, `RZ`, `P`)
+is written on the term it turns, amplitudes to three significant figures. The
+result is a self-contained SVG with CSS keyframes, no JavaScript.
 
 Saving as GIF or MP4 is offered from the toolbar.
+
+### In the editor
+
+Clicking a rotation gate opens a dial: turn it, or type an angle into it —
+degrees (`45`, `45°`) or multiples of π (`3π/4`, `pi/2`). For a one-qubit
+circuit, the **Bloch** button slides in a sphere showing the qubit's path, gate
+by gate in the gates' colours; it follows the dial as it turns and keeps time
+with an animation or the stepper. Calculate and Animate, in the corner of the
+drawing, each add their line to the source and take it away again.
 
 ### Themes
 
@@ -266,12 +283,14 @@ src/core/               the drawing library (zero runtime deps)
   version.ts            the version literal
   state/                state AST, parser, layout
   circuit/              circuit AST, parser, simulator, layout, editing
-    simulate.ts         exact-integer simulation
+    simulate.ts         simulation: exact integers, floats where an angle needs them
     reference.ts        independent dense-matrix cross-check
     edit.ts             drag-and-drop editing rules
   render/               primitives → themed SVG
   chart/                bar chart layout
   ui/board.ts           framework-agnostic drag layer
+  bloch.ts              one qubit's path on the Bloch sphere
+  mode.ts               telling a circuit from a bare state
   shapes.ts, svg.ts, gates.ts, check.ts, conceal.ts, metadata.ts, url.ts
 
 src/app/                the editor (Svelte 5, bundles jsPDF etc.)
@@ -281,7 +300,7 @@ src/app/                the editor (Svelte 5, bundles jsPDF etc.)
   library-yaml.ts       YAML import/export
   library-store.svelte.ts  persistence and editing
   route.ts              URL routing
-  angle.ts              π-label formatting for the rotation dial
+  angle.ts              the rotation dial's π labels, and reading a typed angle
   components/           Svelte UI components
 
 src/
@@ -336,6 +355,10 @@ import { parseCircuit, simulate, canonical, insertGate } from 'misty-states/kern
 const doc = parseCircuit('qubits 2\nin 00\nH 1\nCNOT 1 -> 2')
 const amps = simulate(doc, doc.layers.length)
 const terms = canonical(amps)  // [['00', {re:1,im:0}], ['11', {re:1,im:0}]]
+
+// One qubit on the Bloch sphere: a point per layer, and the turn between them.
+const path = blochOf('in 0\nH 1\nT 1')
+blochAt(path, 1.5)             // halfway through the T
 ```
 
 ### Drag layer

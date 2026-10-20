@@ -284,7 +284,7 @@ export const EXAMPLES: Example[] = [
   {
     id: 'rotate',
     title: 'Circuit — turning by a chosen angle',
-    note: 'Angles are in degrees; also RX, RY and P. A right angle keeps every amplitude whole — RZ(90) is S — so the state still draws. An odd one leaves cosines, which no misty state has a mark for, so chart it or write it out instead.',
+    note: 'Angles are in degrees; also RX, RY and P. A right angle keeps every amplitude whole — RZ(90) is S. An odd one leaves cosines, which are drawn as decimals to two places.',
     source: [
       'in 0',
       'RY(30) 1',

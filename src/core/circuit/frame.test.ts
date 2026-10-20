@@ -12,7 +12,7 @@ import { amplitudesOf, simulate } from './simulate'
 import { referenceAmplitudes } from './reference'
 import { show } from './complex'
 import { layoutCircuit } from './layout'
-import { toggleFold } from './edit'
+import { dropTarget, insertGate, removeGate, toggleFold } from './edit'
 import { detectMode, render } from '../index'
 import type { Gate } from './ast'
 import type { Prim } from '../render/primitives'
@@ -278,5 +278,63 @@ describe('folding', () => {
     expect(geometry.frames).toHaveLength(1)
     expect(geometry.frames![0].fold).toBe(2)
     expect(geometry.frames![0].box.w).toBeGreaterThan(0)
+  })
+})
+
+describe('editing round a frame', () => {
+  const H = { head: 'H', wires: 1 }
+
+  it('puts a gate dropped after a folded frame after the whole block', () => {
+    const src = 'in 00\n"A" collapsed {\n  H 1\n  X 1\n}'
+    for (const where of ['after', 'in'] as const) {
+      const out = insertGate(src, doc(src), { wire: 2, layer: 0, where }, H).source
+      expect(out, where).toMatch(/\}\n.*H 2/)
+      expect(written(out)[0], where).toMatch(/^\[A 1\]/)
+    }
+  })
+
+  it('drops below a frame outside it, and on its last layer inside it', () => {
+    const src = 'in 00\n"A" {\n  H 1\n}'
+    const d = doc(src)
+    const { geometry } = layoutCircuit(d)
+    const frame = geometry.frames![0].box
+    const below = dropTarget(geometry, { x: geometry.columns[0], y: frame.y + frame.h + 4 })
+    expect(below).toMatchObject({ where: 'after', outside: 1 })
+    expect(insertGate(src, d, below, H).source).toBe('in 00\n"A" {\n  H 1\n}\nH 1')
+    const layer = geometry.layers[0]
+    const inside = dropTarget(geometry, { x: geometry.columns[0], y: layer.y + layer.h - 1 })
+    expect(inside.outside).toBeUndefined()
+    expect(insertGate(src, d, inside, H).source).toBe('in 00\n"A" {\n  H 1\nH 1\n}')
+  })
+
+  it('takes the frame away with the last gate in it', () => {
+    const src = 'in 00\n"Outer" {\n  "A" {\n    H 1\n  }\n}\nX 2'
+    const d = doc(src)
+    const cut = removeGate(src, d, d.layers[0].gates[0])!.source
+    expect(cut).toBe('in 00\nX 2')
+    expect(() => doc(cut)).not.toThrow()
+  })
+
+  it('leaves a frame that still has something in it', () => {
+    const src = 'in 00\n"A" {\n  H 1\n  X 1\n}'
+    const d = doc(src)
+    expect(removeGate(src, d, d.layers[0].gates[0])!.source).toBe('in 00\n"A" {\n  X 1\n}')
+  })
+})
+
+describe('a definition used under its own name', () => {
+  it('takes a quoted label in place of the definition\'s', () => {
+    const def = 'def bell {\n  H 1\n  CNOT 1 -> 2\n}\n'
+    expect(frames(`${def}bell 1-2 "Make a pair"`)[0].label).toBe('Make a pair')
+    expect(written(`${def}bell 1-2 collapsed "Pair"`)).toEqual(['[Pair 12]'])
+  })
+})
+
+describe('a folded box, worked out', () => {
+  it('adds up like terms as it goes, so a long body stays quick', () => {
+    const src = `def f {\n${'  H 1\n'.repeat(30)}}\nin 0\nf collapsed`
+    const t = performance.now()
+    expect(state(src)).toEqual(state(`in 0\n${'H 1\n'.repeat(30)}`))
+    expect(performance.now() - t).toBeLessThan(200)
   })
 })

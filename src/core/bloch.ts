@@ -18,9 +18,10 @@
  */
 
 import type { CircuitDoc, Gate } from './circuit/ast'
+import type { Palette } from './render/theme'
 import { parseCircuit } from './circuit/parse'
-import { detectMode } from './index'
-import { SimulationError, simulateBranches, traceGate, type Amplitudes } from './circuit/simulate'
+import { detectMode } from './mode'
+import { SimulationError, branchesByLayer, traceGate, type Amplitudes, type Branch } from './circuit/simulate'
 import { ONE } from './circuit/complex'
 
 export type Vec3 = [number, number, number]
@@ -38,8 +39,9 @@ export interface BlochPath {
   moves: BlochMove[]
   /**
    * The colour layer `k` is drawn in, as a key: one of the palette's gate
-   * chips (`H`, `RY`, …), else `accent` for the X target or `measure`. Null
-   * for a layer that does nothing.
+   * chips (`H`, `RY`, …), else `accent` for the X target or `measure`, or the
+   * colour a gate was given with `fill=`. Null for a layer that does nothing.
+   * `tintColour` turns one into a colour.
    */
   tints: (string | null)[]
 }
@@ -49,7 +51,8 @@ function tintOf(gate: Gate | undefined): string | null {
   if (!gate) return null
   switch (gate.kind) {
     case 'single':
-      return gate.label
+      // A colour written on the gate wins, as it does on the drawing.
+      return gate.accent ?? gate.label
     case 'measure':
       return 'measure'
     case 'controlled':
@@ -70,10 +73,25 @@ function pointOf(amps: Amplitudes): Vec3 {
   return [(2 * re) / n, (2 * im) / n, (a.re * a.re + a.im * a.im - b.re * b.re - b.im * b.im) / n]
 }
 
+/**
+ * The colour a tint is drawn in, by the rule the drawing's chips follow: a
+ * colour given outright, else the palette's chip for that gate, else its
+ * accent or its measurement grey. A layer that does nothing is drawn faint.
+ */
+export function tintColour(tint: string | null, pal: Palette): string {
+  if (!tint) return pal.gateEdge
+  const chips = pal.gateChip as Record<string, string>
+  if (chips[tint]) return chips[tint]
+  if (tint === 'measure') return pal.muted
+  if (tint === 'accent') return pal.accent
+  if (/^#|^[a-z]+$/.test(tint)) return tint
+  return pal.ink
+}
+
 /** Each branch's point, weighed by how likely it is. */
-function pointAfter(doc: CircuitDoc, layers: number): Vec3 {
+function pointOfBranches(branches: Branch[]): Vec3 {
   const sum: Vec3 = [0, 0, 0]
-  for (const branch of simulateBranches(doc, layers).branches) {
+  for (const branch of branches) {
     const p = branch.odds.n / branch.odds.d
     const v = pointOf(branch.amps)
     for (let i = 0; i < 3; i++) sum[i] += p * v[i]
@@ -152,8 +170,7 @@ export function blochPath(doc: CircuitDoc): BlochPath {
   if (doc.qubits !== 1) {
     throw new SimulationError('a Bloch sphere shows one qubit, and this circuit has ' + doc.qubits)
   }
-  const points: Vec3[] = []
-  for (let k = 0; k <= doc.layers.length; k++) points.push(pointAfter(doc, k))
+  const points = branchesByLayer(doc).map(pointOfBranches)
   const gates = doc.layers.map((layer) => layer.gates.find((g) => g.kind !== 'view'))
   const moves = gates.map((gate) => (gate ? moveOf(gate) : ({ kind: 'still' } as const)))
   return { points, moves, tints: gates.map(tintOf) }

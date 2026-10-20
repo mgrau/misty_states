@@ -303,15 +303,13 @@ function spreadOf(gate: Gate): Spread | null {
     case 'box':
       if (gate.body) {
         // A definition drawn as one box: its gates in turn, each term carried
-        // through all of them before it is handed on.
+        // through all of them before it is handed on. Like terms are added up
+        // after every gate, as they are between layers — kept apart, every H
+        // inside would double the list.
         const steps = gate.body.map(spreadOf).filter((f): f is Spread => !!f)
         return (bits, amp, emit) => {
-          let terms: [string, Cx][] = [[bits, amp]]
-          for (const step of steps) {
-            const next: [string, Cx][] = []
-            for (const [b, a] of terms) step(b, a, (to, gave) => next.push([to, gave]))
-            terms = next
-          }
+          let terms: Amplitudes = new Map([[bits, amp]])
+          for (const step of steps) terms = mapStates(terms, step)
           for (const [b, a] of terms) emit(b, a)
         }
       }
@@ -820,7 +818,19 @@ function undoLayers(amps: Amplitudes, layers: Layer[]): Amplitudes {
   return running
 }
 
-function simulateFrom(doc: CircuitDoc, layers: number) {
+/**
+ * The branches before the first layer and after every one, in one run.
+ *
+ * What a path through the circuit needs. Asking `simulateBranches` for each
+ * layer in turn would run the circuit again from the top every time.
+ */
+export function branchesByLayer(doc: CircuitDoc): Branch[][] {
+  const out: Branch[][] = []
+  simulateFrom(doc, doc.layers.length, (branches) => out.push(branches))
+  return out
+}
+
+function simulateFrom(doc: CircuitDoc, layers: number, each?: (branches: Branch[]) => void) {
   const anchor = anchorOf(doc)
 
   // Behind the anchor, the circuit is run in reverse; from there, forwards.
@@ -828,6 +838,7 @@ function simulateFrom(doc: CircuitDoc, layers: number) {
 
   let branches: Branch[] = [{ amps: start, odds: CERTAIN }]
   let measured = false
+  each?.(branches)
 
   for (const layer of doc.layers.slice(0, layers)) {
     // Sorted so the answer cannot depend on the order gates were written in
@@ -850,6 +861,7 @@ function simulateFrom(doc: CircuitDoc, layers: number) {
     }
     // A term that cancelled to nothing takes its branch with it.
     branches = branches.filter((b) => b.amps.size)
+    each?.(branches)
   }
 
   return { branches, measured }

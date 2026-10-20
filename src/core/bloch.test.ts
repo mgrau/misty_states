@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { blochAt, blochOf, blochPath, layersAt, type Vec3 } from './bloch'
+import { blochAt, blochOf, blochPath, layersAt, tintColour, type Vec3 } from './bloch'
+import { simulateBranches } from './circuit/simulate'
+import { LIGHT_PALETTE } from './render/theme'
 import { parseCircuit } from './circuit/parse'
 import { render } from './index'
 
@@ -65,6 +67,30 @@ describe('the colours of the way', () => {
     expect(path('in 0\nH 1\nRY(30) 1\nX 1\nmeasure 1 Z\nI 1').tints).toEqual([
       'H', 'RY', 'accent', 'measure', null,
     ])
+  })
+
+  it('takes a colour written on the gate, as the drawing does', () => {
+    expect(path('in 0\nH 1 fill=#00ff00').tints).toEqual(['#00ff00'])
+    expect(tintColour('#00ff00', LIGHT_PALETTE)).toBe('#00ff00')
+    expect(tintColour('H', LIGHT_PALETTE)).toBe(LIGHT_PALETTE.gateChip.H)
+    expect(tintColour('accent', LIGHT_PALETTE)).toBe(LIGHT_PALETTE.accent)
+  })
+})
+
+describe('working the path out', () => {
+  it('in one run, landing where running to each layer in turn lands', () => {
+    const src = 'in 0\nH 1\nRY(30) 1\nmeasure 1 Z\nH 1\nT 1'
+    const doc = parseCircuit(src)
+    blochPath(doc).points.forEach((p, k) => {
+      const { branches } = simulateBranches(doc, k)
+      const z = branches.reduce((sum, b) => {
+        const n = [...b.amps.values()].reduce((t, a) => t + a.re ** 2 + a.im ** 2, 0)
+        const w = (b.amps.get('0')?.re ?? 0) ** 2 + (b.amps.get('0')?.im ?? 0) ** 2
+        const black = n - w
+        return sum + (b.odds.n / b.odds.d) * ((w - black) / n)
+      }, 0)
+      expect(p[2], `layer ${k}`).toBeCloseTo(z)
+    })
   })
 })
 

@@ -324,8 +324,6 @@ export interface Frame {
   layers: [number, number]
   /** How many frames deep the deepest one inside it goes; 0 for none. */
   inner: number
-  /** The line that opened it. */
-  line?: number
   /** The line to write `collapsed` on to fold it; see `BoxGate.fold`. */
   fold?: number
 }
@@ -346,6 +344,13 @@ export interface CircuitDoc {
   inputLine?: number
   /** Optional misty state drawn below the circuit; several after a measurement. */
   output?: StateRow[]
+  /**
+   * The source line the output was written on, given or `calculate`.
+   *
+   * What anything editing the end of a circuit needs: which line *is* the
+   * output is decided by what follows it, so it cannot be told from the line.
+   */
+  outputLine?: number
   /** Written `out calculate`: the output is worked out rather than given. */
   calculateOutput?: boolean
   /** Written `in calculate`: the input is worked out from a state written later. */
@@ -357,16 +362,6 @@ export interface CircuitDoc {
   calculateNote?: string
   /** Written `tabulate`: drawn in place of an output state, below the circuit. */
   table?: TableSpec
-  /**
-   * True where an angle was written that the arithmetic cannot do exactly.
-   *
-   * Amplitudes are whole numbers, which is what keeps the odds exact ratios and
-   * lets a state be written with an integer coefficient. A rotation by anything
-   * other than a right angle leaves cosines in them, and everything downstream
-   * that assumes wholeness — reducing by a common factor, exact odds, drawing a
-   * coefficient — has to stand down.
-   */
-  inexact?: boolean
   /** Written `chart`: a bar chart of the state, drawn below the circuit. */
   chart?: ChartSpec
   /** Written `animate`: the state travels through the circuit rather than being drawn at each end. */

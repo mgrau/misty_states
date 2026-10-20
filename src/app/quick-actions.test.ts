@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { render } from '../core/index'
-import { calculateDone, endsCalculated, isAnimated, toggleAnimate, withCalculate } from './quick-actions'
+import { calculateDone, isAnimated, toggleAnimate, withCalculate } from './quick-actions'
 
 describe('the Calculate button', () => {
   it('adds a calculate on a line of its own at the end', () => {
@@ -17,12 +17,30 @@ describe('the Calculate button', () => {
   })
 
   it('takes the worked-out end away again when it is already there', () => {
-    for (const end of ['calculate', 'calc', 'out calculate', 'window calculate']) {
+    for (const end of ['calculate', 'calc', 'window calculate']) {
       const source = `in 0\nH 1\n${end}`
-      expect(endsCalculated(source)).toBe(true)
       expect(calculateDone(source)).toBe('calculated')
       expect(withCalculate(source)).toBe('in 0\nH 1')
     }
+  })
+
+  it('puts a blank output back where it had filled one in', () => {
+    expect(withCalculate('in 00\nH 1\nout calculate', 2)).toBe('in 00\nH 1\nout ??')
+    for (const blank of ['in 00\nH 1\nout ??', '00\nH 1\n??']) {
+      const once = withCalculate(blank, 2)
+      expect(once).toMatch(/out calculate$/)
+      expect(withCalculate(withCalculate(once, 2), 2)).toBe(once)
+    }
+  })
+
+  it('finds the output by where the parser found it, not by the last line', () => {
+    const source = 'in 0\nH 1\nout ??\ndef f {\n  X 1\n}'
+    expect(calculateDone(source)).toBe(null)
+    expect(withCalculate(source)).toBe('in 0\nH 1\nout calculate\ndef f {\n  X 1\n}')
+  })
+
+  it('reads a colour on the input line as a colour, not a comment', () => {
+    expect(withCalculate('in ?1\nH 1 fill=#ffe9c7', 2)).toBe('in 01\nH 1 fill=#ffe9c7\ncalculate')
   })
 
   it('is a toggle: pressed twice, the source is back where it was', () => {
@@ -38,12 +56,12 @@ describe('the Calculate button', () => {
   })
 
   it('looks past comments and blank lines to find where the circuit ends', () => {
-    expect(endsCalculated('in 0\nH 1\ncalculate\n\n# that is the answer\n')).toBe(true)
+    expect(calculateDone('in 0\nH 1\ncalculate\n\n# that is the answer\n')).toBe('calculated')
   })
 
   it('leaves a calculate earlier in the circuit alone, and still adds one at the end', () => {
     const source = 'in 0\nH 1\ncalculate\nH 1'
-    expect(endsCalculated(source)).toBe(false)
+    expect(calculateDone(source)).toBe(null)
     expect(withCalculate(source)).toBe(`${source}\ncalculate`)
   })
 
@@ -103,7 +121,7 @@ describe('Calculate with no input to start from', () => {
   it('reads a bare state at the end as the output', () => {
     expect(calculateDone('0\nH 1\n0|1')).toBe('written')
     expect(withCalculate('0\nH 1\n0|1')).toBe('0\nH 1\n0|1')
-    expect(withCalculate('0\nH 1\n?')).toBe('0\nH 1\ncalculate')
+    expect(withCalculate('0\nH 1\n?')).toBe('0\nH 1\nout calculate')
   })
 
   it('always gives a source the renderer can calculate', () => {

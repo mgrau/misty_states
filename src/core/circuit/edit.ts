@@ -41,6 +41,14 @@ export interface DropTarget {
   /** Index into `doc.layers`. Zero when the circuit has none yet. */
   layer: number
   where: 'in' | 'before' | 'after'
+  /**
+   * How many frames the pointer is outside of, beyond the layer it aims at.
+   *
+   * A drop below a frame's last layer could mean the end of the frame or the
+   * space after it, and the layer alone cannot say which; where the pointer is
+   * against the frame's edge can.
+   */
+  outside?: number
 }
 
 /**
@@ -72,16 +80,69 @@ export function dropTarget(geometry: CircuitGeometry, at: Point): DropTarget {
 
   if (!layers.length) return { wire, layer: 0, where: 'after' }
 
+  const target = (layer: number, where: DropTarget['where']): DropTarget => {
+    if (where === 'in') return { wire, layer, where }
+    // Frames round this layer that the pointer has gone past the edge of.
+    const mid = layers[layer].y + layers[layer].h / 2
+    const outside = (geometry.frames ?? []).filter(({ box }) =>
+      mid > box.y && mid < box.y + box.h &&
+      (where === 'after' ? at.y > box.y + box.h : at.y < box.y),
+    ).length
+    return outside ? { wire, layer, where, outside } : { wire, layer, where }
+  }
+
   for (const [i, layer] of layers.entries()) {
-    if (at.y < layer.y) return { wire, layer: i, where: 'before' }
+    if (at.y < layer.y) return target(i, 'before')
     if (at.y <= layer.y + layer.h) {
       const edge = (layer.h * (1 - INSIDE)) / 2
-      if (at.y < layer.y + edge) return { wire, layer: i, where: 'before' }
-      if (at.y > layer.y + layer.h - edge) return { wire, layer: i, where: 'after' }
-      return { wire, layer: i, where: 'in' }
+      if (at.y < layer.y + edge) return target(i, 'before')
+      if (at.y > layer.y + layer.h - edge) return target(i, 'after')
+      return target(i, 'in')
     }
   }
-  return { wire, layer: layers.length - 1, where: 'after' }
+  return target(layers.length - 1, 'after')
+}
+
+/** The statement on a line, without its comment or the space round it. */
+const statementOf = (line: string): string => line.replace(/(^|\s)#.*$/, '').trim()
+
+/**
+ * Each `{` line's matching `}`, both 0-based.
+ *
+ * Definitions are paired too, harmlessly: no layer is ever written inside one,
+ * since a use stands on its own line in the circuit.
+ */
+function braces(lines: string[]): Map<number, number> {
+  const pairs = new Map<number, number>()
+  const open: number[] = []
+  lines.forEach((line, i) => {
+    const text = statementOf(line)
+    if (text === '}') {
+      const from = open.pop()
+      if (from !== undefined) pairs.set(from, i)
+    } else if (text.endsWith('{')) open.push(i)
+  })
+  return pairs
+}
+
+/**
+ * Where a new line goes, 1-based, to land just past `from` with `outside`
+ * frames stepped out of — downwards over closing braces, or upwards over
+ * opening ones. Blank lines and comments on the way are stepped over too, so
+ * a frame's brace is found wherever the author left it.
+ */
+function stepOut(lines: string[], from: number, outside: number, down: boolean): number {
+  let at = from
+  let left = outside
+  while (left > 0) {
+    let k = down ? at - 1 : at - 2
+    while (k >= 0 && k < lines.length && !statementOf(lines[k])) k += down ? 1 : -1
+    const text = k >= 0 && k < lines.length ? statementOf(lines[k]) : ''
+    if (down ? text !== '}' : !text.endsWith('{')) break
+    at = down ? k + 2 : k + 1
+    left--
+  }
+  return at
 }
 
 /** What a palette entry drops as. */
@@ -239,18 +300,23 @@ function candidates(
 
   const first = Math.min(...layer.lines)
   const last = Math.max(...layer.lines)
+  // A folded frame is one box drawn from a block of lines: anything after it
+  // goes after the whole block, or it would be folded in with the rest.
+  const closes = braces(lines).get(last - 1)
+  const end = closes === undefined ? last + 1 : closes + 2
 
   if (target.where === 'in') {
+    // If the wires clash, `;` is refused outright — a new line is the answer.
+    // Nor can anything join the line that opens a block.
+    const fresh = { source: spliceLine(lines, end, text), line: end }
+    if (closes !== undefined) return [fresh]
     const joined = [...lines]
     joined[last - 1] = appendToLine(joined[last - 1], text)
-    // If the wires clash, `;` is refused outright — a new line is the answer.
-    return [
-      { source: joined.join('\n'), line: last },
-      { source: spliceLine(lines, last + 1, text), line: last + 1 },
-    ]
+    return [{ source: joined.join('\n'), line: last }, fresh]
   }
 
-  const at = target.where === 'before' ? first : last + 1
+  const down = target.where !== 'before'
+  const at = stepOut(lines, down ? end : first, target.outside ?? 0, down)
   // A break is the fallback: it forces a layer of its own when the packer would
   // otherwise float the gate up past where it was dropped.
   return [
@@ -554,9 +620,10 @@ export function removeGate(
     .filter((_, i) => i !== which)
   const alone = doc.layers[layerOf]?.lines.filter((l) => l === gate.line).length === 1
 
-  const next = kept.length
+  let next = kept.length
     ? [...lines.slice(0, at), rewrite(lines[at], kept.join('; ')), ...lines.slice(at + 1)]
     : [...lines.slice(0, at), ...lines.slice(at + 1)]
+  if (!kept.length) next = withoutEmptyFrames(next)
 
   return {
     source: next.join('\n'),
@@ -565,6 +632,26 @@ export function removeGate(
     layerRemoved: !kept.length && alone && (doc.layers[layerOf]?.lines.length ?? 0) === 1
       ? layerOf
       : undefined,
+  }
+}
+
+/**
+ * The source without any frame left holding nothing.
+ *
+ * A frame needs something in it, so taking out its last gate takes the frame
+ * with it — and then perhaps the frame round that one, which is why it goes
+ * round until nothing changes.
+ */
+function withoutEmptyFrames(lines: string[]): string[] {
+  for (;;) {
+    // A definition is not a frame, and an empty one is the author's to mend.
+    const empty = [...braces(lines)].find(
+      ([open, close]) =>
+        !/^def\b/i.test(statementOf(lines[open])) &&
+        !lines.slice(open + 1, close).some((l) => statementOf(l)),
+    )
+    if (!empty) return lines
+    lines = lines.filter((_, i) => i !== empty[0] && i !== empty[1])
   }
 }
 
@@ -595,13 +682,6 @@ export function afterRemoval(target: DropTarget, layerRemoved: number | undefine
     : { ...target, layer: 0, where: 'before' }
 }
 
-/**
- * The source with `gate` picked up and put down at `target`.
- *
- * Taken out first and dropped into what is left, because the two edits overlap:
- * a gate cannot be inserted beside itself, and a layer that only held it is not
- * there to be inserted into.
- */
 /**
  * Fold a frame into one box, or open a box back out into its frame.
  *
@@ -636,6 +716,13 @@ export function toggleFold(source: string, line: number): Edit | null {
   return { source: lines.join('\n'), line }
 }
 
+/**
+ * The source with `gate` picked up and put down at `target`.
+ *
+ * Taken out first and dropped into what is left, because the two edits overlap:
+ * a gate cannot be inserted beside itself, and a layer that only held it is not
+ * there to be inserted into.
+ */
 export function moveGate(
   source: string,
   doc: CircuitDoc,

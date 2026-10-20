@@ -45,5 +45,8 @@ export type { Check } from './check'
 // second application would otherwise write again.
 export * from './circuit/edit'
 
+// One qubit as a point on a sphere, and the path a circuit takes it along.
+export { blochAt, blochOf, blochPath, layersAt, tintColour } from './bloch'
+export type { BlochMove, BlochPath, Vec3 } from './bloch'
 export { GATE_GALLERY } from './gates'
 export type { GateGroup, Swatch } from './gates'

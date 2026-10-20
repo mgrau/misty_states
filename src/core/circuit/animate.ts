@@ -601,7 +601,7 @@ function gatePart(p: Prim): { y: number; fade: number } | null {
  * qubit goes behind the box and out the other side, which is the whole of what
  * a closed gate shows.
  */
-const isBehind = (p: Prim, inside: boolean): boolean =>
+export const isBehind = (p: Prim, inside: boolean): boolean =>
   p.t === 'pipe' ||
   // A frame is the ground everything stands on, its label's tab excepted.
   (p.t === 'frame' && !p.tab) ||
