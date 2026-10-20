@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { render } from './index'
+import { render, renderFrames } from './index'
 
 /** The colours this drawing actually paints with. */
 const fills = (source: string): string[] => [
@@ -75,5 +75,58 @@ describe('fill= where there is nothing to paint', () => {
   it('refuses something that is not a colour', () => {
     expect(refuses('qubits 2\nbox "U" 1-2 fill=puce')).toContain('not a colour')
     expect(refuses('qubits 2\nbox "U" 1-2 fill=')).toContain('colour')
+  })
+})
+
+/**
+ * The accent: the colour a multi-qubit gate is drawn in.
+ *
+ * Set for the whole drawing rather than per gate, so the test is that every
+ * part of the gate moves with it — a control dot left in the old blue beside a
+ * `⊕` in the new colour would be worse than not offering the choice.
+ */
+describe('accent recolours what ties gates together', () => {
+  const BLUE = '#1b3fae'
+  const paints = (source: string, accent?: string) =>
+    render(source, { check: false, accent }).svg
+
+  it('reaches the control, the line and the target', () => {
+    const svg = paints('qubits 2\nCNOT 1 -> 2', '#c0262d')
+    expect(svg).not.toContain(BLUE)
+    // Dot and ⊕ are filled with it; the line between them is stroked with it.
+    expect(svg).toMatch(/<circle[^>]*fill="#c0262d"/)
+    expect(svg).toMatch(/<line[^>]*stroke="#c0262d"/)
+  })
+
+  it('reaches a swap and a named gate on a chip', () => {
+    for (const source of ['qubits 2\nSWAP 1 2', 'qubits 2\nCNOT "Oracle" 1 2']) {
+      expect(paints(source, '#c0262d')).not.toContain(BLUE)
+      expect(paints(source, '#c0262d')).toContain('#c0262d')
+    }
+  })
+
+  it('tints a frame, unless the frame says otherwise', () => {
+    const tinted = paints('in 00\n"Prep" {\n  H 1\n}', '#c0262d')
+    const plain = paints('in 00\n"Prep" {\n  H 1\n}')
+    expect(tinted).not.toEqual(plain)
+    expect(paints('in 00\n"Prep" border=#d97706 {\n  H 1\n}', '#c0262d')).toContain('#d97706')
+  })
+
+  it('leaves the lettered gates their own colours', () => {
+    // H is red because it is H, not because it is accented.
+    expect(paints('qubits 1\nH 1', '#0f766e')).toContain('#ef5f5b')
+  })
+
+  it('takes three digits and no hash, and ignores what is not hex', () => {
+    expect(paints('qubits 2\nCNOT 1 2', 'c22')).toContain('#cc2222')
+    // A name would draw, but a frame blends the accent and would turn black.
+    expect(paints('qubits 2\nCNOT 1 2', 'salmon')).toContain(BLUE)
+    expect(paints('qubits 2\nCNOT 1 2', '')).toContain(BLUE)
+  })
+
+  it('reaches every frame of a movie too', () => {
+    const { frames } = renderFrames('in 10\nCNOT 1 -> 2\nanimate', { fps: 4, accent: '#c0262d' })
+    expect(frames.every((f) => !f.svg.includes(BLUE))).toBe(true)
+    expect(frames.some((f) => f.svg.includes('#c0262d'))).toBe(true)
   })
 })

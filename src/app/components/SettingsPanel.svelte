@@ -8,7 +8,7 @@
    */
   import { render } from '../../core/index'
   import { THEMES, THEME_IDS } from '../../core/render/themes'
-  import type { ThemeId } from '../../core/render/theme'
+  import { DARK_PALETTE, LIGHT_PALETTE, type ThemeId } from '../../core/render/theme'
   import { DEFAULT_SHAPE_ORDER, type ShapeName } from '../../core/shapes'
   import ShapeOrderList from './ShapeOrderList.svelte'
   import { libraryStore, entryCount, replaceLibrary, resetLibrary } from '../library-store.svelte'
@@ -20,6 +20,8 @@
     open: boolean
     theme: ThemeId
     dark: boolean
+    /** `#rrggbb`, or empty for the theme's own blue. */
+    accent: string
     pngScale: number
     separator: 'bar' | 'comma'
     cloudFluff: number
@@ -46,6 +48,7 @@
     oneditlibrary: () => void
     onthemechange: (theme: ThemeId) => void
     ondarkchange: (dark: boolean) => void
+    onaccentchange: (accent: string) => void
     ondialchange: (dial: 'auto' | 'always' | 'never') => void
     onpngscalechange: (scale: number) => void
     onseparatorchange: (separator: 'bar' | 'comma') => void
@@ -69,6 +72,7 @@
     open,
     theme,
     dark,
+    accent,
     pngScale,
     separator,
     cloudFluff,
@@ -94,6 +98,7 @@
     oneditlibrary,
     onthemechange,
     ondarkchange,
+    onaccentchange,
     ondialchange,
     onpngscalechange,
     onseparatorchange,
@@ -112,6 +117,26 @@
     ondiracchange,
     onzoomchange,
   }: Props = $props()
+
+  /**
+   * A few colours for the accent, with the browser's picker for anything else.
+   *
+   * Mid-tones, so each still reads on dark paper as well as light, and dark
+   * enough that the white bars of a `⊕` and the white letters on a named gate
+   * stay legible on top. Empty is the theme's own blue, which differs between
+   * light and dark — that is why it is not stored as a colour.
+   */
+  const ACCENTS = [
+    { hex: '', label: 'Blue (default)' },
+    { hex: '#0f766e', label: 'Teal' },
+    { hex: '#15803d', label: 'Green' },
+    { hex: '#7c3aed', label: 'Violet' },
+    { hex: '#c0262d', label: 'Red' },
+    { hex: '#c2410c', label: 'Orange' },
+    { hex: '#262626', label: 'Black' },
+  ]
+  const themeAccent = $derived((dark ? DARK_PALETTE : LIGHT_PALETTE).accent)
+  const isCustom = $derived(!!accent && !ACCENTS.some((a) => a.hex === accent.toLowerCase()))
 
   /**
    * Each theme previews itself: a gate with its pipes shows the difference far
@@ -334,6 +359,63 @@
             </button>
           {/each}
         </div>
+      </section>
+
+      <!-- Gate colour ------------------------------------------------------ -->
+      <section class="flex flex-col gap-2">
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-xs font-medium text-slate-500">Gate colour</h3>
+          <button
+            type="button"
+            onclick={() => onaccentchange('')}
+            disabled={!accent}
+            class="text-[11px] text-slate-400 underline-offset-2 hover:text-slate-700 hover:underline
+                   disabled:invisible"
+          >
+            Reset
+          </button>
+        </div>
+        <div class="flex items-center gap-1.5">
+          {#each ACCENTS as opt (opt.hex)}
+            <button
+              type="button"
+              onclick={() => onaccentchange(opt.hex)}
+              aria-pressed={accent.toLowerCase() === opt.hex}
+              aria-label={opt.label}
+              title={opt.label}
+              class="h-6 w-6 shrink-0 rounded-full border border-black/10 transition-shadow
+                     {accent.toLowerCase() === opt.hex
+                ? 'ring-2 ring-slate-800 ring-offset-2'
+                : 'hover:ring-2 hover:ring-slate-300 hover:ring-offset-1'}"
+              style="background: {opt.hex || themeAccent}"
+            ></button>
+          {/each}
+          <!--
+            The browser's own picker for anything else. Shows the colour in
+            use, so opening it starts from where the drawing is.
+          -->
+          <label
+            title="Another colour"
+            class="relative ml-auto flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center
+                   rounded-full border border-dashed border-slate-400 text-slate-500
+                   hover:border-slate-700 hover:text-slate-800
+                   {isCustom ? 'ring-2 ring-slate-800 ring-offset-2' : ''}"
+            style={isCustom ? `background: ${accent}; border-style: solid` : ''}
+          >
+            {#if !isCustom}<span class="text-sm leading-none">+</span>{/if}
+            <input
+              type="color"
+              value={accent || themeAccent}
+              oninput={(e) => onaccentchange((e.currentTarget as HTMLInputElement).value)}
+              aria-label="Another colour"
+              class="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            />
+          </label>
+        </div>
+        <p class="text-[11px] text-slate-400">
+          Control dots, the lines joining them, <span class="font-mono">⊕</span>,
+          swaps, named gates and the frames round runs of gates.
+        </p>
       </section>
 
       <!-- Superposition ------------------------------------------------------ -->

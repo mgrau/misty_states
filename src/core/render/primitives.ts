@@ -78,6 +78,8 @@ export interface TextPrim {
    * a theme says what colour that comes out.
    */
   chip?: boolean
+  /** The chip's colour, where its gate was given one with `colour=`. */
+  accent?: string
   /**
    * Set in the serif face rather than the interface's sans one.
    *
@@ -195,6 +197,8 @@ export interface ControlPrim {
   cx: number
   cy: number
   r: number
+  /** In place of the palette's accent, where the gate was given a colour. */
+  accent?: string
 }
 
 export interface TargetPrim {
@@ -211,6 +215,8 @@ export interface TargetPrim {
    * which is why the fallback draws the text rather than nothing.
    */
   glyph: 'not' | 'z' | (string & {})
+  /** In place of the palette's accent, where the gate was given a colour. */
+  accent?: string
 }
 
 export interface SwapPrim {
@@ -218,6 +224,8 @@ export interface SwapPrim {
   cx: number
   cy: number
   r: number
+  /** In place of the palette's accent, where the gate was given a colour. */
+  accent?: string
 }
 
 /**
@@ -241,6 +249,8 @@ export interface LinkPrim {
   x0: number
   x1: number
   cy: number
+  /** In place of the palette's accent, where the gate was given a colour. */
+  accent?: string
 }
 
 /**

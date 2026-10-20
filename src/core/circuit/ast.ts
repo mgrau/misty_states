@@ -57,6 +57,20 @@ export interface ControlledGate {
   label?: string
   /** True when the label names the link rather than standing on the target. */
   labelOnLink?: boolean
+  /**
+   * Written `colour=`: what its dots, its link and its target are drawn in, in
+   * place of the drawing's accent. A name on the target takes it as its box.
+   */
+  accent?: string
+  /**
+   * Written `CGATE` or `GATE`: a gate known only by its name.
+   *
+   * Drawn exactly as a controlled gate with that name on its target — or, with
+   * no controls, the name alone — but it does not stand for any operation, so
+   * the circuit cannot be calculated through it. A `CNOT "Oracle"` is still a
+   * CNOT with a name on it; this is the mark for a gate that is not.
+   */
+  custom?: boolean
 }
 
 /** SWAP: an × on each of the two qubits, joined by a bar. */
@@ -71,6 +85,8 @@ export interface SwapGate {
    * gate draws its controls.
    */
   controls?: number[]
+  /** Written `colour=`: what its crosses, bar and dots are drawn in. */
+  accent?: string
 }
 
 /** Measurement: a darker box with a meter dial and a basis label. */

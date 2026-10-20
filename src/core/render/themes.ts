@@ -355,35 +355,38 @@ function makeTheme(
         }
 
         case 'control':
-          return el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: pal.accent })
+          return el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: p.accent ?? pal.accent })
 
-        case 'target':
-          if (p.glyph === 'not') return notGlyph(p.cx, p.cy, p.r, pal, m)
+        case 'target': {
+          const accent = p.accent ?? pal.accent
+          if (p.glyph === 'not') return notGlyph(p.cx, p.cy, p.r, pal, m, accent)
           if (p.glyph === 'z') {
-            return el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: pal.accent })
+            return el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: accent })
           }
           // A marked port: the ring a control has, with its mark inside it.
           return (
             el('circle', {
               cx: p.cx, cy: p.cy, r: p.r,
-              fill: pal.paper, stroke: pal.accent, 'stroke-width': m.stroke * 1.2,
+              fill: pal.paper, stroke: accent, 'stroke-width': m.stroke * 1.2,
             }) +
             drawText(
               {
                 t: 'text', x: p.cx, cy: p.cy, text: p.glyph,
-                size: p.r * 1.3, anchor: 'middle', weight: 700, color: pal.accent,
+                size: p.r * 1.3, anchor: 'middle', weight: 700, color: accent,
               },
               pal,
             )
           )
+        }
 
         case 'swap':
-          return swapGlyph(p.cx, p.cy, p.r, pal, m)
+          return swapGlyph(p.cx, p.cy, p.r, pal, m, p.accent ?? pal.accent)
 
         case 'link':
           return el('line', {
             x1: p.x0, y1: p.cy, x2: p.x1, y2: p.cy,
-            stroke: pal.accent, 'stroke-width': m.stroke * 1.5, 'stroke-linecap': 'round',
+            stroke: p.accent ?? pal.accent, 'stroke-width': m.stroke * 1.5,
+            'stroke-linecap': 'round',
           })
 
         // A tint of the accent unless told otherwise: enough to see the edge

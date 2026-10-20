@@ -92,6 +92,9 @@ out calculate
 | `---` | Force a new layer |
 | `CNOT "Oracle" 1 -> 2` | Named target (replaces ⊕) |
 | `CNOT 1 -> 2 "label"` | Named link |
+| `CGATE "U" 1 -> 2` | A gate known only by its name — drawn like a named target, not calculated |
+| `GATE "U" 1` | The same with no control |
+| `CGATE "©" 1 2 colour=#c0262d` | Its own colour for dots, line and box (`color=` too); also on `CNOT`, `CZ`, `X`, `SWAP`, `CSWAP` |
 | `answer 010` | Hidden until "Show answer" |
 | `step: H 1 : note` | Annotations on a gate line |
 
@@ -343,8 +346,10 @@ MistyStates.themes                                 // ['solid', 'flat', 'isometr
 MistyStates.shapes                                 // ['circle', 'square', ...]
 ```
 
-Options: `theme`, `dark`, `scale`, `background`, `shapeOrder`, `step`,
-`check`, `dial`, `factorCalculated`, `exactOdds`, `keepSign`. Parse errors
+Options: `theme`, `dark`, `accent`, `scale`, `background`, `shapeOrder`, `step`,
+`check`, `dial`, `factorCalculated`, `exactOdds`, `keepSign`. `accent` is a
+`#rrggbb` colour for control dots, the lines joining them, `⊕`, swaps, named
+gates and frames, in place of the theme's blue. Parse errors
 throw with the column-level message the editor shows.
 
 ### Kernel
@@ -416,6 +421,7 @@ Cloud outlines are seeded, so the same input always gives the same output.
 ?format=svg&src=00|11       the diagram alone
 ?format=png&src=00|11       rasterised
 ?format=pdf&src=00|11       a PDF in the browser's viewer
+?src=00|11&accent=c0262d    with the gate colour changed (hex, no #)
 ```
 
 Generated links keep `|`, `(`, `)`, `;`, `:` readable rather than

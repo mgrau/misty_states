@@ -35,6 +35,8 @@ export interface ApiOptions extends RenderOptions {
 export interface LinkOptions {
   theme?: ThemeId
   dark?: boolean
+  /** The accent colour, as `#rrggbb`. */
+  accent?: string
   background?: boolean
   scale?: number
   qubit?: number
@@ -58,6 +60,7 @@ function paramsFor(source: string, opts: LinkOptions): DiagramParams {
     source,
     theme: opts.theme,
     dark: opts.dark,
+    accent: opts.accent,
     background: opts.background,
     scale: opts.scale,
     qubit: opts.qubit,

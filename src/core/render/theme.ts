@@ -105,6 +105,33 @@ export const DARK_PALETTE: Palette = {
 }
 
 /**
+ * A colour for the accent, as `#rrggbb`, or undefined if it is not one.
+ *
+ * Hex only, and always six digits: the accent is not just painted but blended —
+ * a frame is a tint of it — and `mix` works on the digits. A colour name would
+ * reach the SVG fine and then turn every frame black. The `#` is optional
+ * because a link carries the colour without one.
+ */
+export function accentHex(value: string | undefined): string | undefined {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value?.trim() ?? '')
+  if (!m) return undefined
+  const digits = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1]
+  return `#${digits.toLowerCase()}`
+}
+
+/**
+ * The palette with its accent replaced, if a usable one was given.
+ *
+ * The accent is everything that ties a multi-qubit gate together — the control
+ * dots, the line between them, the `⊕` and the swap's crosses, a named gate's
+ * chip — and the frames drawn round runs of gates, which are tints of it.
+ */
+export function withAccent(pal: Palette, accent: string | undefined): Palette {
+  const hex = accentHex(accent)
+  return hex ? { ...pal, accent: hex } : pal
+}
+
+/**
  * How a gate body sits relative to the pipe it interrupts.
  *
  * In a flat projection a gate is centred on the pipe axis and pipes meet its
@@ -284,7 +311,7 @@ export function mix(a: string, b: string, t: number): string {
 
 export function drawText(p: TextPrim, pal: Palette): string {
   // A name on a chip is the `⊕` written out: same blue, same white lettering.
-  if (p.chip) return labelChip(p.x, p.cy, p.text, p.size, pal.accent, pal)
+  if (p.chip) return labelChip(p.x, p.cy, p.text, p.size, p.accent ?? pal.accent, pal)
   const y = p.cy + baselineOffset(p.size, p.baseline)
   return el(
     'text',
@@ -423,8 +450,10 @@ export function basisLabel(
 }
 
 /** ⊕ target glyph. */
-export function notGlyph(cx: number, cy: number, r: number, pal: Palette, m: Metrics): string {
-  const circle = el('circle', { cx, cy, r, fill: pal.accent })
+export function notGlyph(
+  cx: number, cy: number, r: number, pal: Palette, m: Metrics, colour = pal.accent,
+): string {
+  const circle = el('circle', { cx, cy, r, fill: colour })
   const bar = (x1: number, y1: number, x2: number, y2: number) =>
     el('line', {
       x1, y1, x2, y2,
@@ -435,11 +464,13 @@ export function notGlyph(cx: number, cy: number, r: number, pal: Palette, m: Met
   return circle + bar(cx - r * 0.55, cy, cx + r * 0.55, cy) + bar(cx, cy - r * 0.55, cx, cy + r * 0.55)
 }
 
-export function swapGlyph(cx: number, cy: number, r: number, pal: Palette, m: Metrics): string {
+export function swapGlyph(
+  cx: number, cy: number, r: number, pal: Palette, m: Metrics, colour = pal.accent,
+): string {
   const bar = (x1: number, y1: number, x2: number, y2: number) =>
     el('line', {
       x1, y1, x2, y2,
-      stroke: pal.accent,
+      stroke: colour,
       'stroke-width': m.stroke * 1.4,
       'stroke-linecap': 'round',
     })

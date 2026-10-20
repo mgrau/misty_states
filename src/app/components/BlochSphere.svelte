@@ -14,15 +14,22 @@
    */
   import { blochAt, tintColour as tintOf, type BlochPath, type Vec3 } from '../../core/bloch'
   import { render } from '../../core/index'
-  import { LIGHT_PALETTE, type ThemeId } from '../../core/render/theme'
+  import { LIGHT_PALETTE, withAccent, type ThemeId } from '../../core/render/theme'
   import type { ShapeName } from '../../core/shapes'
 
   const {
     path,
     at,
     theme,
+    accent = '',
     shapeOrder,
-  }: { path: BlochPath; at: number; theme: ThemeId; shapeOrder: ShapeName[] } = $props()
+  }: {
+    path: BlochPath
+    at: number
+    theme: ThemeId
+    accent?: string
+    shapeOrder: ShapeName[]
+  } = $props()
 
   /** Where it is looked at from, in radians: round the vertical axis, and up from the equator. */
   let azimuth = $state((35 * Math.PI) / 180)
@@ -99,7 +106,8 @@
   )
 
   /** A gate's colour, as its chip is drawn: the sphere sits on light paper whatever the theme. */
-  const tintColour = (key: string | null): string => tintOf(key, LIGHT_PALETTE)
+  const tintColour = (key: string | null): string =>
+    tintOf(key, withAccent(LIGHT_PALETTE, accent))
 
   const point = $derived(blochAt(path, at))
   const tip = $derived(view(point))

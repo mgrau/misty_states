@@ -26,7 +26,9 @@ import { layoutCircuit, type CircuitGeometry, type CircuitLayout } from './circu
 import { DEFAULT_METRICS, type Metrics } from './render/primitives'
 import { THEMES, renderPrims } from './render/themes'
 import { bandGradients } from './render/band'
-import { LIGHT_PALETTE, DARK_PALETTE, type Palette, type Theme, type ThemeId } from './render/theme'
+import {
+  LIGHT_PALETTE, DARK_PALETTE, withAccent, type Palette, type Theme, type ThemeId,
+} from './render/theme'
 import type { Box } from './svg'
 import type { CircuitDoc, ViewGate } from './circuit/ast'
 import type { TermTimeline, Timeline } from './circuit/animate'
@@ -38,6 +40,13 @@ export interface RenderOptions {
   theme?: ThemeId
   palette?: Palette
   dark?: boolean
+  /**
+   * The colour that ties a multi-qubit gate together, as `#rrggbb`: control
+   * dots, the line joining them, the `⊕`, the swap's crosses, a named gate's
+   * chip, and the frames drawn round runs of gates. The theme's blue unless
+   * given; anything that is not a hex colour is ignored rather than trusted.
+   */
+  accent?: string
   scale?: number
   background?: boolean
   metrics?: Partial<Metrics>
@@ -345,11 +354,16 @@ function renamed(svg: string, prefix: string): string {
   return out
 }
 
+/** The palette a drawing is painted with: the given one or the mode's, then the accent. */
+function paletteFor(opts: RenderOptions): Palette {
+  return withAccent(opts.palette ?? (opts.dark ? DARK_PALETTE : LIGHT_PALETTE), opts.accent)
+}
+
 export function render(source: string, opts: RenderOptions = {}): RenderResult {
   const metrics: Metrics = { ...DEFAULT_METRICS, ...opts.metrics }
   const shapeOrder = opts.shapeOrder ?? DEFAULT_SHAPE_ORDER
   const theme = THEMES[opts.theme ?? 'solid']
-  const palette = opts.palette ?? (opts.dark ? DARK_PALETTE : LIGHT_PALETTE)
+  const palette = paletteFor(opts)
 
   const wantCheck = opts.check ?? true
 
@@ -572,7 +586,7 @@ export function renderFrames(
   // sampling at one of those is how a saved file keeps the run's true length.
   const fps = Math.max(1, Math.min(60, opts.fps ?? 30))
   const theme = THEMES[opts.theme ?? 'solid']
-  const palette = opts.dark ? DARK_PALETTE : LIGHT_PALETTE
+  const palette = paletteFor(opts)
   const metrics = { ...DEFAULT_METRICS, ...opts.metrics }
   const shapeOrder = opts.shapeOrder ?? DEFAULT_SHAPE_ORDER
 

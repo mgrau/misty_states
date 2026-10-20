@@ -24,10 +24,12 @@
   const {
     theme = 'solid',
     dark = false,
+    accent = '',
     onpick,
   }: {
     theme?: ThemeId
     dark?: boolean
+    accent?: string
     /**
      * A gate has been picked up off the palette.
      *
@@ -229,6 +231,7 @@
       return render(item.source ?? `qubits 1\n${item.code}`, {
         theme,
         dark,
+        accent,
         check: false,
         // Its own id namespace, so these never lend their gradients to the
         // drawing beside them — nor borrow its.
@@ -320,7 +323,7 @@
               <span class="pointer-events-none">{@html drawn(item)}</span>
             </span>
             <span class="text-[11px] font-medium text-slate-700">{item.name}</span>
-            <code class="text-[10px] break-all text-slate-500">{item.code}</code>
+            <code class="text-[10px] wrap-anywhere text-slate-500">{item.code}</code>
             {#if item.text}
               <span class="text-[10px] leading-snug text-slate-400">{item.text}</span>
             {/if}

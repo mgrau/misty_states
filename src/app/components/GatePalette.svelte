@@ -19,10 +19,12 @@
   const {
     theme = 'solid',
     dark = false,
+    accent = '',
     onpick,
   }: {
     theme?: ThemeId
     dark?: boolean
+    accent?: string
     onpick?: (gate: Droppable, event: PointerEvent) => void
   } = $props()
 
@@ -34,6 +36,7 @@
       return render(item.source ?? `qubits 1\n${item.code}`, {
         theme,
         dark,
+        accent,
         check: false,
         // Its own id namespace, so these never lend their gradients to the
         // drawing beside them — nor borrow its.

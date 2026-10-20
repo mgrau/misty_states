@@ -181,8 +181,8 @@ export interface Droppable {
    */
   shows?: string
   /**
-   * Options written on the gate — `fill=`, `width=`, `height=` — put back on
-   * the end of the line as they were.
+   * Options written on the gate — `fill=`, `colour=`, `width=`, `height=` —
+   * put back on the end of the line as they were.
    *
    * Only a gate already in the drawing has any. Nothing about them is visible
    * in where the gate sits, so without carrying them a gate picked up and put
@@ -518,6 +518,7 @@ export function cycleTarget(source: string, doc: CircuitDoc, gate: Gate): Edit |
     arrow ? '->' : '',
     String(target),
     gate.labelOnLink ? name : '',
+    writtenOptions(was),
   ]
     .filter(Boolean)
     .join(' ')
@@ -550,7 +551,9 @@ function cycleSwapControl(source: string, doc: CircuitDoc, gate: Gate): Edit | n
   const was = found.parts[found.which]
   const head = was.trim().split(/\s+/)[0] // CSWAP, as it was written
   const arrow = was.includes('->')
-  const text = [head, String(control), arrow ? '->' : '', pair.join(' ')].filter(Boolean).join(' ')
+  const text = [head, String(control), arrow ? '->' : '', pair.join(' '), writtenOptions(was)]
+    .filter(Boolean)
+    .join(' ')
 
   const parts = [...found.parts]
   parts[found.which] = text
@@ -558,6 +561,16 @@ function cycleSwapControl(source: string, doc: CircuitDoc, gate: Gate): Edit | n
   lines[found.at] = rewrite(lines[found.at], parts.join('; '))
   return { source: lines.join('\n'), line: gate.line! }
 }
+
+/**
+ * The options written on a gate, as they were written.
+ *
+ * Nothing about where a gate sits says what colour or size it is, so every
+ * edit that writes a gate's line afresh has to carry these across by hand — or
+ * a coloured gate clicked or moved comes back in the drawing's own colours.
+ */
+const writtenOptions = (written: string): string =>
+  (written.match(/(?:^|\s)(?:fill|colou?r|width|height)=\S+/gi) ?? []).map((o) => o.trim()).join(' ')
 
 /**
  * The same rotation, turned by a different angle.
@@ -751,10 +764,7 @@ export function moveGate(
   const rest = gate.kind === 'view' && written ? written.replace(/^\s*\S+\s*/, '').trim() : ''
   // A gate's options travel the same way: read off what was written, since
   // nothing about where it sits says what colour or size it was.
-  const options =
-    gate.kind !== 'view' && written
-      ? (written.match(/(?:^|\s)(?:fill|width|height)=\S+/gi) ?? []).map((o) => o.trim()).join(' ')
-      : ''
+  const options = gate.kind !== 'view' && written ? writtenOptions(written) : ''
   return insertGate(cut.source, reduced, afterRemoval(target, cut.layerRemoved), {
     ...moved,
     ...(rest ? { shows: rest } : {}),
@@ -803,6 +813,13 @@ export function asDroppable(gate: Gate): Droppable {
         range: true,
       }
     case 'controlled': {
+      // Known by its name alone, so the name is the gate: it is always written
+      // before the wires, where it stands on the target.
+      if (gate.custom) {
+        return gate.controls.length
+          ? { head: 'CGATE', wires, label: `"${gate.label}"`, targetAt: gate.target - q0 }
+          : { head: 'GATE', wires: 1, label: `"${gate.label}"` }
+      }
       if (!gate.controls.length) return { head: 'X', wires: 1 }
       const head =
         gate.targetGlyph === 'z' ? 'CZ' : gate.controls.length > 1 ? 'TOFFOLI' : 'CNOT'

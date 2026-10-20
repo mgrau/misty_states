@@ -108,6 +108,7 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
       throw new Error(`reference: ${gate.label} has no matrix here`)
 
     case 'controlled': {
+      if (gate.custom) throw new Error(`reference: ${gate.label} has no matrix here`)
       const act = gate.targetGlyph === 'z' ? Z2 : X2
       // Every assignment of the controls, the acting one carrying the operator.
       // The projectors sum to the identity, so the pieces cover every case

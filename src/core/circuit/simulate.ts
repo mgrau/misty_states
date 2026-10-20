@@ -280,6 +280,10 @@ function spreadOf(gate: Gate): Spread | null {
       throw new SimulationError(`${gate.label} has no operation to apply`)
 
     case 'controlled': {
+      // Known by its name and nothing else, as an unlabelled box is.
+      if (gate.custom) {
+        throw new SimulationError(`“${gate.label}” is a drawing, so there is no operation to apply`)
+      }
       const on = (bits: string) => gate.controls.every((c) => bits[c - 1] === '1')
       if (gate.targetGlyph === 'z') {
         return (bits, amp, emit) =>

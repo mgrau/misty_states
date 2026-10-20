@@ -40,6 +40,8 @@
     name: string
     theme: ThemeId
     dark: boolean
+    /** `#rrggbb`, or empty for the theme's own blue. */
+    accent: string
     shapeOrder: ShapeName[]
     qubitSize: number
     paneWidth: number
@@ -62,6 +64,7 @@
       name: '',
       theme: 'solid',
       dark: false,
+      accent: '',
       shapeOrder: [...DEFAULT_SHAPE_ORDER],
       qubitSize: 26,
       paneWidth: 320,
@@ -90,6 +93,7 @@
             source: shared.source,
             theme: shared.theme ?? base.theme,
             dark: shared.dark ?? base.dark,
+            accent: shared.accent ?? base.accent,
             qubitSize: shared.qubit ?? base.qubitSize,
           }
         : base
@@ -215,6 +219,7 @@
   }
   let theme = $state<ThemeId>(initial.theme)
   let dark = $state(initial.dark)
+  let accent = $state(initial.accent)
   let shapeOrder = $state<ShapeName[]>(initial.shapeOrder)
   let qubitSize = $state(initial.qubitSize)
 
@@ -331,6 +336,7 @@
   const renderOptions = $derived({
     theme,
     dark,
+    accent,
     shapeOrder,
     factorCalculated,
     exactOdds,
@@ -436,8 +442,9 @@
 
   $effect(() => {
     const snapshot: Saved = {
-      source, name, theme, dark, shapeOrder, qubitSize, paneWidth, separator, cloudFluff, cloudPad,
-      factorCalculated, exactOdds, keepSign, phaseDial, animateInside, movieFps, checking, dragFormat,
+      source, name, theme, dark, accent, shapeOrder, qubitSize, paneWidth, separator, cloudFluff,
+      cloudPad, factorCalculated, exactOdds, keepSign, phaseDial, animateInside, movieFps, checking,
+      dragFormat,
     }
     try {
       localStorage.setItem(STORE, JSON.stringify(snapshot))
@@ -1083,6 +1090,7 @@
     source,
     theme,
     dark,
+    accent: accent || undefined,
     qubit: qubitSize,
     scale: pngScale,
   })
@@ -1584,7 +1592,7 @@
         instead.
       -->
       <div class="hidden min-h-32 flex-1 flex-col px-3 pb-3 sm:px-4 sm:pb-4 lg:flex">
-        <GatePalette {theme} {dark} onpick={board.carryNew} />
+        <GatePalette {theme} {dark} {accent} onpick={board.carryNew} />
       </div>
     </section>
 
@@ -2017,7 +2025,7 @@
   {#if blochOpen}
     <SidePanel title="Bloch sphere" onclose={() => (blochOpen = false)}>
       {#if bloch.ok}
-        <BlochSphere path={bloch.path} at={blochLayers} {theme} {shapeOrder} />
+        <BlochSphere path={bloch.path} at={blochLayers} {theme} {accent} {shapeOrder} />
       {:else}
         <p class="p-4 text-sm text-slate-500">
           A Bloch sphere shows a single qubit. {bloch.message[0].toUpperCase() + bloch.message.slice(1)}.
@@ -2030,6 +2038,7 @@
     open={panel === 'settings'}
     {theme}
     {dark}
+    {accent}
     {pngScale}
     {separator}
     {cloudFluff}
@@ -2061,6 +2070,7 @@
     }}
     onthemechange={(t) => (theme = t)}
     ondarkchange={(d) => (dark = d)}
+    onaccentchange={(a) => (accent = a)}
     onpngscalechange={(s) => (pngScale = s)}
     onseparatorchange={(v) => (separator = v)}
     oncloudfluffchange={(v) => (cloudFluff = v)}
@@ -2079,7 +2089,7 @@
 
   {#if panel === 'syntax'}
     <SidePanel title="Syntax" onclose={() => (panel = null)}>
-      <SyntaxHelp {theme} {dark} onpick={board.carryNew} />
+      <SyntaxHelp {theme} {dark} {accent} onpick={board.carryNew} />
     </SidePanel>
   {/if}
   </div>

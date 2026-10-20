@@ -1186,12 +1186,13 @@ function emitGate(
       // The bar spans the controls as well, so a Fredkin gate's dot is joined
       // to the pair it governs by the same line the two ×s sit on.
       const xs = [...controls, a, b].map(gateX)
-      glyphs.push({ t: 'link', x0: Math.min(...xs), x1: Math.max(...xs), cy })
+      const { accent } = gate
+      glyphs.push({ t: 'link', x0: Math.min(...xs), x1: Math.max(...xs), cy, accent })
       for (const c of controls) {
-        glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R })
+        glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R, accent })
       }
-      glyphs.push({ t: 'swap', cx: gateX(a), cy, r: m.pipeWidth * 0.3 })
-      glyphs.push({ t: 'swap', cx: gateX(b), cy, r: m.pipeWidth * 0.3 })
+      glyphs.push({ t: 'swap', cx: gateX(a), cy, r: m.pipeWidth * 0.3, accent })
+      glyphs.push({ t: 'swap', cx: gateX(b), cy, r: m.pipeWidth * 0.3, accent })
       return
     }
 
@@ -1210,6 +1211,9 @@ function emitGate(
        */
       const named = gate.targetGlyph === 'label' && gate.label ? gate.label : ''
       const chip = named ? nameChip(named, m) : null
+      // Everything the gate is drawn in, together: a dot left in the drawing's
+      // blue beside a box in the gate's own colour reads as two gates.
+      const { accent } = gate
 
       // A bare NOT has no controls, so there is nothing to link it to.
       if (gate.controls.length) {
@@ -1225,9 +1229,9 @@ function emitGate(
           if (tx >= x1) x1 = Math.max(x0, tx - chip.w / 2)
           else if (tx <= x0) x0 = Math.min(x1, tx + chip.w / 2)
         }
-        glyphs.push({ t: 'link', x0, x1, cy })
+        glyphs.push({ t: 'link', x0, x1, cy, accent })
         for (const c of gate.controls) {
-          glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R })
+          glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R, accent })
         }
       }
       if (chip) {
@@ -1240,6 +1244,7 @@ function emitGate(
           anchor: 'middle',
           weight: 700,
           chip: true,
+          accent,
         })
       } else {
         // Controlled-Z is symmetric, so its "target" is just another control dot.
@@ -1248,6 +1253,7 @@ function emitGate(
           t: 'target', cx: gateX(gate.target), cy,
           r: m.pipeWidth * (isZ ? CONTROL_R : TARGET_R),
           glyph: isZ ? 'z' : 'not',
+          accent,
         })
       }
 

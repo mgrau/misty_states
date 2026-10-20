@@ -158,6 +158,13 @@ function isColour(value: string): boolean {
   return HEX_COLOUR.test(value) || NAMED_COLOURS.has(value.toLowerCase())
 }
 
+/** `colour=`, or `color=`: both get typed, and neither is wrong. */
+function takeColour(tokens: Token[], line: number): string | undefined {
+  const colour = takeOption(tokens, 'colour', line)
+  const color = takeOption(tokens, 'color', line)
+  return colour ?? color
+}
+
 function takeOption(tokens: Token[], name: string, line: number): string | undefined {
   const at = tokens.findIndex((t) => !t.quoted && t.text.toLowerCase().startsWith(`${name}=`))
   if (at < 0) return undefined
@@ -210,7 +217,7 @@ const KEYWORDS = new Set([
   'qubits', 'shape', 'shapes', 'header', 'labels', 'in', 'out', 'view', 'show', 'window',
   'animate',
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
-  'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'blank',
+  'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
 ])
 
@@ -241,7 +248,7 @@ const CALCULATE = /^calc(ulate)?\s*(?::\s*(.*?))?\s*$/i
 /** The gate names, as opposed to the directives that also open a line. */
 const GATE_KEYWORDS = new Set([
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
-  'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'blank',
+  'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
 ])
 
@@ -998,8 +1005,25 @@ function parseGate(src: string, line: number): Gate {
   if (!tokens.length) throw new ParseError('empty statement', 0, line)
 
   const fill = takeOption(tokens, 'fill', line)
+  const colour = takeColour(tokens, line)
   const head = tokens[0].text.toUpperCase()
   const rest = tokens.slice(1)
+
+  /**
+   * Only what is drawn in the accent takes a colour of its own.
+   *
+   * A letter, a box and a measurement each have a face, and `fill=` already
+   * paints it; two words for one colour would leave nobody sure which to use.
+   */
+  const noColour = () => {
+    if (colour !== undefined) {
+      throw new ParseError(
+        `${head} is coloured with \`fill=\` — \`colour=\` is for a controlled gate, a swap or a GATE`,
+        0,
+        line,
+      )
+    }
+  }
 
   /**
    * A colour needs something to paint.
@@ -1032,6 +1056,7 @@ function parseGate(src: string, line: number): Gate {
 
   if (head === 'I' || head === 'ID' || head === 'IDENTITY') {
     noBox()
+    noColour()
     // `I 2 0` is an identity that shows what the qubit holds — the same window
     // a view opens, on a wire where nothing is happening. That is what makes
     // "look at these, hold those" expressible alongside a partial view.
@@ -1046,7 +1071,56 @@ function parseGate(src: string, line: number): Gate {
   // NOT is drawn as a bare ⊕ throughout the course materials, never as a
   // lettered box — so it is a controlled gate that happens to have no controls.
   if (head === 'X' || head === 'NOT') {
-    return { kind: 'controlled', controls: [], target: oneQubit(), targetGlyph: 'not' }
+    return { kind: 'controlled', controls: [], target: oneQubit(), targetGlyph: 'not', accent: colour }
+  }
+
+  /*
+   * A gate known only by its name: `CGATE "U" 1 2` is a control, a link and
+   * the name on a box where the ⊕ would be; `GATE "U" 2` is the name alone, as
+   * `X` is the ⊕ alone. Neither says what it does, so neither can be
+   * calculated through — which is the difference from `CNOT "U" 1 2`, still a
+   * CNOT under its name.
+   */
+  if (head === 'CGATE' || head === 'GATE') {
+    const example = head === 'GATE' ? 'GATE "U" 1' : 'CGATE "U" 1 2'
+    if (fill !== undefined) {
+      throw new ParseError(
+        `${head} is coloured with \`colour=\`, which takes its dot, its line and its box together`,
+        0,
+        line,
+      )
+    }
+    const name = rest[0]?.quoted ? rest.shift() : undefined
+    if (!name?.text) {
+      throw new ParseError(`${head} needs a name before its wires, e.g. ${example}`, 0, line)
+    }
+    if (rest.some((t) => t.quoted)) {
+      throw new ParseError(`${head} takes one name, written before its wires`, 0, line)
+    }
+    const custom = {
+      kind: 'controlled' as const,
+      targetGlyph: 'label',
+      label: name.text,
+      custom: true,
+      accent: colour,
+    }
+    if (head === 'GATE') {
+      const qs = rest.length ? parseQubits(rest, line) : [1]
+      if (qs.length !== 1) {
+        throw new ParseError('GATE stands on one wire — a box across several is BOX, a controlled one CGATE', 0, line)
+      }
+      return { ...custom, controls: [], target: qs[0] }
+    }
+    // Read as a CNOT's wires are: the last is the target unless an arrow says.
+    const arrow = rest.findIndex((t) => t.text === '->')
+    const split = arrow < 0 ? rest.length - 1 : arrow
+    const controls = parseQubits(rest.slice(0, Math.max(0, split)), line)
+    const targets = parseQubits(rest.slice(arrow < 0 ? split : arrow + 1), line)
+    if (!controls.length) {
+      throw new ParseError(`CGATE needs at least one control — with none it is GATE`, 0, line)
+    }
+    if (targets.length !== 1) throw new ParseError('CGATE needs exactly one target', 0, line)
+    return { ...custom, controls, target: targets[0] }
   }
 
   // `RZ(45)` arrives as one token — nothing splits on a bracket — so the angle
@@ -1063,11 +1137,13 @@ function parseGate(src: string, line: number): Gate {
     if (!Number.isFinite(angle)) {
       throw new ParseError(`${turn[1]} needs an angle in degrees, e.g. ${turn[1]}(90)`, 0, line)
     }
+    noColour()
     return { kind: 'single', label: turn[1].toUpperCase(), qubit: oneQubit(), angle, accent: fill }
   }
 
   if (head in SINGLE_GATES) {
     const spec = SINGLE_GATES[head]
+    noColour()
     return { kind: 'single', label: spec.label, qubit: oneQubit(), accent: fill ?? spec.accent }
   }
 
@@ -1096,6 +1172,7 @@ function parseGate(src: string, line: number): Gate {
       targetGlyph: front ? 'label' : 'not',
       label: front?.text ?? back?.text,
       labelOnLink: back && !front ? true : undefined,
+      accent: colour,
     }
   }
 
@@ -1112,6 +1189,7 @@ function parseGate(src: string, line: number): Gate {
       targetGlyph: front ? 'label' : 'z',
       label: front?.text ?? back?.text,
       labelOnLink: back && !front ? true : undefined,
+      accent: colour,
     }
   }
 
@@ -1119,7 +1197,7 @@ function parseGate(src: string, line: number): Gate {
     noBox()
     const qs = parseQubits(rest, line)
     if (qs.length !== 2) throw new ParseError('SWAP takes two qubits', 0, line)
-    return { kind: 'swap', qubits: [qs[0], qs[1]] }
+    return { kind: 'swap', qubits: [qs[0], qs[1]], accent: colour }
   }
 
   // Controlled SWAP — the Fredkin gate at one control. The two swapped wires
@@ -1134,10 +1212,11 @@ function parseGate(src: string, line: number): Gate {
     const targets = parseQubits(rest.slice(arrow < 0 ? split : arrow + 1), line)
     if (!controls.length) throw new ParseError(`${head} needs at least one control`, 0, line)
     if (targets.length !== 2) throw new ParseError(`${head} swaps exactly two qubits`, 0, line)
-    return { kind: 'swap', qubits: [targets[0], targets[1]], controls }
+    return { kind: 'swap', qubits: [targets[0], targets[1]], controls, accent: colour }
   }
 
   if (head === 'MEASURE' || head === 'M') {
+    noColour()
     // Trailing non-numeric token is the basis label, e.g. `measure 2 X`.
     let basis = 'Z'
     const last = rest[rest.length - 1]
@@ -1148,7 +1227,8 @@ function parseGate(src: string, line: number): Gate {
     return { kind: 'measure', qubit: oneQubit(), basis, fill }
   }
 
-  if (head === 'BOX' || head === 'GATE' || head === 'BLANK') {
+  if (head === 'BOX' || head === 'BLANK') {
+    noColour()
     const blank = head === 'BLANK'
     let label = ''
     let qubitTokens = rest

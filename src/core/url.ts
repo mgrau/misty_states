@@ -12,7 +12,7 @@
  */
 
 import type { RenderOptions } from './index'
-import type { ThemeId } from './render/theme'
+import { accentHex, type ThemeId } from './render/theme'
 import { THEME_IDS } from './render/themes'
 
 export type Format = 'svg' | 'png' | 'pdf'
@@ -22,6 +22,8 @@ export interface DiagramParams {
   format?: Format
   theme?: ThemeId
   dark?: boolean
+  /** The accent colour, as `#rrggbb`; the theme's own when absent. */
+  accent?: string
   background?: boolean
   scale?: number
   qubit?: number
@@ -49,6 +51,9 @@ export function toSearchParams(p: DiagramParams): URLSearchParams {
   sp.set('src', p.source)
   if (p.theme && p.theme !== 'solid') sp.set('theme', p.theme)
   if (p.dark) sp.set('dark', '1')
+  // Without its `#`, which would otherwise travel as `%23`.
+  const accent = accentHex(p.accent)
+  if (accent) sp.set('accent', accent.slice(1))
   if (p.background) sp.set('bg', '1')
   if (p.scale !== undefined && p.scale !== 1) sp.set('scale', String(p.scale))
   if (p.qubit !== undefined) sp.set('qubit', String(p.qubit))
@@ -69,6 +74,7 @@ export function fromSearchParams(sp: URLSearchParams): DiagramParams | null {
     format: FORMATS.includes(format as Format) ? (format as Format) : undefined,
     theme: THEME_IDS.includes(theme as ThemeId) ? (theme as ThemeId) : undefined,
     dark: flag(sp.get('dark')),
+    accent: accentHex(sp.get('accent') ?? undefined),
     background: flag(sp.get('bg')),
     scale: num(sp.get('scale'), 0.1, 20),
     qubit: num(sp.get('qubit'), 8, 120),
@@ -80,6 +86,7 @@ export function renderOptionsFrom(p: DiagramParams): RenderOptions {
   return {
     theme: p.theme,
     dark: p.dark,
+    accent: p.accent,
     background: p.background,
     metrics: p.qubit !== undefined ? { qubit: p.qubit } : undefined,
   }

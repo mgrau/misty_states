@@ -56,7 +56,7 @@ function tintOf(gate: Gate | undefined): string | null {
     case 'measure':
       return 'measure'
     case 'controlled':
-      return gate.targetGlyph === 'z' ? 'Z' : 'accent'
+      return gate.accent ?? (gate.targetGlyph === 'z' ? 'Z' : 'accent')
     default:
       return null
   }

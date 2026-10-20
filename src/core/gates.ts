@@ -42,6 +42,12 @@ export const GATE_GALLERY: GateGroup[] = [
       { code: 'S 1', name: 'S', drop: { head: 'S', wires: 1 } },
       { code: 'T 1', name: 'T', drop: { head: 'T', wires: 1 } },
       { code: 'I 1', name: 'Identity', text: 'Plain pipe — holds a slot and does nothing', drop: { head: 'I', wires: 1 } },
+      {
+        code: 'GATE "U" 1',
+        name: 'Custom gate',
+        text: 'Known only by its name, so it is drawn but not calculated',
+        drop: { head: 'GATE', wires: 1, label: '"U"' },
+      },
     ],
   },
   {
@@ -63,6 +69,19 @@ export const GATE_GALLERY: GateGroup[] = [
         code: 'CNOT "Oracle" 1 3',
         name: 'Named target',
         source: 'qubits 3\nCNOT "Oracle" 1 3',
+      },
+      {
+        code: 'CGATE "U" 1 2',
+        name: 'Custom controlled gate',
+        text: 'Looks like a named target, but is not a CNOT underneath: drawn, not calculated',
+        source: 'qubits 2\nCGATE "U" 1 2',
+        drop: { head: 'CGATE', wires: 2, label: '"U"' },
+      },
+      {
+        code: 'CGATE "©" 1 2 colour=#c0262d',
+        name: 'Coloured gate',
+        text: 'colour= (or color=) paints a controlled gate, a swap or a GATE — dots, line and box together',
+        source: 'qubits 2\nCGATE "©" 1 2 colour=#c0262d',
       },
     ],
   },

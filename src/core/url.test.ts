@@ -25,6 +25,18 @@ describe('round-tripping through a query string', () => {
     const p = round('0|1', { theme: 'isometric', dark: true, qubit: 40 })
     expect(p).toMatchObject({ theme: 'isometric', dark: true, qubit: 40 })
   })
+
+  it('carries an accent without its hash, and reads it back with one', () => {
+    const sp = toSearchParams({ source: '0|1', accent: '#C0262D' })
+    expect(sp.get('accent')).toBe('c0262d')
+    expect(round('0|1', { accent: '#c0262d' })?.accent).toBe('#c0262d')
+    expect(renderOptionsFrom(round('0|1', { accent: '#c0262d' })!).accent).toBe('#c0262d')
+  })
+
+  it('drops an accent that is not a hex colour', () => {
+    expect(toSearchParams({ source: '0|1', accent: 'red' }).has('accent')).toBe(false)
+    expect(fromSearchParams(new URLSearchParams('src=0&accent=evil'))?.accent).toBeUndefined()
+  })
 })
 
 describe('validation', () => {
