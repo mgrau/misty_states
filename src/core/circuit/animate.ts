@@ -440,8 +440,10 @@ export function buildTimeline(
       const last = track.stops[track.stops.length - 1]
       const crossing = acted.map((gate) => swapPartner(gate, wireOf[i])).find((p) => p != null)
       if (crossing != null) wireOf[i] = crossing
+      // A wire that bends carries its qubit across with it, at the height
+      // the bend runs over — which is the middle of the layer, where it is.
       const done = {
-        x: xOf(wireOf[i]),
+        x: geometry.columnsAt[at + 1][wireOf[i] - 1],
         value: value(at + 1, wireOf[i]),
         shape: shapeOf(wireOf[i]),
       }

@@ -33,6 +33,18 @@ export interface SingleGate {
 export interface IdentityGate {
   kind: 'identity'
   qubit: number
+  /**
+   * Where the wire goes: the position it bends across to, in columns.
+   *
+   * Every wire starts at its own number — wire 3 at 3 — and stays wherever it
+   * is last moved. Written `shift=2`, two columns over from where it is now,
+   * or `-> 5`, to position 5. Where that leaves every wire is `wirePositions`'
+   * business, so the two spellings are told apart in one place only.
+   *
+   * A bend is where it happens, not what happens: the qubit is untouched, it
+   * just goes somewhere else. Which is why it is an identity.
+   */
+  move?: { by?: number; to?: number }
 }
 
 /** Controlled gate: filled dots on controls, a target glyph on the target. */
@@ -210,10 +222,28 @@ export type Gate = (
    * rest with it.
    */
   bound?: boolean
+  /**
+   * Written `if M1`: done only when wire 1 was measured black — or white, for
+   * `if M1=0`.
+   *
+   * Carried on the union because what it conditions is any one-wire gate, and
+   * it is drawn the same whichever: a double line across from the measured
+   * wire, which is what holds the result once it has been read.
+   */
+  given?: { qubit: number; value: 0 | 1 }
 }
 
-/** Every qubit a gate touches, used for layer packing and span width. */
+/**
+ * Every qubit a gate touches, used for layer packing and span width — the
+ * measured wire a condition reads included, since the line to it is drawn.
+ */
 export function gateQubits(gate: Gate): number[] {
+  const own = actedOn(gate)
+  return gate.given ? [...own, gate.given.qubit] : own
+}
+
+/** The qubits a gate does something to, leaving out a wire it only reads. */
+export function actedOn(gate: Gate): number[] {
   switch (gate.kind) {
     case 'single': return [gate.qubit]
     case 'identity': return [gate.qubit]

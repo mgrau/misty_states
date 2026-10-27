@@ -124,6 +124,20 @@ export interface PipePrim {
    * gate's bottom edge.
    */
   openTop: boolean
+  /**
+   * Where the pipe turns aside on its way down: at height `y` it bends through
+   * a quarter circle of centre-line radius `r`, runs across to `x`, and bends
+   * back down there. In order, top to bottom; `cx` is where it starts.
+   *
+   * One pipe rather than three pieces, so there is no seam where the straight
+   * runs meet the elbows.
+   */
+  turns?: { y: number; x: number; r: number }[]
+  /**
+   * A stretch of pipe drawn again over the top of itself, where it crosses in
+   * front of another wire. It has no ends of its own to draw.
+   */
+  cut?: boolean
 }
 
 export interface GateBoxPrim {
@@ -183,6 +197,8 @@ export interface FramePrim {
   border?: string
   /** The small tab its label is written on, rather than the frame itself. */
   tab?: boolean
+  /** In the colours of this gate, as a gate letter the palette knows; see `CablePrim.tint`. */
+  tint?: string
 }
 
 export interface MeasureBoxPrim {
@@ -254,6 +270,23 @@ export interface LinkPrim {
 }
 
 /**
+ * A wire carrying a measured result rather than a qubit: a doubled line, run
+ * from a measurement to a gate that waits on it, round whatever corners it
+ * takes to get there.
+ */
+export interface CablePrim {
+  t: 'cable'
+  points: { x: number; y: number }[]
+  accent?: string
+  /**
+   * The letter of the gate it leads to — `Z`, `H`, `RX` — so it can be drawn
+   * in that gate's colour. A letter, not a colour, because which colour is the
+   * palette's business, and the palette is not known until it is drawn.
+   */
+  tint?: string
+}
+
+/**
  * Anything drawable, optionally faded.
  *
  * `opacity` is carried on the union rather than on each member because it means
@@ -264,7 +297,7 @@ export interface LinkPrim {
 export type Prim = (
   | QubitPrim | CloudPrim | BarPrim | TextPrim | SignPrim | DialPrim | PipePrim
   | GateBoxPrim | PanePrim | MeasureBoxPrim | ControlPrim | TargetPrim | SwapPrim | LinkPrim
-  | RulePrim | FramePrim
+  | RulePrim | FramePrim | CablePrim
 ) & {
   opacity?: number
   /**
@@ -317,9 +350,14 @@ export function translatePrims(prims: Prim[], dx: number, dy: number): Prim[] {
       case 'sign':
         return { ...p, x: p.x + dx, cy: p.cy + dy }
       case 'pipe':
-        return { ...p, cx: p.cx + dx, y0: p.y0 + dy, y1: p.y1 + dy }
+        return {
+          ...p, cx: p.cx + dx, y0: p.y0 + dy, y1: p.y1 + dy,
+          ...(p.turns ? { turns: p.turns.map((t) => ({ ...t, x: t.x + dx, y: t.y + dy })) } : {}),
+        }
       case 'link':
         return { ...p, x0: p.x0 + dx, x1: p.x1 + dx, cy: p.cy + dy }
+      case 'cable':
+        return { ...p, points: p.points.map((q) => ({ x: q.x + dx, y: q.y + dy })) }
       case 'rule':
         return { ...p, x0: p.x0 + dx, x1: p.x1 + dx, y0: p.y0 + dy, y1: p.y1 + dy }
       case 'gatebox':

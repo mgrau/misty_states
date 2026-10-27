@@ -57,6 +57,8 @@ out calculate
 | Statement | Meaning |
 | --- | --- |
 | `H 1` | Single-qubit gate (`X Y Z S T I`, also `PETE` for `H`) |
+| `I 3 shift=2` | Bend wire 3 two columns right; `I 3 -> 5` bends it to position 5 |
+| `X 3 if M1` | Only if wire 1 was measured black (`if M1=0`: white) — any one-wire gate |
 | `RZ(90) 1` | Rotation in degrees (`RX`, `RY`, `P`) |
 | `CNOT 1 -> 2` | Controlled-NOT (arrow optional; `CX` is an alias) |
 | `TOFFOLI 1 2 -> 3` | Two controls (`CCNOT`/`CCX`) |
@@ -146,6 +148,51 @@ box "Oracle" 1-3 width=1.4 height=2
 I 1 height=3                  # room, and nothing in it
 window blank width=2 rows=2
 ```
+
+### Moving wires
+
+An `I` can bend its wire aside, to show qubits coming together or going their
+separate ways — Bob taking his half of a pair across town. `shift=` says how
+many columns over (negative for left, fractions allowed); `->` says which
+position to go to, where wire *n* starts at *n*. The wire turns through two
+rounded elbows in a layer of its own and stays where it lands, so everything
+after it — gates, windows, the output state, an animation, a drop — follows it
+there. The qubit itself is untouched: a bend is still an identity.
+
+```
+in (0|-1)00
+H 2
+CNOT 2 -> 3
+I 3 shift=2        # Bob's qubit leaves
+CNOT 1 -> 2
+I 3 -> 3           # and comes back
+```
+
+Wires may cross — the one moving passes in front — but not collide: they come
+to rest at least a column apart, two bends in one layer keep off each other's
+stretch, and a bend cannot turn through a gate. A gate covers every wire that
+stands between its own, wherever that wire started. A bend cannot be folded
+into a `collapsed` box.
+
+### Acting on a measurement
+
+`if M1` after a gate on one wire — `X`, `Z`, a letter, a rotation, a `GATE` —
+does it only when wire 1 was measured black, or white with `if M1=0`. The gate
+is drawn as itself, and a double line — a wire carrying a result — comes out
+of the bottom of the measurement beside its pipe, runs straight down, and turns
+across into the gate. Where it turns, a label says what it waits for: `=` and the measured
+wire's own shape, filled the way it has to have come out. The line runs behind
+any pipes it crosses.
+
+```
+M 1; M 2
+X 3 if M2
+Z 3 if M1
+```
+
+The wire has to have been measured in Z above it, and left alone since — a
+wire acted on again no longer holds what was read. It is calculated exactly:
+each outcome of the measurement gets the gate or not.
 
 ### Frames and definitions
 

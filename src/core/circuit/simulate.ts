@@ -241,6 +241,17 @@ type Spread = (bits: string, amp: Cx, emit: (bits: string, amp: Cx) => void) => 
  * of this logic would be two chances to disagree about what a gate does.
  */
 function spreadOf(gate: Gate): Spread | null {
+  // Waiting on a measurement: done to the terms where the measured wire holds
+  // the value asked for, and nothing to the rest. After a Z measurement every
+  // branch holds one value there, so this is the gate in some branches and not
+  // in others — exactly what acting on the result means.
+  if (gate.given) {
+    const { given, ...rest } = gate
+    const inner = spreadOf(rest as Gate)
+    if (!inner) return null
+    const want = String(given.value)
+    return (bits, amp, emit) => (bits[given.qubit - 1] === want ? inner(bits, amp, emit) : emit(bits, amp))
+  }
   switch (gate.kind) {
     // None of these does anything to the state; the first two are drawings and
     // a measurement is where the branch loop turns one state into several.

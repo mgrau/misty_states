@@ -62,11 +62,16 @@ const INSIDE = 0.6
 
 /** What the pointer is over, from the geometry the layout already publishes. */
 export function dropTarget(geometry: CircuitGeometry, at: Point): DropTarget {
-  const { columns, layers } = geometry
+  const { layers } = geometry
+  // The wires where they are at that height: a wire that has bent away is no
+  // longer under its starting column.
+  const below = layers.findIndex((l) => at.y <= l.y + l.h)
+  const columns = geometry.columnsAt[below < 0 ? layers.length : below]
 
   // Nearest column, and one past the end when the pointer is clear of the last
   // — dropping out there is how the register gets wider.
-  const gap = columns.length > 1 ? columns[1] - columns[0] : 60
+  const start = geometry.columns
+  const gap = start.length > 1 ? start[1] - start[0] : 60
   let wire = 1
   let best = Infinity
   columns.forEach((x, i) => {
@@ -76,7 +81,7 @@ export function dropTarget(geometry: CircuitGeometry, at: Point): DropTarget {
       wire = i + 1
     }
   })
-  if (at.x > columns[columns.length - 1] + gap * 0.6) wire = columns.length + 1
+  if (at.x > Math.max(...columns) + gap * 0.6) wire = columns.length + 1
 
   if (!layers.length) return { wire, layer: 0, where: 'after' }
 
@@ -570,7 +575,9 @@ function cycleSwapControl(source: string, doc: CircuitDoc, gate: Gate): Edit | n
  * a coloured gate clicked or moved comes back in the drawing's own colours.
  */
 const writtenOptions = (written: string): string =>
-  (written.match(/(?:^|\s)(?:fill|colou?r|width|height)=\S+/gi) ?? []).map((o) => o.trim()).join(' ')
+  (written.match(/(?:^|\s)(?:(?:fill|colou?r|width|height)=\S+|if\s+M\d+(?:=[01])?)/gi) ?? [])
+    .map((o) => o.trim())
+    .join(' ')
 
 /**
  * The same rotation, turned by a different angle.

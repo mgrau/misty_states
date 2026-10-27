@@ -91,6 +91,8 @@ function embed(n: number, ops: Record<number, Matrix>): Matrix {
 }
 
 function matrixOf(gate: Gate, n: number): Matrix | null {
+  // A condition reads a measurement, which this has no branches to hold.
+  if (gate.given) throw new Error('reference: a gate waiting on a measurement has no matrix here')
   switch (gate.kind) {
     case 'identity':
     case 'view':

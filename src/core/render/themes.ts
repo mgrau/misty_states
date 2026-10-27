@@ -9,7 +9,7 @@
  */
 
 import { Path, el, g, n } from '../svg'
-import type { Metrics, Prim } from './primitives'
+import type { Metrics, PipePrim, Prim } from './primitives'
 import {
   FLAT_ATTACH, basisLabel, drawBar, drawCloud, drawQubit, drawDial, drawSign, drawText, mix,
   labelChip, meterGlyph, notGlyph, swapGlyph,
@@ -36,11 +36,182 @@ const SHADOW = 'url(#ms-shadow)'
 const ISO_DX = 13
 const ISO_DY = -8
 
+/* --------------------------------------------------------- bent pipe --- */
+
+type Pt = { x: number; y: number }
+type Heading = 'down' | 'east' | 'west'
+
+/**
+ * A pipe's centre line, as straight runs and quarter-circle elbows.
+ *
+ * `right` is a turn to the right as the qubit sees it, falling down the page:
+ * down-then-west, or east-then-down. It says which side of the pipe is on the
+ * inside of the elbow, which is what offsetting and shading both turn on.
+ */
+type Piece =
+  | { kind: 'run'; a: Pt; b: Pt; heading: Heading }
+  | { kind: 'elbow'; a: Pt; b: Pt; c: Pt; r: number; right: boolean; from: Heading; to: Heading }
+
+function centreLine(cx: number, y0: number, y1: number, turns: NonNullable<PipePrim['turns']>): Piece[] {
+  const out: Piece[] = []
+  let x = cx
+  let y = y0
+  for (const t of turns) {
+    const s = Math.sign(t.x - x) || 1
+    const across: Heading = s > 0 ? 'east' : 'west'
+    const { r } = t
+    out.push({ kind: 'run', a: { x, y }, b: { x, y: t.y - r }, heading: 'down' })
+    out.push({
+      kind: 'elbow', a: { x, y: t.y - r }, b: { x: x + s * r, y: t.y }, c: { x: x + s * r, y: t.y - r },
+      r, right: s < 0, from: 'down', to: across,
+    })
+    out.push({ kind: 'run', a: { x: x + s * r, y: t.y }, b: { x: t.x - s * r, y: t.y }, heading: across })
+    out.push({
+      kind: 'elbow', a: { x: t.x - s * r, y: t.y }, b: { x: t.x, y: t.y + r }, c: { x: t.x - s * r, y: t.y + r },
+      r, right: s > 0, from: across, to: 'down',
+    })
+    x = t.x
+    y = t.y + r
+  }
+  out.push({ kind: 'run', a: { x, y }, b: { x, y: y1 }, heading: 'down' })
+  return out
+}
+
+/**
+ * A point `o` out from the centre line, toward the qubit's right hand.
+ *
+ * Falling down the page, its right hand is the left of the page; going east,
+ * the bottom; going west, the top.
+ */
+function aside(p: Pt, h: Heading, o: number): Pt {
+  if (h === 'down') return { x: p.x - o, y: p.y }
+  return h === 'east' ? { x: p.x, y: p.y + o } : { x: p.x, y: p.y - o }
+}
+
+/** An elbow's radius `o` out from its centre line: smaller on the inside of the turn. */
+const elbowRadius = (e: Extract<Piece, { kind: 'elbow' }>, o: number) => (e.right ? e.r - o : e.r + o)
+
+/** One edge of the pipe, `o` out from the centre, top to bottom; `back` walks it bottom to top. */
+function edge(path: Path, pieces: Piece[], o: number, back: boolean, move: boolean): Path {
+  const list = back ? [...pieces].reverse() : pieces
+  const first = list[0]
+  const start = back
+    ? aside(first.b, first.kind === 'run' ? first.heading : first.to, o)
+    : aside(first.a, first.kind === 'run' ? first.heading : first.from, o)
+  if (move) path.M(start.x, start.y)
+  else path.L(start.x, start.y)
+  for (const p of list) {
+    const end = back
+      ? aside(p.a, p.kind === 'run' ? p.heading : p.from, o)
+      : aside(p.b, p.kind === 'run' ? p.heading : p.to, o)
+    if (p.kind === 'run') path.L(end.x, end.y)
+    else {
+      const rr = Math.max(0, elbowRadius(p, o))
+      // Clockwise on the page for a right turn, walked forward.
+      const sweep = (p.right ? 1 : 0) ^ (back ? 1 : 0)
+      path.A(rr, rr, 0, 0, sweep as 0 | 1, end.x, end.y)
+    }
+  }
+  return path
+}
+
+/**
+ * The shading across a pipe, as stops from the qubit's right-hand edge (0) to
+ * its left (1). Light from the upper left, so falling down the page the bright
+ * stripe is left of centre.
+ */
+const PIPE_PROFILE: [number, number][] = [[0, -0.22], [0.32, 0.42], [0.62, 0], [1, -0.3]]
+
+const profileStops = (pal: Palette, at: (s: number) => number): string =>
+  PIPE_PROFILE
+    .map(([s, k]) => ({ offset: at(s), colour: k ? shade(pal.pipe, k) : pal.pipe }))
+    .sort((a, b) => a.offset - b.offset)
+    .map((st) => el('stop', { offset: n(st.offset), 'stop-color': st.colour }))
+    .join('')
+
+/** A name for a gradient made for one place, which only that place will ask for. */
+const localId = (kind: string, ...at: number[]) =>
+  `ms-${kind}-${at.map((v) => n(v).replace('.', '_')).join('_')}`
+
+/**
+ * The fill of a bent pipe, shaded piece by piece so the stripe follows it round.
+ *
+ * Straight down it is the same gradient a straight pipe has. Straight across it
+ * is that gradient turned to keep the same edge on the same side. Round an
+ * elbow it is drawn as rings about the elbow's centre, so the shading bends
+ * with the pipe instead of being cut off by it.
+ */
+function shadedBend(pieces: Piece[], w: number, pal: Palette): string {
+  const h = w / 2
+  // Pieces laid edge to edge leave a hairline where the antialiasing of each
+  // lets the paper through, so a run reaches a little way under any elbow it
+  // meets. Not at the ends of the pipe, where it would poke out.
+  const tuck = 0.5
+  return pieces.map((p, i) => {
+    if (p.kind === 'run') {
+      const before = i > 0 ? tuck : 0
+      const after = i < pieces.length - 1 ? tuck : 0
+      if (p.heading === 'down') {
+        const len = p.b.y - p.a.y
+        if (len < 0.01) return ''
+        return el('rect', {
+          x: p.a.x - h, y: p.a.y - before, width: w, height: len + before + after, fill: 'url(#ms-pipe)',
+        })
+      }
+      const east = p.heading === 'east'
+      const x0 = Math.min(p.a.x, p.b.x) - (east ? before : after)
+      const len = Math.abs(p.b.x - p.a.x) + before + after
+      if (len < 0.01 + before + after) return ''
+      const id = localId('run', x0, p.a.y)
+      const grad = el(
+        'linearGradient',
+        { id, x1: '0', y1: east ? '1' : '0', x2: '0', y2: east ? '0' : '1' },
+        profileStops(pal, (s) => s),
+      )
+      return grad + el('rect', { x: x0, y: p.a.y - h, width: len, height: w, fill: `url(#${id})` })
+    }
+    const ro = p.r + h
+    const ri = Math.max(0, p.r - h)
+    const id = localId('elbow', p.c.x, p.c.y)
+    // The right-hand edge is on the inside of a right turn, the outside of a left.
+    const at = (s: number) => (p.right ? ri + s * w : ro - s * w) / ro
+    const grad = el(
+      'radialGradient',
+      { id, gradientUnits: 'userSpaceOnUse', cx: p.c.x, cy: p.c.y, r: ro },
+      profileStops(pal, at),
+    )
+    const ring = edge(new Path(), [p], h, false, true)
+    edge(ring, [p], -h, true, false).Z()
+    return grad + el('path', { d: ring.toString(), fill: `url(#${id})` })
+  }).join('')
+}
+
+/** The whole outline of a bent pipe, both edges and both ends. */
+function bendOutline(pieces: Piece[], w: number, foot = 0): string {
+  const path = edge(new Path(), pieces, w / 2, false, true)
+  const last = pieces[pieces.length - 1]
+  if (foot) {
+    // The end seen from above, as a straight pipe's is.
+    const to = aside(last.b, 'down', -w / 2)
+    path.A(w / 2, foot, 0, 0, 0, to.x, to.y)
+  }
+  edge(path, pieces, -w / 2, true, false)
+  return path.toString()
+}
+
+/** Each edge on its own, with nothing across the ends. */
+function bendEdges(pieces: Piece[], w: number): string {
+  const a = edge(new Path(), pieces, w / 2, false, true)
+  const b = edge(new Path(), pieces, -w / 2, false, true)
+  return a.toString() + b.toString()
+}
+
 interface Surface {
-  /** Vertical pipe segment. */
+  /** Pipe segment, straight down unless it has turns. */
   pipe(
     cx: number, y0: number, y1: number, w: number,
     pal: Palette, m: Metrics, openTop: boolean,
+    turns?: PipePrim['turns'], cut?: boolean,
   ): string
   /** Gate/measurement body; label and glyphs are drawn on top by the caller. */
   body(
@@ -63,11 +234,21 @@ const flatSurface: Surface = {
   defs: () => '',
   bleed: { top: 2, right: 2, bottom: 2, left: 2 },
   attach: FLAT_ATTACH,
-  pipe: (cx, y0, y1, w, pal, m) =>
-    el('rect', {
-      x: cx - w / 2, y: y0, width: w, height: y1 - y0,
-      fill: pal.pipe, stroke: pal.pipeEdge, 'stroke-width': m.stroke * 0.55,
-    }),
+  pipe: (cx, y0, y1, w, pal, m, _openTop, turns, cut) => {
+    const sw = m.stroke * 0.55
+    if (!turns?.length) {
+      return el('rect', {
+        x: cx - w / 2, y: y0, width: w, height: y1 - y0,
+        fill: pal.pipe, stroke: pal.pipeEdge, 'stroke-width': sw,
+      })
+    }
+    const pieces = centreLine(cx, y0, y1, turns)
+    if (!cut) {
+      return el('path', { d: bendOutline(pieces, w), fill: pal.pipe, stroke: pal.pipeEdge, 'stroke-width': sw })
+    }
+    return el('path', { d: bendOutline(pieces, w), fill: pal.pipe }) +
+      el('path', { d: bendEdges(pieces, w), fill: 'none', stroke: pal.pipeEdge, 'stroke-width': sw })
+  },
   body: (box, fill, pal, m) =>
     el('rect', {
       x: box.x, y: box.y, width: box.w, height: box.h,
@@ -85,12 +266,9 @@ const solidSurface: Surface = {
     const cyl = el(
       'linearGradient',
       { id: 'ms-pipe', x1: '0', y1: '0', x2: '1', y2: '0' },
-      [
-        el('stop', { offset: '0%', 'stop-color': shade(pal.pipe, -0.22) }),
-        el('stop', { offset: '32%', 'stop-color': shade(pal.pipe, 0.42) }),
-        el('stop', { offset: '62%', 'stop-color': pal.pipe }),
-        el('stop', { offset: '100%', 'stop-color': shade(pal.pipe, -0.3) }),
-      ].join(''),
+      PIPE_PROFILE.map(([s, k]) =>
+        el('stop', { offset: `${Math.round(s * 100)}%`, 'stop-color': k ? shade(pal.pipe, k) : pal.pipe }),
+      ).join(''),
     )
     const gate = el(
       'linearGradient',
@@ -152,11 +330,21 @@ const solidSurface: Surface = {
     overlay: value === 1 ? 'url(#ms-qubit-lit)' : 'url(#ms-qubit-dim)',
     shadow: { paint: 'url(#ms-qubit-shadow)', dy: 1.6 },
   }),
-  pipe: (cx, y0, y1, w, pal, m) =>
-    el('rect', {
-      x: cx - w / 2, y: y0, width: w, height: y1 - y0,
-      fill: 'url(#ms-pipe)', stroke: pal.pipeEdge, 'stroke-width': m.stroke * 0.5,
-    }),
+  pipe: (cx, y0, y1, w, pal, m, _openTop, turns, cut) => {
+    const sw = m.stroke * 0.5
+    if (!turns?.length) {
+      return el('rect', {
+        x: cx - w / 2, y: y0, width: w, height: y1 - y0,
+        fill: 'url(#ms-pipe)', stroke: pal.pipeEdge, 'stroke-width': sw,
+      })
+    }
+    const pieces = centreLine(cx, y0, y1, turns)
+    return shadedBend(pieces, w, pal) +
+      el('path', {
+        d: cut ? bendEdges(pieces, w) : bendOutline(pieces, w),
+        fill: 'none', stroke: pal.pipeEdge, 'stroke-width': sw,
+      })
+  },
   body: (box, fill, pal, m) =>
     // The same box dropped behind itself, spread a little so the shadow shows
     // at the sides as well as under the foot.
@@ -197,7 +385,7 @@ const isoSurface: Surface = {
     extrude: { dx: ISO_DX, dy: ISO_DY },
   },
   defs: () => '',
-  pipe: (cx, y0, y1, w, pal, m, openTop) => {
+  pipe: (cx, y0, y1, w, pal, m, openTop, turns, cut) => {
     const rx = w / 2
     // A shallow ellipse: the pipe mouth is seen at a glancing angle, so it
     // foreshortens. Too flat and the bore disappears; too round and it reads
@@ -207,15 +395,23 @@ const isoSurface: Surface = {
     // much short — otherwise `y1` would not mean the pipe's lowest drawn pixel
     // the way it does in the flat themes, and the end would overshoot.
     const foot = y1 - ry
-    const body = el('path', {
-      d: new Path()
-        .M(cx - rx, y0)
-        .L(cx - rx, foot)
-        .A(rx, ry, 0, 0, 0, cx + rx, foot)
-        .L(cx + rx, y0)
-        .toString(),
-      fill: pal.pipe, stroke: pal.pipeEdge, 'stroke-width': m.stroke * 0.55,
-    })
+    const sw = m.stroke * 0.55
+    if (turns?.length && cut) {
+      const pieces = centreLine(cx, y0, y1, turns)
+      return el('path', { d: bendOutline(pieces, w), fill: pal.pipe }) +
+        el('path', { d: bendEdges(pieces, w), fill: 'none', stroke: pal.pipeEdge, 'stroke-width': sw })
+    }
+    // Open across the top, like a straight one: the mouth, or the gate above,
+    // is what closes it.
+    const d = turns?.length
+      ? bendOutline(centreLine(cx, y0, foot, turns), w, ry)
+      : new Path()
+          .M(cx - rx, y0)
+          .L(cx - rx, foot)
+          .A(rx, ry, 0, 0, 0, cx + rx, foot)
+          .L(cx + rx, y0)
+          .toString()
+    const body = el('path', { d, fill: pal.pipe, stroke: pal.pipeEdge, 'stroke-width': sw })
     const cap = openTop
       ? el('ellipse', {
           cx, cy: y0, rx, ry,
@@ -280,7 +476,7 @@ function makeTheme(
           return drawDial(p, pal, m)
 
         case 'pipe':
-          return s.pipe(p.cx, p.y0, p.y1, p.w, pal, m, p.openTop)
+          return s.pipe(p.cx, p.y0, p.y1, p.w, pal, m, p.openTop, p.turns, p.cut)
 
         case 'gatebox': {
           // `||`, not `??`: an empty fill would reach the SVG as fill="" and
@@ -382,6 +578,19 @@ function makeTheme(
         case 'swap':
           return swapGlyph(p.cx, p.cy, p.r, pal, m, p.accent ?? pal.accent)
 
+        // Doubled by drawing it wide and then again, narrow, in the paper:
+        // two parallel lines that stay parallel round every corner, which two
+        // offset lines would not.
+        case 'cable': {
+          const d = p.points
+            .map((q, i) => `${i ? 'L' : 'M'}${n(q.x)} ${n(q.y)}`)
+            .join('')
+          const line = { d, fill: 'none', 'stroke-linejoin': 'round', 'stroke-linecap': 'butt' }
+          const colour = p.accent ?? (p.tint && pal.gateChip[p.tint]) ?? pal.accent
+          return el('path', { ...line, stroke: colour, 'stroke-width': m.stroke * 2.4 }) +
+            el('path', { ...line, stroke: pal.paper, 'stroke-width': m.stroke * 0.8 })
+        }
+
         case 'link':
           return el('line', {
             x1: p.x0, y1: p.cy, x2: p.x1, y2: p.cy,
@@ -391,13 +600,15 @@ function makeTheme(
 
         // A tint of the accent unless told otherwise: enough to see the edge
         // of the region, not so much that it competes with the gates in it.
-        case 'frame':
+        case 'frame': {
+          const hue = (p.tint && pal.gateChip[p.tint]) || pal.accent
           return el('rect', {
             x: p.box.x, y: p.box.y, width: p.box.w, height: p.box.h, rx: p.tab ? 4 : 7,
-            fill: p.fill || mix(pal.paper, pal.accent, 0.07),
-            stroke: p.border === 'none' ? 'none' : p.border || mix(pal.paper, pal.accent, 0.45),
+            fill: p.fill || mix(pal.paper, hue, 0.07),
+            stroke: p.border === 'none' ? 'none' : p.border || mix(pal.paper, hue, 0.45),
             'stroke-width': m.stroke * 0.9,
           })
+        }
 
         // Flat in every theme, like the pane: a table is a piece of paper
         // beside the drawing rather than another object in the scene.

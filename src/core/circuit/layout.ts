@@ -21,7 +21,8 @@ import { layoutState, type DialMode } from '../state/layout'
 import { layoutTable } from './table'
 import { layoutChart } from '../chart/layout'
 import type { CircuitDoc, Gate, GateStyle, Layer, ViewGate } from './ast'
-import { gateSpan } from './ast'
+import { gateQubits, gateSpan } from './ast'
+import { coveredWires, planWires, type Bend } from './wires'
 import type { Factor, StateDoc, StateRow } from '../state/ast'
 import { qubitWidth } from '../state/ast'
 import { parseState } from '../state/parse'
@@ -65,8 +66,15 @@ export interface CircuitLayoutOptions {
  * drift apart.
  */
 export interface CircuitGeometry {
-  /** Centre x of each wire, wire 1 first. */
+  /** Centre x of each wire, wire 1 first, where it starts. */
   columns: number[]
+  /**
+   * The same going into each layer, and once more after the last: a wire that
+   * bends is somewhere else afterwards. Without bends, every entry is `columns`.
+   */
+  columnsAt: number[][]
+  /** Where a wire bends: across from `x0` to `x1` at height `y`, round elbows of radius `r`. */
+  turns: { qubit: number; layer: number; y: number; x0: number; x1: number; r: number }[]
   /** Top and bottom of the pipe run. */
   pipeTop: number
   pipeBottom: number
@@ -92,6 +100,11 @@ export interface CircuitLayout extends Layout {
 
 /** Horizontal padding between a gate's edge and the outermost pipe it covers. */
 const GATE_PAD_X = 12
+/**
+ * Pipe above and below a bend, within its layer, so the elbows do not run
+ * straight into whatever is next.
+ */
+const TURN_PAD = 12
 
 /**
  * The chip a name standing on a target is drawn on, sized.
@@ -341,13 +354,31 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   const attach = opts.attach ?? FLAT_ATTACH
   const pitch = m.pipeWidth + m.colGap
 
-  const colX = (q: number) => (q - 1) * pitch
+  /**
+   * Where every wire is, layer by layer. A wire that bends is somewhere else
+   * after it, so a column is read at the point being drawn: `here` is moved on
+   * as the drawing goes down the page, and `colX` reads it.
+   */
+  const plan = planWires(doc.qubits, doc.layers)
+  const xOf = (position: number) => (position - 1) * pitch
+  let here = plan.at[0]
+  const colX = (q: number) => xOf(here[q - 1])
   /** Column position on the gate's visible face. */
   const gateX = (q: number) => colX(q) + attach.dx
+  /** The leftmost and rightmost of some wires, where they are now. */
+  const extent = (qs: number[]): [number, number] => {
+    const xs = qs.map(colX)
+    return [Math.min(...xs), Math.max(...xs)]
+  }
+  const wiresFrom = (q0: number, q1: number) => Array.from({ length: q1 - q0 + 1 }, (_, i) => q0 + i)
+  /** The wires a gate's box covers here: its own, and whatever stands between them. */
+  const covered = (gate: Gate) => coveredWires(gate, new Map(here.map((p, i) => [i + 1, p])))
+  /** How tight a bend turns: as round as a pipe allows, tighter for a short hop. */
+  const turnRadius = (b: Bend) => Math.min(m.pipeWidth, (Math.abs(b.to - b.from) * pitch) / 2)
 
-  const left = colX(1) - pitch / 2
-  const right = colX(doc.qubits) + pitch / 2
-  const centreX = (left + right) / 2
+  const everywhere = plan.at.flat()
+  const left = xOf(Math.min(...everywhere)) - pitch / 2
+  const right = xOf(Math.max(...everywhere)) + pitch / 2
 
   const pipes: Prim[] = []
   const bodies: Prim[] = []
@@ -377,7 +408,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
    * read as the window taking it in, so it is drawn again on top — the same
    * geometry, so the join is invisible, but now unmistakably passing in front.
    */
-  const passesInFront: { q: number; y0: number; y1: number }[] = []
+  const passesInFront: { x: number; y0: number; y1: number }[] = []
 
   /**
    * Per qubit, the heights at which a run of pipe begins in open air.
@@ -428,6 +459,9 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     if (!factors) return null
     const widths = factors.map(qubitWidth)
     if (widths.reduce((a, b) => a + b, 0) !== q1 - q0 + 1) return null
+    // Wires that have crossed are not in order across the page, and a row
+    // spread over them would be read in the wrong order. Centred instead.
+    for (let q = q0; q < q1; q++) if (colX(q + 1) <= colX(q)) return null
 
     let col = q0
     return factors.map((f, i) => {
@@ -472,7 +506,8 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     }
 
     const laid = laidOut(row)
-    const mid = q0 === 1 && q1 === doc.qubits ? centreX : (colX(q0) + colX(q1)) / 2
+    const [x0, x1] = extent(wiresFrom(q0, q1))
+    const mid = (x0 + x1) / 2
     const dx = mid - (laid.box.x + laid.box.w / 2)
     const dy = top - laid.box.y
     const box = { x: laid.box.x + dx, y: top, w: laid.box.w, h: laid.box.h }
@@ -598,13 +633,15 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
    * row of bare qubits is a good deal shorter than a gate and for a cloud may
    * be taller.
    */
-  const layerHeight = (layer: Layer): number =>
+  const layerHeight = (layer: Layer, at: number): number =>
     Math.max(
-      ...layer.gates.map((gate) =>
-        gate.kind === 'view'
-          ? (viewHeight(gate) + 2 * VIEW_PAD) * (gate.height ?? 1)
-          : bodyHeight(gate, m),
-      ),
+      ...layer.gates.map((gate) => {
+        if (gate.kind === 'view') return (viewHeight(gate) + 2 * VIEW_PAD) * (gate.height ?? 1)
+        // A bend wants room for both its elbows, one above the other.
+        const bend = gate.kind === 'identity' && plan.bends[at].find((b) => b.qubit === gate.qubit)
+        if (bend) return Math.max(m.gateHeight, 2 * turnRadius(bend) + 2 * TURN_PAD) * (gate.height ?? 1)
+        return bodyHeight(gate, m)
+      }),
     )
 
   /**
@@ -686,11 +723,12 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     // As wide as its columns, or as wide as what is inside it — whichever is
     // more. A cloud is easily wider than the wires it describes, and a frame
     // that did not grow would crop it.
-    const spanW = colX(q1) - colX(q0) + m.pipeWidth + 2 * GATE_PAD_X
+    const [x0, x1] = extent(wiresFrom(q0, q1))
+    const spanW = x1 - x0 + m.pipeWidth + 2 * GATE_PAD_X
     const w = Math.max(spanW, laid.content.w + 2 * VIEW_PAD) * (gate.width ?? 1)
     // The contents are already centred on the span, so centring the frame there
     // too keeps the two concentric however far either has grown.
-    const mid = (colX(q0) + colX(q1)) / 2 + attach.dx
+    const mid = (x0 + x1) / 2 + attach.dx
     const frame: Box = { x: mid - w / 2, y: top, w, h: height }
     return { prims: translatePrims(laid.prims, attach.dx, 0), box: frame }
   }
@@ -744,7 +782,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     for (let q = 1; q <= doc.qubits; q++) {
       if (gate.qubits.includes(q)) continue
       const x = colX(q)
-      if (x > box.x && x < box.x + box.w) passesInFront.push({ q, y0: box.y, y1: box.y + box.h })
+      if (x > box.x && x < box.x + box.w) passesInFront.push({ x, y0: box.y, y1: box.y + box.h })
     }
   }
 
@@ -754,7 +792,69 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     y += h
   }
 
+  /**
+   * Lines from a measurement to the gates waiting on it, and the labels on
+   * them. The lines go under everything — they are wiring, run behind the
+   * plumbing — and the labels over the pipes, as a frame's tab is, so they can
+   * be read wherever they land.
+   */
+  const cables: Prim[] = []
+  const tabs: Prim[] = []
+  /** The last measurement on each wire, which is what a condition reads. */
+  const meters = new Map<number, Box>()
+
+  /**
+   * The line from a measurement to a gate that waits on it.
+   *
+   * Out of the bottom of the meter, beside the pipe on the side facing the
+   * gate, straight down, and across into the gate. Halfway between the pipe
+   * and the meter's edge is clear all the way down: that strip is the measured
+   * wire's own, and nothing may act on that wire before the condition reads
+   * it — so the line never has to pass over a gate. Just before the gate, a label says what
+   * it is waiting for — `=` and the wire's shape, black or white — so the
+   * condition is read beside what it governs. Nothing else stands there: the
+   * wires the line crosses are the gate's for that layer, so only their pipes
+   * are under it.
+   *
+   * Line and label are in the gate's own colours, so which line belongs to
+   * which gate can be told at a glance.
+   */
+  const emitReading = (waiting: Gate, meter: Box, gate: Box, cy: number) => {
+    const given = waiting.given!
+    const tint = waiting.kind === 'single' ? waiting.label : undefined
+    const accent = waiting.kind === 'controlled' ? waiting.accent : waiting.kind === 'single' ? waiting.accent : undefined
+    const colours = { ...(tint ? { tint } : {}), ...(accent ? { accent } : {}) }
+    const from = meter.x + meter.w / 2
+    const toward = Math.sign(gate.x + gate.w / 2 - from) || 1
+    const lane = from + (toward * (m.pipeWidth / 2 + meter.w / 2)) / 2
+    const into = toward > 0 ? gate.x : gate.x + gate.w + reach
+    cables.push({
+      t: 'cable',
+      points: [{ x: lane, y: meter.y + meter.h }, { x: lane, y: cy }, { x: into, y: cy }],
+      ...colours,
+    })
+    const tag = readingTag(m)
+    const near = into - toward * READING_GAP
+    const label: Box = { x: toward > 0 ? near - tag.w : near, y: cy - tag.h / 2, w: tag.w, h: tag.h }
+    const mid = cy
+    tabs.push({ t: 'frame', box: label, tab: true, ...(accent ? { border: accent } : tint ? { tint } : {}) })
+    tabs.push({
+      t: 'text', x: label.x + READING_PAD + tag.eq.w / 2, cy: mid, text: '=',
+      size: tag.eq.size, anchor: 'middle', weight: 700,
+    })
+    tabs.push({
+      t: 'qubit', shape: shapeFor(given.qubit - 1), value: given.value,
+      cx: label.x + label.w - READING_PAD - tag.size / 2, cy: mid, size: tag.size,
+    })
+    boxes.push(label)
+  }
+
+  /** Each wire's turns, top to bottom, for its pipe to follow. */
+  const turns = new Map<number, { y: number; x: number; r: number }[]>()
+  const turnGeometry: CircuitGeometry['turns'] = []
+
   doc.layers.forEach((layer, at) => {
+    here = plan.at[at]
     // The bands between two gates are inside the circuit: what comes out of one
     // is on its way into the next, and the wires run past all the while.
     if (at > 0) bandBefore(at)
@@ -766,8 +866,33 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       opened = true
     })
     if (opened) y += lift
-    const layerH = layerHeight(layer)
+    const layerH = layerHeight(layer, at)
     layerGeometry.push({ y, h: layerH })
+
+    // Every bend in the layer turns at its middle, so they all run across at
+    // one height and the wires they pass read as being passed.
+    for (const b of plan.bends[at]) {
+      const r = turnRadius(b)
+      const cy = y + layerH / 2
+      const x0 = xOf(b.from)
+      const x1 = xOf(b.to)
+      turns.set(b.qubit, [...(turns.get(b.qubit) ?? []), { y: cy, x: x1, r }])
+      turnGeometry.push({ qubit: b.qubit, layer: at, y: cy, x0, x1, r })
+      // Across another wire, it goes in front: drawn again on top, just the
+      // stretch from one elbow to the other, so its ends meet nothing.
+      const [lo, hi] = [Math.min(b.from, b.to), Math.max(b.from, b.to)]
+      const crosses = here.some((p, i) => {
+        if (i + 1 === b.qubit) return false
+        const after = plan.at[at + 1][i]
+        return (p > lo && p < hi) || (after > lo && after < hi)
+      })
+      if (crosses) {
+        caps.push({
+          t: 'pipe', cx: x0, y0: cy - r, y1: cy + r, w: m.pipeWidth, openTop: false,
+          turns: [{ y: cy, x: x1, r }], cut: true,
+        })
+      }
+    }
     const viewGates = layer.gates.filter((g): g is ViewGate => g.kind === 'view')
     if (viewGates.length) emitViews(viewGates, y, layerH)
 
@@ -792,7 +917,13 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       if (gate.kind === 'identity') continue
       if (gate.kind === 'view') continue
 
-      const [q0, q1] = gateSpan(gate)
+      // A gate waiting on a measurement is drawn as itself; the line to the
+      // measurement is drawn separately, round the outside, below.
+      const body = gate.given ? unconditioned(gate) : gate
+      // Measured across where its wires are, which after a bend need not be
+      // the run from its first to its last.
+      const [gx0, gx1] = extent(gateQubits(body))
+      const under = covered(body)
       // A name standing on the target needs room the span does not provide:
       // on an end wire it would otherwise hang off the side of its own box.
       // Room for the whole chip, not just the lettering on it. Measured against
@@ -805,10 +936,10 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       const h = bodyHeight(gate, m)
       // `width=` widens about the middle of the gate's own wires, so it still
       // sits over them — just further out on either side.
-      const natural = colX(q1) - colX(q0) + m.pipeWidth + 2 * (GATE_PAD_X + named)
+      const natural = gx1 - gx0 + m.pipeWidth + 2 * (GATE_PAD_X + named)
       const w = natural * (gate.width ?? 1)
       const box: Box = {
-        x: gateX(q0) - m.pipeWidth / 2 - GATE_PAD_X - named - (w - natural) / 2,
+        x: gx0 + attach.dx - m.pipeWidth / 2 - GATE_PAD_X - named - (w - natural) / 2,
         // Bottom-aligned within the band its neighbours occupy: a gate that
         // grew did so upwards, so its foot — and everything below it — stays
         // put. With every gate the same height, which is every layer carrying
@@ -822,9 +953,9 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       // a window it is not part of.
       if (w > natural) {
         for (let q = 1; q <= doc.qubits; q++) {
-          if (q >= q0 && q <= q1) continue
+          if (under.includes(q)) continue
           const x = colX(q)
-          if (x > box.x && x < box.x + box.w) passesInFront.push({ q, y0: box.y, y1: box.y + box.h })
+          if (x > box.x && x < box.x + box.w) passesInFront.push({ x, y0: box.y, y1: box.y + box.h })
         }
       }
       // Where an ordinary gate's wire would be: up from the foot, not the
@@ -839,7 +970,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       // gate are one continuous piece rather than overlapping collars.
       const key = gateKey(gate, keys)
 
-      for (let q = q0; q <= q1; q++) {
+      for (const q of under) {
         const list = blocked.get(q) ?? []
         list.push({ y0: topY, y1: bottomY, key })
         blocked.set(q, list)
@@ -849,11 +980,20 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       // a gate draws is its own business, and only the outside needs the name.
       const wasBodies = bodies.length
       const wasGlyphs = glyphs.length
-      emitGate(gate, box, cy, gateX, m, bodies, glyphs)
+      const wasCables = cables.length
+      const wasTabs = tabs.length
+      emitGate(body, box, cy, gateX, m, bodies, glyphs)
+      if (gate.kind === 'measure') meters.set(gate.qubit, box)
+      if (gate.given) {
+        const meter = meters.get(gate.given.qubit)
+        if (meter) emitReading(gate, meter, box, cy)
+      }
       const highlight = gate.line !== undefined && gate.line === opts.highlight
       const tag = { key, ...(highlight ? { highlight } : {}) }
       for (let i = wasBodies; i < bodies.length; i++) bodies[i] = { ...bodies[i], ...tag }
       for (let i = wasGlyphs; i < glyphs.length; i++) glyphs[i] = { ...glyphs[i], ...tag }
+      for (let i = wasCables; i < cables.length; i++) cables[i] = { ...cables[i], ...tag }
+      for (let i = wasTabs; i < tabs.length; i++) tabs[i] = { ...tabs[i], ...tag }
       boxes.push(box)
       drawn = drawn
         ? {
@@ -895,12 +1035,15 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
    * lettering under a pipe cannot be read.
    */
   const framed: Prim[] = []
-  const tabs: Prim[] = []
   const frameBoxes: { box: Box; fold?: number }[] = []
   frames.forEach((f, i) => {
     const out = FRAME_PAD * (f.inner + 1)
-    const x0 = gateX(f.qubits[0]) - m.pipeWidth / 2 - GATE_PAD_X - out
-    let x1 = gateX(f.qubits[1]) + m.pipeWidth / 2 + GATE_PAD_X + out + reach
+    // Wide enough for its wires wherever they go while it is round them.
+    const xs = plan.at
+      .slice(f.layers[0], f.layers[1] + 2)
+      .flatMap((at) => wiresFrom(f.qubits[0], f.qubits[1]).map((q) => xOf(at[q - 1]) + attach.dx))
+    const x0 = Math.min(...xs) - m.pipeWidth / 2 - GATE_PAD_X - out
+    let x1 = Math.max(...xs) + m.pipeWidth / 2 + GATE_PAD_X + out + reach
     const tabW = f.label ? textWidth(f.label, labelSize, true) + 12 : 0
     x1 = Math.max(x1, x0 + TAB_INSET + tabW + FRAME_PAD)
     const top = frameTop.get(i)!
@@ -939,6 +1082,8 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   }
 
   /* ------------------------------------------------------------- output --- */
+
+  here = plan.at[plan.at.length - 1]
 
   if (doc.output) {
     const placed = placeEndState(doc.output, pipeBottom + STATE_GAP)
@@ -1001,7 +1146,11 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
 
   for (let q = 1; q <= doc.qubits; q++) {
     const stops = blocked.get(q) ?? []
+    const bends = turns.get(q) ?? []
     for (const [i, seg] of gaps(pipeTop, pipeBottom, stops).entries()) {
+      // Wherever the last turn above left it, and through any turns on the way.
+      const above = bends.filter((t) => t.y <= seg.y0)
+      const along = bends.filter((t) => t.y > seg.y0 && t.y < seg.y1)
       // Named for the gate it leaves, so a run keeps its identity when
       // something is dropped in further down. A gate's stubs are the ends of
       // the runs either side of it, and without a name they sat still while
@@ -1010,10 +1159,11 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       pipes.push({
         t: 'pipe',
         key: `pipe:${q}:${from ?? `n${i}`}`,
-        cx: colX(q),
+        cx: above.length ? above[above.length - 1].x : xOf(plan.at[0][q - 1]),
         y0: seg.y0,
         y1: seg.y1,
         w: m.pipeWidth,
+        ...(along.length ? { turns: along } : {}),
         // A run has an open mouth where it begins in open air: at the very top
         // of the circuit, or under a bare view. Everywhere else it begins by
         // leaving a gate, where there is no bore to see.
@@ -1031,7 +1181,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   for (const run of passesInFront) {
     caps.push({
       t: 'pipe',
-      cx: colX(run.q),
+      cx: run.x,
       y0: run.y0,
       y1: run.y1,
       w: m.pipeWidth,
@@ -1121,10 +1271,12 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       ]
 
   return {
-    prims: [...framed, ...stack, ...tabs, ...glyphs, ...caps],
+    prims: [...framed, ...cables, ...stack, ...tabs, ...glyphs, ...caps],
     box: boxUnion(boxes),
     geometry: {
-      columns: Array.from({ length: doc.qubits }, (_, i) => colX(i + 1)),
+      columns: plan.at[0].map(xOf),
+      columnsAt: plan.at.map((at) => at.map(xOf)),
+      turns: turnGeometry,
       shapes: Array.from({ length: doc.qubits }, (_, i) => shapeFor(i)),
       pipeTop,
       pipeBottom,
@@ -1277,6 +1429,22 @@ function emitGate(
       return
     }
   }
+}
+
+/** A gate as it is drawn, leaving off the measurement it waits on. */
+function unconditioned(gate: Gate): Gate {
+  const { given: _, ...rest } = gate
+  return rest as Gate
+}
+
+/** The label on a condition's line: the `=` and the shape, and the room round them. */
+const READING_PAD = 5
+/** Clear air between that label and the gate it stands beside. */
+const READING_GAP = 4
+function readingTag(m: Metrics) {
+  const size = m.qubit * 0.7
+  const eq = { size: m.fontSize * 0.75, w: textWidth('=', m.fontSize * 0.75, true) }
+  return { size, eq, w: 2 * READING_PAD + eq.w + 4 + size, h: size + 2 * READING_PAD }
 }
 
 /** Shrink the label until it fits the box, so wide oracles still read. */

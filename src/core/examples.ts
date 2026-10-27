@@ -318,6 +318,24 @@ export const EXAMPLES: Example[] = [
     source: ['in 0|1', 'H 1', 'animate'].join('\n'),
   },
 
+  {
+    id: 'teleport',
+    title: 'Teleportation — wires that move',
+    note: '"I 3 shift=2" bends Bob\'s wire two columns away: nothing happens to the qubit, it only goes somewhere else. "X 3 if M2" is done only if wire 2 was measured black — whichever way Alice\'s measurements come out, Bob ends up holding the message.',
+    source: [
+      'in (0|-1)00',
+      'H 2',
+      'CNOT 2 -> 3',
+      'Bob leaves: I 3 shift=2',
+      'CNOT 1 -> 2',
+      'H 1',
+      'M 1; M 2',
+      'X 3 if M2',
+      'Z 3 if M1',
+      'out calculate',
+    ].join('\n'),
+  },
+
   /* -- Setting an exercise -------------------------------------------------- */
 
   {
