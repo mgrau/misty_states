@@ -321,12 +321,13 @@ export const EXAMPLES: Example[] = [
   {
     id: 'teleport',
     title: 'Teleportation — wires that move',
-    note: '"I 3 shift=2" bends Bob\'s wire two columns away: nothing happens to the qubit, it only goes somewhere else. "X 3 if M2" is done only if wire 2 was measured black — whichever way Alice\'s measurements come out, Bob ends up holding the message.',
+    note: '"wires 1 4 5" starts the pair apart from Alice\'s message, and "I 2 -> 2" bends her half of it across to her: nothing happens to the qubit, it only goes somewhere else ("I 2 shift=-2" says the same by how far). "X 3 if M2" is done only if wire 2 was measured black — whichever way Alice\'s measurements come out, Bob ends up holding the message.',
     source: [
+      'wires 1 4 5',
       'in (0|-1)00',
       'H 2',
       'CNOT 2 -> 3',
-      'Bob leaves: I 3 shift=2',
+      'Alice takes her half: I 2 -> 2',
       'CNOT 1 -> 2',
       'H 1',
       'M 1; M 2',

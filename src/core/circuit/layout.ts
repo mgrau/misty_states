@@ -359,7 +359,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
    * after it, so a column is read at the point being drawn: `here` is moved on
    * as the drawing goes down the page, and `colX` reads it.
    */
-  const plan = planWires(doc.qubits, doc.layers)
+  const plan = planWires(doc.qubits, doc.layers, doc.start, doc.startLine)
   const xOf = (position: number) => (position - 1) * pitch
   let here = plan.at[0]
   const colX = (q: number) => xOf(here[q - 1])

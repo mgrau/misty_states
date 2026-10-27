@@ -45,7 +45,7 @@ import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '.
 import type { ChartSpec, CircuitDoc, Frame, Gate, GateStyle, Layer, TableColumn, TableLine, TableSpec, ViewGate } from './ast'
 import type { AnimationOptions } from './animate'
 import { actedOn, gateSpan } from './ast'
-import { bendOf, bendTarget, coveredWires, planWires, WireError } from './wires'
+import { bendOf, bendTarget, coveredWires, homeOf, planWires, WireError } from './wires'
 
 /** Hadamard's label chip is red in the course materials. */
 const SINGLE_GATES: Record<string, { label: string; accent?: string }> = {
@@ -215,7 +215,7 @@ export function readShapes(arg: string, lineNo: number): ShapePick[] {
 
 /** The keywords that open a statement, so anything else can be tried as a state. */
 const KEYWORDS = new Set([
-  'qubits', 'shape', 'shapes', 'header', 'labels', 'in', 'out', 'view', 'show', 'window',
+  'qubits', 'wires', 'shape', 'shapes', 'header', 'labels', 'in', 'out', 'view', 'show', 'window',
   'animate',
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
   'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
@@ -1507,10 +1507,15 @@ const takesEveryWire = (gate: Gate): boolean =>
 const widened = (gate: Gate): boolean => (gate.width ?? 1) > 1
 
 /** Gates on one line share a layer, so they must stay off each other's wires. */
-function refuseOverlaps(gates: Gate[], lineNo: number, place: ReadonlyMap<number, number>): void {
+function refuseOverlaps(
+  gates: Gate[],
+  lineNo: number,
+  place: ReadonlyMap<number, number>,
+  home?: (q: number) => number,
+): void {
   for (let a = 0; a < gates.length; a++) {
     for (let b = a + 1; b < gates.length; b++) {
-      if (conflicts(gates[a], gates[b], place)) {
+      if (conflicts(gates[a], gates[b], place, home)) {
         throw new ParseError(
           widened(gates[a]) || widened(gates[b])
             ? 'a gate made wider takes a layer to itself, so it cannot share one with ";"'
@@ -1523,13 +1528,18 @@ function refuseOverlaps(gates: Gate[], lineNo: number, place: ReadonlyMap<number
   }
 }
 
-function conflicts(a: Gate, b: Gate, place: ReadonlyMap<number, number>): boolean {
+function conflicts(
+  a: Gate,
+  b: Gate,
+  place: ReadonlyMap<number, number>,
+  home?: (q: number) => number,
+): boolean {
   if (takesEveryWire(a) || takesEveryWire(b) || widened(a) || widened(b)) return true
   // A wire on the move has a layer of its own to turn in — a snapshot there
   // would be taken halfway round the corner.
   if ((bendOf(a) && b.kind === 'view') || (bendOf(b) && a.kind === 'view')) return true
-  const bs = new Set(coveredWires(b, place))
-  return coveredWires(a, place).some((q) => bs.has(q))
+  const bs = new Set(coveredWires(b, place, home))
+  return coveredWires(a, place, home).some((q) => bs.has(q))
 }
 
 interface Group {
@@ -1537,6 +1547,8 @@ interface Group {
   breakBefore: boolean
   /** Where the wires that have moved stood when this was written. */
   place?: ReadonlyMap<number, number>
+  /** Where the rest stand: where they started. */
+  home?: (q: number) => number
   caption?: string
   note?: string
   /** The source line it was written on, so a layer can say where it came from. */
@@ -1567,7 +1579,7 @@ function schedule(groups: Group[]): { layers: Layer[]; at: number[] } {
     const place = group.place ?? new Map<number, number>()
     let target = floor
     for (const gate of group.gates) {
-      for (const q of coveredWires(gate, place)) {
+      for (const q of coveredWires(gate, place, group.home)) {
         target = Math.max(target, frontier.get(q) ?? floor)
       }
     }
@@ -1582,7 +1594,7 @@ function schedule(groups: Group[]): { layers: Layer[]; at: number[] } {
     if (group.note && !layers[target].note) layers[target].note = group.note
 
     for (const gate of group.gates) {
-      for (const q of coveredWires(gate, place)) frontier.set(q, target + 1)
+      for (const q of coveredWires(gate, place, group.home)) frontier.set(q, target + 1)
     }
   }
 
@@ -1823,6 +1835,10 @@ export function parseCircuit(text: string): CircuitDoc {
    * bend, so a group can hold on to the one it was written under.
    */
   let place: ReadonlyMap<number, number> = new Map()
+  /** Written `wires`: where each wire starts, and so where an unmoved one is. */
+  let wiresAt: number[] | undefined
+  let wiresLine: number | undefined
+  let home = homeOf()
   let sawGate = false
 
   /**
@@ -1856,7 +1872,7 @@ export function parseCircuit(text: string): CircuitDoc {
   /** Every group goes in through here, so it knows which frames it is inside. */
   const pushGroup = (group: Group) => {
     for (const id of frameStack) drafts[id].used = true
-    const placed = place.size ? { ...group, place } : group
+    const placed = place.size || wiresAt ? { ...group, place, home } : group
     groups.push(frameStack.length ? { ...placed, frames: [...frameStack] } : placed)
   }
 
@@ -1883,7 +1899,7 @@ export function parseCircuit(text: string): CircuitDoc {
     const bends = gates.map(bendOf).filter((g) => g !== null)
     if (bends.length) {
       const moved = new Map(place)
-      for (const b of bends) moved.set(b.qubit, bendTarget(b, place.get(b.qubit) ?? b.qubit))
+      for (const b of bends) moved.set(b.qubit, bendTarget(b, place.get(b.qubit) ?? home(b.qubit)))
       place = moved
     }
     if (gates.some((g) => g.kind !== 'view')) sawGate = true
@@ -2242,6 +2258,21 @@ export function parseCircuit(text: string): CircuitDoc {
 
     flushTail()
 
+    if (kw === 'wires') {
+      // Read before any gate, since where a gate's box reaches is worked out
+      // as the lines go by, from where the wires are by then.
+      if (groups.length) {
+        throw new ParseError('wires says where the wires start, so it goes above the gates', 0, lineNo)
+      }
+      const at = arg.split(/[\s,]+/).filter(Boolean).map(Number)
+      if (!at.length || at.some((p) => !Number.isFinite(p))) {
+        throw new ParseError('wires takes where each wire starts, in columns — e.g. wires 1 4 5', 0, lineNo)
+      }
+      wiresAt = at
+      wiresLine = lineNo
+      home = homeOf(at)
+      continue
+    }
     if (kw === 'qubits') {
       const v = Number(arg)
       if (!Number.isInteger(v) || v < 1) throw new ParseError('qubits needs a positive integer', 0, lineNo)
@@ -2320,7 +2351,7 @@ export function parseCircuit(text: string): CircuitDoc {
     // layer — which is how a view of some qubits sits beside a held identity,
     // or beside a view of the others.
     const gates = placeGates(parts, lineNo, placeOf)
-    refuseOverlaps(gates, lineNo, place)
+    refuseOverlaps(gates, lineNo, place, home)
     pushGates(gates, lineNo, annotated?.caption, annotated?.note)
   }
 
@@ -2363,6 +2394,7 @@ export function parseCircuit(text: string): CircuitDoc {
     declared,
     used.length ? Math.max(...used) : 0,
     stateWidth(input),
+    wiresAt?.length ?? 0,
     rowsWidth(output),
     // A frame asked to take in wires nothing else touches still has them.
     ...drafts.map((d) => d.qubits?.[1] ?? 0),
@@ -2375,7 +2407,7 @@ export function parseCircuit(text: string): CircuitDoc {
   const { layers, at } = schedule(groups)
   checkConditions(layers)
   try {
-    planWires(qubits, layers)
+    planWires(qubits, layers, wiresAt, wiresLine)
   } catch (e) {
     if (e instanceof WireError) throw new ParseError(e.message, 0, e.line ?? 0)
     throw e
@@ -2429,6 +2461,7 @@ export function parseCircuit(text: string): CircuitDoc {
   return {
     kind: 'circuit', qubits, layers, input, inputLine, output, outputLine,
     ...(drawn.length ? { frames: drawn } : {}),
+    ...(wiresAt ? { start: wiresAt, startLine: wiresLine } : {}),
     calculateOutput, calculateCaption, calculateNote, table, chart, animate, header, shapePicks,
     calculateInput: calculateInput || undefined,
     calculateInputCaption,

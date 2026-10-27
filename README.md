@@ -81,6 +81,7 @@ out calculate
 | `view 2-3 00\|11` | View of some qubits |
 | `header on` | Label columns with shapes |
 | `qubits 3` | Set register width (usually inferred) |
+| `wires 1 4 5` | Where each wire starts, in columns (otherwise side by side) |
 | `shape ^os` | Per-wire shapes |
 | `chart` | Bar chart of amplitudes or probabilities |
 | `tabulate` | Outcome table |
@@ -154,18 +155,23 @@ window blank width=2 rows=2
 An `I` can bend its wire aside, to show qubits coming together or going their
 separate ways — Bob taking his half of a pair across town. `shift=` says how
 many columns over (negative for left, fractions allowed); `->` says which
-position to go to, where wire *n* starts at *n*. The wire turns through two
+position to go to. The wire turns through two
 rounded elbows in a layer of its own and stays where it lands, so everything
 after it — gates, windows, the output state, an animation, a drop — follows it
 there. The qubit itself is untouched: a bend is still an identity.
 
+Wire *n* starts at position *n* unless a `wires` line says otherwise:
+`wires 1 4 5` starts them as `|    | |`. A wire it leaves out starts a column
+past the one before it. It goes above the gates.
+
 ```
+wires 1 4 5        # the pair starts apart from the message
 in (0|-1)00
 H 2
 CNOT 2 -> 3
-I 3 shift=2        # Bob's qubit leaves
+I 2 -> 2           # Alice takes her half: now | |    |
 CNOT 1 -> 2
-I 3 -> 3           # and comes back
+I 3 shift=-2       # Bob's comes over too
 ```
 
 Wires may cross — the one moving passes in front — but not collide: they come

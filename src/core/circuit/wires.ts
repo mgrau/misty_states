@@ -1,7 +1,8 @@
 /**
  * Where each wire is, layer by layer.
  *
- * A wire starts at its own number — wire 3 at position 3 — and an `I` written
+ * A wire starts at its own number — wire 3 at position 3 — unless a `wires`
+ * line says otherwise, and an `I` written
  * with `shift=` or `->` bends it across to somewhere else, where it stays until
  * it is moved again. Nothing else moves a wire, so the positions are a walk
  * down the layers, and this is the one place that walk is taken: the parser
@@ -50,6 +51,20 @@ export interface WirePlan {
   bends: Bend[][]
 }
 
+/**
+ * Where each wire starts.
+ *
+ * `wires 1 4 5` puts them at 1, 4 and 5. A wire it leaves out starts a column
+ * past the one before it, so `wires 1 4` still has wire 3 at 5, and a wire
+ * added to the register later lands beside the last rather than on top of it.
+ * With no `wires` line, every wire is at its own number.
+ */
+export function homeOf(start?: readonly number[]): (q: number) => number {
+  if (!start?.length) return (q) => q
+  const last = start[start.length - 1]
+  return (q) => (q <= start.length ? start[q - 1] : last + q - start.length)
+}
+
 /** The `I` that bends a wire, or null for any other gate. */
 export function bendOf(gate: Gate): (IdentityGate & { move: NonNullable<IdentityGate['move']> }) | null {
   return gate.kind === 'identity' && gate.move ? (gate as ReturnType<typeof bendOf>) : null
@@ -72,8 +87,24 @@ const pos = (p: number): string => (Number.isInteger(p) ? `${p}` : `${Math.round
  * wire nobody has mentioned yet still stands in its place — `I 3 -> 4` runs
  * into wire 4 even when wire 4 is only used further down.
  */
-export function planWires(qubits: number, layers: Layer[]): WirePlan {
-  let now = Array.from({ length: qubits }, (_, i) => i + 1)
+export function planWires(
+  qubits: number,
+  layers: Layer[],
+  start?: readonly number[],
+  startLine?: number,
+): WirePlan {
+  const home = homeOf(start)
+  let now = Array.from({ length: qubits }, (_, i) => home(i + 1))
+  for (let a = 0; a < qubits; a++) {
+    for (let b = a + 1; b < qubits; b++) {
+      if (Math.abs(now[a] - now[b]) < MIN_APART - 1e-9) {
+        throw new WireError(
+          `wires ${a + 1} and ${b + 1} start on top of each other, at ${pos(now[a])} and ${pos(now[b])} — wires stay a column apart`,
+          startLine,
+        )
+      }
+    }
+  }
   const at: number[][] = []
   const bends: Bend[][] = []
 
@@ -172,17 +203,23 @@ function checkApart(next: number[], here: Bend[], layer: Layer): void {
  * box. `place` gives each wire's position; any it has not heard of is where it
  * started.
  */
-export function coveredWires(gate: Gate, place: ReadonlyMap<number, number>): number[] {
+export function coveredWires(
+  gate: Gate,
+  place: ReadonlyMap<number, number>,
+  home: (q: number) => number = (q) => q,
+): number[] {
   const own = gateQubits(gate)
   if (!own.length) return []
-  const p = (q: number) => place.get(q) ?? q
+  const p = (q: number) => place.get(q) ?? home(q)
   const xs = own.map(p)
   const lo = Math.min(...xs)
   const hi = Math.max(...xs)
+  // Every wire that could be standing in there: the moved ones wherever they
+  // went, and the rest up to where their starting places pass the far end —
+  // past the wires a `wires` line lists, those are a column apart and rising.
+  let last = Math.max(...own, ...place.keys(), 1)
+  while (home(last) <= hi) last++
   const out = new Set(own)
-  // Unmoved wires between: their number is their place.
-  for (let q = Math.ceil(lo); q <= Math.floor(hi); q++) if (p(q) >= lo && p(q) <= hi) out.add(q)
-  // Moved wires anywhere: their place is wherever they went.
-  for (const [q, x] of place) if (x >= lo && x <= hi) out.add(q)
+  for (let q = 1; q <= last; q++) if (p(q) >= lo && p(q) <= hi) out.add(q)
   return [...out].sort((a, b) => a - b)
 }

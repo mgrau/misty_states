@@ -420,6 +420,13 @@ export interface CircuitDoc {
   /** Per-wire shape override; defaults to position order. */
   shapePicks?: ShapePick[]
   /**
+   * Written `wires 1 4 5`: where each wire starts, in columns, so they need
+   * not start side by side. See `homeOf` for the ones it leaves out.
+   */
+  start?: number[]
+  /** The line it was written on, for pointing at when they start too close. */
+  startLine?: number
+  /**
    * Draw the bare qubit shapes above the circuit. Off unless asked for, so a
    * circuit shows only what was specified; gates keep short input and output
    * pipe stubs either way, and a lone gate reads as a piece of plumbing.

@@ -21,7 +21,7 @@ import type { PipePrim, Prim } from '../render/primitives'
 const doc = (src: string) => parseCircuit(src)
 const positions = (src: string) => {
   const d = doc(src)
-  return planWires(d.qubits, d.layers).at
+  return planWires(d.qubits, d.layers, d.start, d.startLine).at
 }
 const pipes = (prims: Prim[]): PipePrim[] => prims.filter((p): p is PipePrim => p.t === 'pipe')
 
@@ -60,6 +60,43 @@ describe('writing it', () => {
   it('moves along with a definition used on other wires', () => {
     const d = doc('def hop {\nI 1 -> 3\n}\nhop 2')
     expect(planWires(d.qubits, d.layers).at.at(-1)?.[1]).toBe(4)
+  })
+})
+
+describe('starting apart', () => {
+  it('puts each wire where the wires line says', () => {
+    expect(positions('wires 1 4 5\nH 1')[0]).toEqual([1, 4, 5])
+  })
+
+  it('puts a wire it leaves out a column past the one before', () => {
+    expect(positions('wires 1 4\nin 000')[0]).toEqual([1, 4, 5])
+    expect(doc('wires 1 4 5').qubits).toBe(3)
+  })
+
+  it('moves wires from where they start', () => {
+    expect(positions('wires 1 4 5\nI 2 -> 2').at(-1)).toEqual([1, 2, 5])
+    expect(positions('wires 1 4 5\nI 2 shift=-2').at(-1)).toEqual([1, 2, 5])
+  })
+
+  it('packs gates by where the wires start', () => {
+    // Wire 3 starts between 1 and 2, so a CNOT across them covers it.
+    const d = doc('wires 1 3 2\nCNOT 1 -> 2\nX 3')
+    expect(d.layers).toHaveLength(2)
+  })
+
+  it('draws the wires and the input where they start', () => {
+    const { geometry, prims } = layoutCircuit(doc('wires 1 4 5\nin 000\nH 1'))
+    const pitch = geometry.columns[1] / 3
+    expect(geometry.columns).toEqual([0, 3 * pitch, 4 * pitch])
+    const input = prims.filter((p) => p.t === 'qubit' && p.cy < geometry.pipeTop)
+    expect(input.map((p) => (p.t === 'qubit' ? p.cx : 0))).toEqual(geometry.columns)
+  })
+
+  it('says what is wrong rather than guessing', () => {
+    expect(() => doc('wires 1 1.5')).toThrow(/start on top of each other/)
+    expect(() => doc('wires 1 x')).toThrow(/wires takes where each wire starts/)
+    expect(() => doc('H 1\nwires 1 4')).toThrow(/goes above the gates/)
+    expect(() => doc('wires 1 4 5\nI 2 -> 5.5')).toThrow(/would land on wire 3/)
   })
 })
 

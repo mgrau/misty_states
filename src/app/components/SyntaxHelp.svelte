@@ -94,6 +94,7 @@
       heading: 'The register',
       rows: [
         { code: 'qubits 3', text: 'Declare the register (otherwise inferred)' },
+        { code: 'wires 1 4 5', text: 'Where each wire starts, so they need not start side by side' },
         { code: 'shape s^o', text: 'Which shape each wire draws with' },
         { code: 'header on', text: 'Label the columns with qubit shapes (off by default)' },
       ],
