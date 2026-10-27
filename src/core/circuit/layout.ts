@@ -98,6 +98,9 @@ export interface CircuitLayout extends Layout {
   geometry: CircuitGeometry
 }
 
+/** Pipe above and below a tag's shape: a tag is a mark on the pipe, not a box. */
+const TAG_PAD = 8
+
 /** Horizontal padding between a gate's edge and the outermost pipe it covers. */
 const GATE_PAD_X = 12
 /**
@@ -640,6 +643,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
         // A bend wants room for both its elbows, one above the other.
         const bend = gate.kind === 'identity' && plan.bends[at].find((b) => b.qubit === gate.qubit)
         if (bend) return Math.max(m.gateHeight, 2 * turnRadius(bend) + 2 * TURN_PAD) * (gate.height ?? 1)
+        if (gate.kind === 'tag') return (m.qubit + 2 * TAG_PAD) * (gate.height ?? 1)
         return bodyHeight(gate, m)
       }),
     )
@@ -906,7 +910,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     const bodyBand = Math.max(
       0,
       ...layer.gates
-        .filter((g) => g.kind !== 'view' && g.kind !== 'identity')
+        .filter((g) => g.kind !== 'view' && g.kind !== 'identity' && g.kind !== 'tag')
         .map((g) => bodyHeight(g, m)),
     )
 
@@ -916,6 +920,19 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       // the whole reason to write one.
       if (gate.kind === 'identity') continue
       if (gate.kind === 'view') continue
+      // A tag is drawn on the pipe and leaves it whole: the pipe shows through
+      // the outline, which is what says it is still just this wire.
+      if (gate.kind === 'tag') {
+        const key = gateKey(gate, keys)
+        const highlight = gate.line !== undefined && gate.line === opts.highlight
+        for (const q of gate.qubits) {
+          glyphs.push({
+            t: 'qubit', shape: shapeFor(q - 1), value: 0, outline: true,
+            cx: colX(q), cy: y + layerH / 2, size: m.qubit, key, ...(highlight ? { highlight } : {}),
+          })
+        }
+        continue
+      }
 
       // A gate waiting on a measurement is drawn as itself; the line to the
       // measurement is drawn separately, round the outside, below.
@@ -1300,6 +1317,7 @@ function emitGate(
 ): void {
   switch (gate.kind) {
     case 'identity':
+    case 'tag':
       // Handled before this point; a bare pipe passes through.
       return
 

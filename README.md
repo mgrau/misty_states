@@ -77,11 +77,14 @@ out calculate
 | `out calculate` | Calculated output state |
 | `calculate` | The state at this point, worked out |
 | `window calculate` | The same, framed and plumbed in |
+| `window 2-3 calculate` | The state of wires 2 and 3 alone (`calculate 2-3` unframed) |
 | `window blank rows=2` | An empty frame, two rows tall |
 | `view 2-3 00\|11` | View of some qubits |
 | `header on` | Label columns with shapes |
 | `qubits 3` | Set register width (usually inferred) |
 | `wires 1 4 5` | Where each wire starts, in columns (otherwise side by side) |
+| `tag 2` | Wire 2's shape in outline on its pipe, naming the qubit; `tag` alone tags every wire |
+| `coefficients off` | Write a calculated `0\|2*1` as `0\|1\|1` (also a setting) |
 | `shape ^os` | Per-wire shapes |
 | `chart` | Bar chart of amplitudes or probabilities |
 | `tabulate` | Outcome table |
@@ -180,6 +183,22 @@ stretch, and a bend cannot turn through a gate. A gate covers every wire that
 stands between its own, wherever that wire started. A bend cannot be folded
 into a `collapsed` box.
 
+### Naming a wire
+
+`tag 2` draws wire 2's shape on its pipe, in outline only — neither white nor
+black, since it says which physical qubit this pipe is, not what it holds. The
+pipe shows through it. `tag 1-3` tags several, and `tag` alone tags every wire.
+It takes a short layer of its own and does nothing to the state.
+
+```
+wires 1 4 5
+tag                # ○    □ △
+H 2
+CNOT 2 -> 3
+I 2 -> 2
+tag 2              # the □ is with Alice now
+```
+
 ### Acting on a measurement
 
 `if M1` after a gate on one wire — `X`, `Z`, a letter, a rotation, a `GATE` —
@@ -256,6 +275,31 @@ window 2-3 blank          # just wires 2 and 3
 window calculate rows=3   # the state, with room to spare
 ```
 
+### Windows onto some wires
+
+`window 2-3 calculate` — or `window calculate 2-3`, or `calculate 2-3` with no
+frame — works out the state of wires 2 and 3 alone. They have one only when
+they are not entangled with the other wires, and a window onto wires that are
+says so rather than drawing something that would be read as their state. After
+a measurement, outcomes that leave the wires the same way are drawn once; ones
+that leave them differently are listed with their odds. A window covers one run
+of wires side by side.
+
+```
+wires 1 4 5
+in (0|1|1)00
+H 2
+CNOT 2 -> 3
+window 2-3 calculate      # the pair, on its own
+I 2 -> 2
+CNOT 1 -> 2
+H 1
+M 1; M 2
+X 3 if M2
+Z 3 if M1
+window 3 calculate        # Bob's qubit: the message, whatever Alice saw
+```
+
 ### Calculated states
 
 `calculate` (or `calc`) computes the state from the input and gates above it.
@@ -267,6 +311,15 @@ same state are added together.
 
 `in calculate` runs the circuit backwards; a measurement cannot be undone and
 says so. A measurement forward produces one row per outcome with its odds.
+
+### Coefficients
+
+A calculated state writes a whole-number weight as a coefficient, `0|2*1`.
+`coefficients off` writes the term that many times instead, `0|1|1` — how the
+course writes weights before it introduces numbers. A weight that is not a
+whole number keeps its coefficient, and so does one past twelve. Settings has
+the same choice; a circuit's own line wins over it. `coefficients on` asks for
+numbers whatever the setting says.
 
 ### Charts and tables
 

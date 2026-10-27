@@ -256,6 +256,7 @@ function spreadOf(gate: Gate): Spread | null {
     // None of these does anything to the state; the first two are drawings and
     // a measurement is where the branch loop turns one state into several.
     case 'identity':
+    case 'tag':
     case 'view':
     case 'measure':
       return null
@@ -425,7 +426,29 @@ const qubitsOf = (bits: string): QubitNode[] =>
   [...bits].map((bit) => ({ kind: 'qubit', value: bit === '0' ? 0 : 1 }))
 
 /** One block of wires as a drawable factor: a bare run, or a cloud of terms. */
-function blockFactor(amps: Amplitudes, keepSign = false, dial: 'auto' | 'always' | 'never' = 'auto'): Factor[] {
+/**
+ * Past this many, a term is written once with its coefficient after all: a
+ * cloud of twenty copies of one term shows nothing a `20` would not, and
+ * shows it worse.
+ */
+const MAX_COPIES = 12
+
+/** Each whole-number coefficient written out as that many copies of its term. */
+function spelledOut(terms: Term[]): Term[] {
+  return terms.flatMap((term) => {
+    const n = term.coeff ?? 1
+    if (!Number.isInteger(n) || n > MAX_COPIES) return [term]
+    return Array.from({ length: n }, () => ({ ...term, coeff: undefined }))
+  })
+}
+
+function blockFactor(
+  amps: Amplitudes,
+  keepSign = false,
+  dial: 'auto' | 'always' | 'never' = 'auto',
+  coefficients = true,
+): Factor[] {
+  const spell = (terms: Term[]) => (coefficients ? terms : spelledOut(terms))
   const terms = canonical(amps, { keepSign })
   /*
    * One term on its own is a run of bare qubits, whatever its weight.
@@ -499,7 +522,7 @@ function blockFactor(amps: Amplitudes, keepSign = false, dial: 'auto' | 'always'
     if (!turned.length) {
       throw new SimulationError('every amplitude here rounds away to nothing, so there is no state to draw')
     }
-    return [{ kind: 'cloud', terms: turned }]
+    return [{ kind: 'cloud', terms: spell(turned) }]
   }
 
   const written = (bits: string, weight: number, imaginary: boolean): Term => ({
@@ -527,7 +550,7 @@ function blockFactor(amps: Amplitudes, keepSign = false, dial: 'auto' | 'always'
   if (!cloud.terms.length) {
     throw new SimulationError('every amplitude here rounds away to nothing, so there is no state to draw')
   }
-  return [cloud]
+  return [{ ...cloud, terms: spell(cloud.terms) }]
 }
 
 /** The sub-state on `width` leading wires, and on the rest, if it splits. */
@@ -603,6 +626,14 @@ export interface PresentOptions {
    * `1 / H / X / H` lands on `-1`, and the minus *is* the answer.
    */
   keepSign?: boolean
+  /**
+   * Write a whole-number coefficient as a number. Off writes the term that
+   * many times instead — `0|1|1` rather than `0|2*1` — which is how the course
+   * writes weights before it introduces coefficients. A weight that is not a
+   * whole number has no such spelling and keeps its coefficient. A circuit's
+   * own `coefficients` line says otherwise.
+   */
+  coefficients?: boolean
 }
 
 /* -- Measurement --------------------------------------------------------- */
@@ -746,7 +777,7 @@ export function stateFrom(amps: Amplitudes, qubits: number, opts: PresentOptions
   }
 
   const factors = blocks.flatMap((block, i) =>
-    blockFactor(block, negative && i === 0, opts.dial ?? 'auto'),
+    blockFactor(block, negative && i === 0, opts.dial ?? 'auto', opts.coefficients ?? true),
   )
   return { sides: [{ factors }], relations: [] }
 }
@@ -906,15 +937,83 @@ function calculated(
   caption: string | undefined,
   note: string | undefined,
   opts: PresentOptions,
+  wires?: number[],
 ): StateRow[] {
   const { branches, measured } = simulateFrom(doc, layers)
   if (!branches.length) {
     throw new SimulationError('the terms all cancel, leaving no state to draw')
   }
+  if (wires?.length && wires.length < doc.qubits) {
+    return calculatedPart(branches, measured, doc.qubits, wires, caption, note, opts)
+  }
   return branches.map((branch) => {
     const odds = measured ? oddsLabel(branch.odds, opts.exactOdds) : undefined
     const label = [caption, odds].filter(Boolean).join(' — ') || undefined
     return captioned(stateFrom(branch.amps, doc.qubits, opts), label, note)
+  })
+}
+
+/**
+ * The state of some of the wires on their own, `q0`..`q1`, or null if they
+ * have none — which is when they are entangled with a wire outside them.
+ *
+ * They have a state of their own exactly when the whole splits into what is
+ * before them, them, and what is after: a cut each side, the same test that
+ * factoring a product makes.
+ */
+function partOf(amps: Amplitudes, qubits: number, q0: number, q1: number): Amplitudes | null {
+  let rest = amps
+  if (q0 > 1) {
+    const parts = split(rest, q0 - 1)
+    if (!parts) return null
+    rest = parts[1]
+  }
+  if (q1 < qubits) {
+    const parts = split(rest, q1 - q0 + 1)
+    if (!parts) return null
+    rest = parts[0]
+  }
+  return rest
+}
+
+/**
+ * A window onto some of the wires, worked out.
+ *
+ * Each outcome of any measurement so far gives those wires a state, if they
+ * are not entangled with the others. Where every outcome gives the same one it
+ * is drawn once, as the state they are in; where outcomes differ, each is
+ * listed with its odds, as a measured output is. Wires tangled up with the
+ * rest have no state of their own to draw, and saying so beats drawing
+ * something that would be read as one.
+ */
+function calculatedPart(
+  branches: Branch[],
+  measured: boolean,
+  qubits: number,
+  wires: number[],
+  caption: string | undefined,
+  note: string | undefined,
+  opts: PresentOptions,
+): StateRow[] {
+  const q0 = Math.min(...wires)
+  const q1 = Math.max(...wires)
+  const outcomes = new Map<string, { amps: Amplitudes; odds: Frac }>()
+  for (const branch of branches) {
+    const part = partOf(branch.amps, qubits, q0, q1)
+    if (!part) {
+      const which = q0 === q1 ? `wire ${q0} is` : `wires ${q0}-${q1} are`
+      throw new SimulationError(
+        `${which} entangled with the other wires here, so ${q0 === q1 ? 'it has' : 'they have'} no state of ${q0 === q1 ? 'its' : 'their'} own — window every wire, or calculate further down`,
+      )
+    }
+    const key = stateKey(part)
+    const seen = outcomes.get(key)
+    outcomes.set(key, seen ? { ...seen, odds: plus(seen.odds, branch.odds) } : { amps: part, odds: branch.odds })
+  }
+  const listed = measured && outcomes.size > 1
+  return [...outcomes.values()].map(({ amps, odds }) => {
+    const label = [caption, listed ? oddsLabel(odds, opts.exactOdds) : undefined].filter(Boolean).join(' — ') || undefined
+    return captioned(stateFrom(amps, q1 - q0 + 1, opts), label, note)
   })
 }
 
@@ -1161,7 +1260,10 @@ function tableLines(doc: CircuitDoc, opts: PresentOptions): TableLine[] {
   }))
 }
 
-export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}): CircuitDoc {
+export function resolveCalculations(doc: CircuitDoc, given: PresentOptions = {}): CircuitDoc {
+  // The source's word on coefficients beats the setting's: a figure written to
+  // show weights as repeated terms should not change when opened elsewhere.
+  const opts = doc.coefficients === undefined ? given : { ...given, coefficients: doc.coefficients }
   const wanted = doc.layers.some((l) =>
     l.gates.some((g) => g.kind === 'view' && g.calculate),
   )
@@ -1176,7 +1278,7 @@ export function resolveCalculations(doc: CircuitDoc, opts: PresentOptions = {}):
     ...layer,
     gates: layer.gates.map((gate) =>
       gate.kind === 'view' && gate.calculate
-        ? { ...gate, rows: calculated(doc, at, gate.caption, gate.note, opts) }
+        ? { ...gate, rows: calculated(doc, at, gate.caption, gate.note, opts, gate.qubits) }
         : gate,
     ),
   }))

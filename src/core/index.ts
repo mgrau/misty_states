@@ -68,6 +68,12 @@ export interface RenderOptions {
    */
   keepSign?: boolean
   /**
+   * Write a whole-number weight on a calculated state as a number, `0|2*1`.
+   * On by default; off writes the term that many times, `0|1|1`. A circuit's
+   * own `coefficients` line says otherwise.
+   */
+  coefficients?: boolean
+  /**
    * Show what a gate does to the state while it is inside it. On by default;
    * off draws the gate as a closed box that qubits go into and come out of.
    * A source's own `inside=` says otherwise.
@@ -409,6 +415,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       factor: opts.factorCalculated ?? true,
       exactOdds: opts.exactOdds,
       keepSign: opts.keepSign,
+      coefficients: opts.coefficients,
       dial: opts.dial,
     })
     // An animation draws its own ends: the qubits travelling *are* the input
@@ -594,6 +601,7 @@ export function renderFrames(
     factor: opts.factorCalculated ?? true,
     exactOdds: opts.exactOdds,
     keepSign: opts.keepSign,
+    coefficients: opts.coefficients,
   })
   if (!doc.animate) throw new Error('this diagram does not animate — add an "animate" line')
 

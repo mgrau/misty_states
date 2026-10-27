@@ -8,7 +8,7 @@
 import { isGateRun } from './circuit/parse'
 
 const CIRCUIT_KEYWORDS = new Set([
-  'qubits', 'wires', 'in', 'out', 'view', 'show', 'window', 'header', 'labels',
+  'qubits', 'wires', 'coefficients', 'tag', 'in', 'out', 'view', 'show', 'window', 'header', 'labels',
   'h', 'x', 'y', 'z', 's', 't', 'i', 'id', 'identity', 'pete', 'not',
   'cnot', 'cx', 'cz', 'toffoli', 'ccnot', 'ccx', 'swap',
   'measure', 'm', 'box', 'gate', 'cgate', 'blank', 'tabulate', 'table', 'chart', 'plot', 'amplitude', 'amplitudes',

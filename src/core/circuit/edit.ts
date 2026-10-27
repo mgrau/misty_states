@@ -792,6 +792,8 @@ export function asDroppable(gate: Gate): Droppable {
       return { head: gate.angle === undefined ? gate.label : `${gate.label}(${gate.angle})`, wires: 1 }
     case 'identity':
       return { head: 'I', wires: 1 }
+    case 'tag':
+      return { head: 'tag', wires }
     case 'swap':
       // A controlled swap writes `CSWAP <controls> <pair>`, so the pair is the
       // last two wires — which is how the bare form reads them back. This round

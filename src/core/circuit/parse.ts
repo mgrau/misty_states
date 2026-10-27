@@ -42,7 +42,7 @@ import { parseState } from '../state/parse'
 import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
 import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
-import type { ChartSpec, CircuitDoc, Frame, Gate, GateStyle, Layer, TableColumn, TableLine, TableSpec, ViewGate } from './ast'
+import type { ChartSpec, CircuitDoc, Frame, Gate, GateStyle, Layer, TableColumn, TableLine, TableSpec, TagGate, ViewGate } from './ast'
 import type { AnimationOptions } from './animate'
 import { actedOn, gateSpan } from './ast'
 import { bendOf, bendTarget, coveredWires, homeOf, planWires, WireError } from './wires'
@@ -215,8 +215,8 @@ export function readShapes(arg: string, lineNo: number): ShapePick[] {
 
 /** The keywords that open a statement, so anything else can be tried as a state. */
 const KEYWORDS = new Set([
-  'qubits', 'wires', 'shape', 'shapes', 'header', 'labels', 'in', 'out', 'view', 'show', 'window',
-  'animate',
+  'qubits', 'wires', 'shape', 'shapes', 'header', 'labels', 'coefficients', 'in', 'out', 'view', 'show', 'window',
+  'animate', 'tag',
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
   'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
@@ -893,9 +893,27 @@ function parseView(
   }
   if (tokens.length === 1 && /^blank$/i.test(tokens[0])) return empty([])
 
+  // The wires can come after a `calculate` or a `blank` as well as before it,
+  // there being no state written for them to be mistaken for.
+  const last = tokens[tokens.length - 1]
+  if (tokens.length === 2 && /^(calculate|calc|blank)$/i.test(tokens[0]) && RANGE.test(last)) {
+    const qubits = parseQubits([{ text: last, quoted: false }], lineNo)
+    if (/^blank$/i.test(tokens[0])) return empty(qubits)
+    return { ...viewOf(tokens[0], qubits, lineNo), boxed: boxed || undefined, ...style }
+  }
+
   let qubits: number[] = []
   let from = 0
   if (tokens.length > 1 && RANGE.test(tokens[0])) {
+    // A state is written in 0s, 1s and ?s, so another number after the wires
+    // is a second set of wires — and a window covers one run of them.
+    if (/^\d+(-\d+)?$/.test(tokens[1]) && /[2-9-]/.test(tokens[1])) {
+      throw new ParseError(
+        `a window covers wires side by side — write them as a range, e.g. ${tokens[0]}-${tokens[1].split('-').pop()}`,
+        0,
+        lineNo,
+      )
+    }
     qubits = parseQubits([{ text: tokens[0], quoted: false }], lineNo)
     from = text.indexOf(tokens[0]) + tokens[0].length
     if (/^\s*blank\s*$/i.test(text.slice(from))) return empty(qubits)
@@ -976,19 +994,13 @@ function viewOf(
   lineNo: number,
   base?: number,
 ): ViewGate {
-  // `calculate` has no width of its own: it covers the register, whatever the
-  // register turns out to be, so the span is filled in once that is known. Its
-  // caption is held here too, there being no state yet to hang it on.
+  // `calculate` with no wires covers the register, whatever the register turns
+  // out to be, so the span is filled in once that is known. Given wires, it
+  // works out the state of those alone. Its caption is held here too, there
+  // being no state yet to hang it on.
   const calc = readCalculate(stateText)
   if (calc) {
-    if (qubits.length) {
-      throw new ParseError(
-        'calculate works out the whole register, so it takes no qubit range',
-        0,
-        lineNo,
-      )
-    }
-    return { kind: 'view', qubits: [], calculate: true, caption: calc.caption, note: calc.note }
+    return { kind: 'view', qubits, calculate: true, caption: calc.caption, note: calc.note }
   }
 
   const row = parseState(stateText, base).rows[0]
@@ -1082,6 +1094,13 @@ function parseGate(src: string, line: number): Gate {
       return viewOf(rest.slice(1).map((t) => t.text).join(' '), qs, line)
     }
     return { kind: 'identity', qubit: oneQubit() }
+  }
+
+  // `tag` alone is every wire, settled once the register's width is known.
+  if (head === 'TAG') {
+    noBox()
+    noColour()
+    return { kind: 'tag', qubits: rest.length ? parseQubits(rest, line) : [] }
   }
 
   // NOT is drawn as a bare ⊕ throughout the course materials, never as a
@@ -1387,6 +1406,9 @@ function parseSizedGate(src: string, line: number): Gate {
   }
   // A pipe is as wide as a pipe. Height is another matter: a taller pipe is
   // how a layer is given room without anything being put in it.
+  if (width !== undefined && gate.kind === 'tag') {
+    throw new ParseError('a tag is a shape on its pipe, with no box to widen — height= gives it more room', 0, line)
+  }
   if (width !== undefined && gate.kind === 'identity') {
     throw new ParseError('I is a plain pipe, with no box to widen — height= gives it more room', 0, line)
   }
@@ -1459,7 +1481,7 @@ function checkConditions(layers: Layer[]): void {
         else read.delete(gate.qubit)
         continue
       }
-      if (gate.kind === 'identity' || gate.kind === 'view') continue
+      if (gate.kind === 'identity' || gate.kind === 'tag' || gate.kind === 'view') continue
       for (const q of actedOn(gate)) read.delete(q)
     }
   }
@@ -1495,7 +1517,8 @@ function shifted(gate: Gate, value: string, line: number): Gate {
  * beside it.
  */
 const takesEveryWire = (gate: Gate): boolean =>
-  gate.kind === 'view' && (!!gate.calculate || (!!gate.blank && !gate.qubits.length))
+  (gate.kind === 'view' && !gate.qubits.length && (!!gate.calculate || !!gate.blank)) ||
+  (gate.kind === 'tag' && !gate.qubits.length)
 
 /**
  * A gate drawn wider than its own wires.
@@ -1773,6 +1796,8 @@ function mapGate(gate: Gate, to: (q: number) => number): Gate {
     return { ...mapGate(rest as Gate, to), given: { ...given, qubit: to(given.qubit) } }
   }
   switch (gate.kind) {
+    case 'tag':
+      return { ...gate, qubits: gate.qubits.map(to) }
     case 'identity': {
       // A position is not a wire, but it moves with one: written on wire 1 and
       // used on wire 3, `-> 2` is two columns along from where it was written.
@@ -1809,6 +1834,7 @@ export function parseCircuit(text: string): CircuitDoc {
   // Off by default: a circuit draws only what you ask for. Use `in <state>` for
   // a misty state above it, or `header on` for the bare qubit shapes.
   let header = false
+  let coefficients: boolean | undefined
   let shapePicks: ShapePick[] | undefined
   let input: StateRow | undefined
   let output: StateRow[] | undefined
@@ -2218,6 +2244,14 @@ export function parseCircuit(text: string): CircuitDoc {
         continue
       }
 
+      // `calculate 2-3` is `view 2-3 calculate`: the state of those wires,
+      // bare. Never the input or the output — those are every wire.
+      if (/^calc(ulate)?\s+\d+(-\d+)?\s*$/i.test(line)) {
+        flushTail()
+        pushView(parseView(line, lineNo, false), lineNo)
+        continue
+      }
+
       // A bare `calculate` is a state like any other — position says whether it
       // is a snapshot in the middle or the circuit's output.
       const bareCalc = readCalculate(line)
@@ -2281,6 +2315,14 @@ export function parseCircuit(text: string): CircuitDoc {
     }
     if (kw === 'animate') {
       animate = readAnimation(arg, lineNo)
+      continue
+    }
+    if (kw === 'coefficients') {
+      const v = arg.toLowerCase()
+      if (v !== 'on' && v !== 'off') {
+        throw new ParseError('coefficients takes "on" (0|2*1) or "off" (0|1|1)', 0, lineNo)
+      }
+      coefficients = v === 'on'
       continue
     }
     if (kw === 'header' || kw === 'labels') {
@@ -2387,9 +2429,13 @@ export function parseCircuit(text: string): CircuitDoc {
   // register, whatever width that turns out to be.
   const pending = gates.filter(
     (g): g is ViewGate =>
-      g.kind === 'view' && (!!g.calculate || (!!g.blank && !g.qubits.length)),
+      g.kind === 'view' && !g.qubits.length && (!!g.calculate || !!g.blank),
   )
-  const used = gates.filter((g) => !pending.includes(g as ViewGate)).flatMap((g) => gateSpan(g))
+  // A bare `tag` is the same: every wire, however many that is.
+  const everyWire = gates.filter((g): g is TagGate => g.kind === 'tag' && !g.qubits.length)
+  const used = gates
+    .filter((g) => !pending.includes(g as ViewGate) && !everyWire.includes(g as TagGate))
+    .flatMap((g) => gateSpan(g))
   const qubits = Math.max(
     declared,
     used.length ? Math.max(...used) : 0,
@@ -2402,6 +2448,9 @@ export function parseCircuit(text: string): CircuitDoc {
   )
   for (const view of pending) {
     view.qubits = Array.from({ length: qubits }, (_, i) => i + 1)
+  }
+  for (const tag of everyWire) {
+    tag.qubits = Array.from({ length: qubits }, (_, i) => i + 1)
   }
 
   const { layers, at } = schedule(groups)
@@ -2462,6 +2511,7 @@ export function parseCircuit(text: string): CircuitDoc {
     kind: 'circuit', qubits, layers, input, inputLine, output, outputLine,
     ...(drawn.length ? { frames: drawn } : {}),
     ...(wiresAt ? { start: wiresAt, startLine: wiresLine } : {}),
+    ...(coefficients !== undefined ? { coefficients } : {}),
     calculateOutput, calculateCaption, calculateNote, table, chart, animate, header, shapePicks,
     calculateInput: calculateInput || undefined,
     calculateInputCaption,

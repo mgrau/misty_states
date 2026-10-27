@@ -47,6 +47,20 @@ export interface IdentityGate {
   move?: { by?: number; to?: number }
 }
 
+/**
+ * Written `tag 2`, or `tag` for every wire: the wire's shape, in outline, on
+ * its pipe — saying which physical qubit this pipe is, without saying what it
+ * holds. Neither white nor black, because it is not a value.
+ *
+ * Like an identity it does nothing to the state; unlike one it draws
+ * something, in a layer shorter than a gate, since there is no box to hold.
+ */
+export interface TagGate {
+  kind: 'tag'
+  /** Empty for a bare `tag` until the register's width is known. */
+  qubits: number[]
+}
+
 /** Controlled gate: filled dots on controls, a target glyph on the target. */
 export interface ControlledGate {
   kind: 'controlled'
@@ -202,7 +216,7 @@ export interface GateStyle {
 }
 
 export type Gate = (
-  | SingleGate | IdentityGate | ControlledGate | SwapGate | MeasureGate | BoxGate | ViewGate
+  | SingleGate | IdentityGate | TagGate | ControlledGate | SwapGate | MeasureGate | BoxGate | ViewGate
 ) & GateStyle & {
   /**
    * The source line this was written on.
@@ -247,6 +261,7 @@ export function actedOn(gate: Gate): number[] {
   switch (gate.kind) {
     case 'single': return [gate.qubit]
     case 'identity': return [gate.qubit]
+    case 'tag': return [...gate.qubits]
     case 'controlled': return [...gate.controls, gate.target]
     case 'swap': return [...(gate.controls ?? []), ...gate.qubits]
     case 'measure': return [gate.qubit]
@@ -419,6 +434,12 @@ export interface CircuitDoc {
   frames?: Frame[]
   /** Per-wire shape override; defaults to position order. */
   shapePicks?: ShapePick[]
+  /**
+   * Written `coefficients on` or `off`: whether a calculated state writes a
+   * whole-number weight as a number or as that many copies of its term. Absent
+   * leaves it to the reader's setting.
+   */
+  coefficients?: boolean
   /**
    * Written `wires 1 4 5`: where each wire starts, in columns, so they need
    * not start side by side. See `homeOf` for the ones it leaves out.

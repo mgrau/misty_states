@@ -495,8 +495,8 @@ describe('where calculate can go', () => {
     expect(() => render('in calculate\nH 1')).toThrow(/written somewhere else/)
   })
 
-  it('takes no qubit range, since it works out the whole register', () => {
-    expect(() => parseCircuit('in 00\nH 1\nview 1-2 calculate')).toThrow(/takes no qubit range/)
+  it('takes a range of wires, and works out those alone', () => {
+    expect(parseCircuit('in 00\nH 1\nview 1-2 calculate').layers[1].gates[0]).toMatchObject({ qubits: [1, 2] })
   })
 
   it('draws, end to end, in every theme', () => {

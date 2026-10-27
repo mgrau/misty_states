@@ -232,7 +232,7 @@ export function termRun(doc: CircuitDoc): Working[] {
 
   const out: Working[] = []
   doc.layers.forEach((layer, at) => {
-    const acting = layer.gates.filter((g) => g.kind !== 'view' && g.kind !== 'identity')
+    const acting = layer.gates.filter((g) => g.kind !== 'view' && g.kind !== 'identity' && g.kind !== 'tag')
     if (acting.some((g) => g.kind === 'measure')) {
       throw new NotClassicalError(
         `layer ${at + 1} measures, which splits the drawing into outcomes rather than moving it`,

@@ -95,6 +95,7 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
   if (gate.given) throw new Error('reference: a gate waiting on a measurement has no matrix here')
   switch (gate.kind) {
     case 'identity':
+    case 'tag':
     case 'view':
       return null
 

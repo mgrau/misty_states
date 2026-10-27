@@ -51,6 +51,7 @@
     factorCalculated: boolean
     exactOdds: boolean
     keepSign: boolean
+    coefficients: boolean
     phaseDial: 'auto' | 'always' | 'never'
     animateInside: boolean
     movieFps: number
@@ -74,6 +75,7 @@
       factorCalculated: true,
       exactOdds: false,
       keepSign: false,
+      coefficients: true,
       phaseDial: 'auto' as const,
       animateInside: true,
       movieFps: 30,
@@ -254,6 +256,7 @@
   let factorCalculated = $state(initial.factorCalculated)
   let exactOdds = $state(initial.exactOdds)
   let keepSign = $state(initial.keepSign)
+  let coefficients = $state(initial.coefficients)
   let phaseDial = $state(initial.phaseDial)
   let animateInside = $state(initial.animateInside)
   let movieFps = $state(initial.movieFps)
@@ -341,6 +344,7 @@
     factorCalculated,
     exactOdds,
     keepSign,
+    coefficients,
     dial: phaseDial,
     animateInside,
     answers,
@@ -443,7 +447,7 @@
   $effect(() => {
     const snapshot: Saved = {
       source, name, theme, dark, accent, shapeOrder, qubitSize, paneWidth, separator, cloudFluff,
-      cloudPad, factorCalculated, exactOdds, keepSign, phaseDial, animateInside, movieFps, checking,
+      cloudPad, factorCalculated, exactOdds, keepSign, coefficients, phaseDial, animateInside, movieFps, checking,
       dragFormat,
     }
     try {
@@ -2047,6 +2051,7 @@
     {factorCalculated}
     {exactOdds}
     {keepSign}
+    {coefficients}
     phaseDial={phaseDial}
     {animateInside}
     {movieFps}
@@ -2079,6 +2084,7 @@
     onfactorchange={(v) => (factorCalculated = v)}
     onexactoddschange={(v) => (exactOdds = v)}
     onkeepsignchange={(v) => (keepSign = v)}
+    oncoefficientschange={(v) => (coefficients = v)}
     ondialchange={(v) => (phaseDial = v)}
     oninsidechange={(v) => (animateInside = v)}
     onfpschange={(v) => (movieFps = v)}

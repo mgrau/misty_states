@@ -95,6 +95,8 @@
       rows: [
         { code: 'qubits 3', text: 'Declare the register (otherwise inferred)' },
         { code: 'wires 1 4 5', text: 'Where each wire starts, so they need not start side by side' },
+        { code: 'tag 2', text: "Wire 2's shape in outline on its pipe; tag alone tags every wire" },
+        { code: 'coefficients off', text: 'Write a calculated 0|2*1 as 0|1|1 (on: always numbers)' },
         { code: 'shape s^o', text: 'Which shape each wire draws with' },
         { code: 'header on', text: 'Label the columns with qubit shapes (off by default)' },
       ],
@@ -164,6 +166,7 @@
         { code: 'view 2-3 00|11', text: 'A view of some qubits; the rest flow past' },
         { code: 'window 010', text: 'The same, framed with a pane; fill= colours the pane' },
         { code: 'window blank rows=2', text: 'An empty frame to draw in; rows= is its height, in rows of qubits' },
+        { code: 'window 2-3 calculate', text: 'The state of wires 2 and 3 alone, if they have one; calculate 2-3 unframed' },
         { code: 'H 1 width=2 height=1.5', text: 'Any gate or window, as a multiple of its size. Wider takes a layer to itself' },
         { code: 'I 2 0', text: 'An identity that shows what its qubit holds' },
       ],

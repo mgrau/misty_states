@@ -17,6 +17,11 @@ export interface QubitPrim {
   cy: number
   size: number
   /**
+   * Only the outline, with nothing inside: a wire's shape naming the wire, not
+   * a qubit with a value. Drawn on a pipe, which shows through it.
+   */
+  outline?: boolean
+  /**
    * Where in the source the character that drew this was written.
    *
    * Carried all the way from the parser so that pointing at a qubit on screen

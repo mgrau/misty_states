@@ -111,7 +111,7 @@ const AXES: Record<string, Vec3> = { RX: [1, 0, 0], RY: [0, 1, 0], RZ: [0, 0, 1]
  */
 function moveOf(gate: Gate): BlochMove {
   if (gate.kind === 'measure') return { kind: 'collapse' }
-  if (gate.kind === 'view' || gate.kind === 'identity') return { kind: 'still' }
+  if (gate.kind === 'view' || gate.kind === 'identity' || gate.kind === 'tag') return { kind: 'still' }
   if (gate.kind === 'single' && gate.angle !== undefined && AXES[gate.label]) {
     return { kind: 'turn', axis: AXES[gate.label], angle: (gate.angle * Math.PI) / 180 }
   }

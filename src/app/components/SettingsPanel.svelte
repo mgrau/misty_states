@@ -30,6 +30,7 @@
     factorCalculated: boolean
     exactOdds: boolean
     keepSign: boolean
+    coefficients: boolean
     phaseDial: 'auto' | 'always' | 'never'
     animateInside: boolean
     movieFps: number
@@ -58,6 +59,7 @@
     onfactorchange: (factor: boolean) => void
     onexactoddschange: (exact: boolean) => void
     onkeepsignchange: (keep: boolean) => void
+    oncoefficientschange: (on: boolean) => void
     oninsidechange: (inside: boolean) => void
     onfpschange: (fps: number) => void
     oncheckingchange: (on: boolean) => void
@@ -81,6 +83,7 @@
     factorCalculated,
     exactOdds,
     keepSign,
+    coefficients,
     phaseDial,
     animateInside,
     movieFps,
@@ -108,6 +111,7 @@
     onfactorchange,
     onexactoddschange,
     onkeepsignchange,
+    oncoefficientschange,
     oninsidechange,
     onfpschange,
     oncheckingchange,
@@ -503,6 +507,28 @@
             </button>
           {/each}
         </div>
+        <div class="flex rounded-md border border-slate-200 p-0.5">
+          {#each [{ id: true, label: '0|2*1' }, { id: false, label: '0|1|1' }] as const as opt (opt.label)}
+            <button
+              type="button"
+              onclick={() => oncoefficientschange(opt.id)}
+              aria-pressed={coefficients === opt.id}
+              class="flex-1 rounded px-2 py-1 font-mono text-xs transition-colors
+                     {coefficients === opt.id
+                ? 'bg-slate-800 text-white'
+                : 'text-slate-600 hover:text-slate-900'}"
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="text-[11px] text-slate-400">
+          How a calculated state writes a whole-number weight: as a coefficient,
+          or as the term that many times. A weight that is not a whole number
+          keeps its coefficient either way, and a circuit's own
+          <span class="font-mono">coefficients on</span> or
+          <span class="font-mono">off</span> line wins over this.
+        </p>
         <div class="flex rounded-md border border-slate-200 p-0.5">
           {#each [{ id: 'auto', label: 'Auto' }, { id: 'never', label: 'Signs' }, { id: 'always', label: 'Dials' }] as const as opt (opt.id)}
             <button
