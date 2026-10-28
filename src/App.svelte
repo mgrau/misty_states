@@ -269,6 +269,8 @@
    */
   let dragFormat = $state(initial.dragFormat)
   let zoom = $state(1)
+  /** How far the drawing has been slid from the middle of its pane, in pixels. */
+  let pan = $state({ x: 0, y: 0 })
 
   /**
    * Whether the answer is on show.
@@ -1286,22 +1288,79 @@
   const ZOOM_MIN = 0.25
   const ZOOM_MAX = 3
 
-  /**
-   * Scrolling over the drawing zooms it.
-   *
-   * Multiplicative, so a step feels the same size at 30% as at 300%, and the
-   * default is passed through only when a modifier is held — otherwise a
-   * trackpad swipe meant for the page would zoom instead.
-   */
   const clampZoom = (v: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, v))
 
+  /**
+   * Keep some of the drawing in view.
+   *
+   * It may slide as far as the part that overflows the pane, and no further:
+   * a drawing that fits stays where it is, and one zoomed past the pane can be
+   * brought edge to edge but not lost off it.
+   */
+  function clampPan(p: { x: number; y: number }, z = zoom): { x: number; y: number } {
+    const content = previewEl?.querySelector<HTMLElement>('[data-preview]')
+    if (!previewEl || !content) return p
+    const reach = (inner: number, outer: number) => Math.max(0, (inner * z - outer) / 2 + PAN_MARGIN)
+    const rx = reach(content.offsetWidth, previewEl.clientWidth)
+    const ry = reach(content.offsetHeight, previewEl.clientHeight)
+    return {
+      x: Math.min(rx, Math.max(-rx, p.x)),
+      y: Math.min(ry, Math.max(-ry, p.y)),
+    }
+  }
+  /** Room past the drawing's edge a pan may show, so the edge is not hard against the pane's. */
+  const PAN_MARGIN = 32
+
+  /**
+   * Zoom to `next`, keeping the point under `at` (screen pixels) where it is.
+   *
+   * Without `at` it zooms about the middle, as the slider does.
+   */
+  function zoomTo(next: number, at?: { x: number; y: number }) {
+    next = clampZoom(next)
+    let p = pan
+    if (at && previewEl) {
+      const box = previewEl.getBoundingClientRect()
+      // From the pane's middle, which is where the drawing's middle sits unpanned.
+      const sx = at.x - (box.left + box.width / 2)
+      const sy = at.y - (box.top + box.height / 2)
+      const k = next / zoom
+      p = { x: sx - k * (sx - pan.x), y: sy - k * (sy - pan.y) }
+    }
+    pan = clampPan(p, next)
+    zoom = next
+  }
+
+  // The slider, the reset and Settings set the zoom directly; a pan that
+  // reached past the edges at the old size is pulled back in.
+  $effect(() => {
+    const was = untrack(() => pan)
+    const kept = clampPan(was, zoom)
+    if (kept.x !== was.x || kept.y !== was.y) pan = kept
+  })
+
+  /**
+   * Scrolling over the drawing slides it; a pinch zooms.
+   *
+   * A trackpad pinch arrives as a wheel with ctrl held, which is also what
+   * ctrl and a mouse wheel give, so both zoom — multiplicatively, so a step
+   * feels the same size at 30% as at 300%, and about the pointer, so what is
+   * being looked at stays put. Any other scroll pans, the way a map does.
+   * The browser is left the gesture when cmd or alt is held.
+   */
   function onWheel(event: WheelEvent) {
-    // A trackpad pinch arrives as a wheel with ctrl held, and the browser would
-    // otherwise zoom the whole page rather than the drawing.
     if (event.metaKey || event.altKey) return
     event.preventDefault()
-    const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0015))
-    zoom = clampZoom(zoom * factor)
+    if (event.ctrlKey) {
+      zoomTo(zoom * Math.exp(-event.deltaY * 0.01), { x: event.clientX, y: event.clientY })
+      return
+    }
+    // A mouse wheel only scrolls down; shift turns it sideways, as on a page.
+    const lines = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1
+    let dx = event.deltaX * lines
+    let dy = event.deltaY * lines
+    if (event.shiftKey && !dx) [dx, dy] = [dy, 0]
+    pan = clampPan({ x: pan.x - dx, y: pan.y - dy })
   }
 
   /**
@@ -1314,11 +1373,15 @@
    * pinch zooms the page, and what is wanted is a bigger diagram.
    */
   const touching = new Map<number, { x: number; y: number }>()
-  let pinch: { apart: number; zoom: number } | null = null
+  let pinch: { apart: number; mid: { x: number; y: number } } | null = null
 
   const apart = () => {
     const [a, b] = [...touching.values()]
     return Math.hypot(a.x - b.x, a.y - b.y)
+  }
+  const midpoint = () => {
+    const [a, b] = [...touching.values()]
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
   }
 
   function trackTouch(event: PointerEvent) {
@@ -1327,7 +1390,7 @@
     if (touching.size === 2) {
       // A second finger turns a drag into a zoom: nobody places a gate with two.
       board.destroy()
-      pinch = { apart: apart(), zoom }
+      pinch = { apart: apart(), mid: midpoint() }
     }
   }
 
@@ -1336,7 +1399,12 @@
     touching.set(event.pointerId, { x: event.clientX, y: event.clientY })
     if (!pinch || touching.size !== 2) return
     event.preventDefault()
-    zoom = clampZoom((pinch.zoom * apart()) / pinch.apart)
+    // The two fingers carry the drawing along as they spread: it zooms about
+    // their middle, and moves as far as their middle has.
+    const mid = midpoint()
+    pan = clampPan({ x: pan.x + mid.x - pinch.mid.x, y: pan.y + mid.y - pinch.mid.y })
+    zoomTo((zoom * apart()) / pinch.apart, mid)
+    pinch = { apart: apart(), mid }
   }
 
   function endTouch(event: PointerEvent) {
@@ -1627,8 +1695,11 @@
         <div class="hidden items-center gap-1.5 lg:flex">
           <button
             type="button"
-            onclick={() => (zoom = 1)}
-            disabled={zoom === 1}
+            onclick={() => {
+              zoom = 1
+              pan = { x: 0, y: 0 }
+            }}
+            disabled={zoom === 1 && !pan.x && !pan.y}
             title="Back to 100%"
             class="rounded px-1 py-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800
                    disabled:hover:bg-transparent disabled:hover:text-slate-500"
@@ -1946,9 +2017,9 @@
         onpointermove={onPinchMove}
         onpointerup={endTouch}
         onpointercancel={endTouch}
-        title="Drag the figure into slides, or scroll to zoom"
+        title="Drag the figure into slides; scroll to pan, pinch to zoom"
         style="touch-action: pan-x pan-y;"
-        class="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8
+        class="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-8
                {dark ? 'checkerboard-dark' : 'checkerboard'}
                {carry.carrying ? 'ring-2 ring-slate-400 ring-inset' : ''}"
       >
@@ -1965,7 +2036,7 @@
         <div
           data-preview
           class="transition-opacity {result.ok ? '' : 'opacity-40 grayscale'}"
-          style="transform: scale({zoom}); transform-origin: center;
+          style="transform: translate({pan.x}px, {pan.y}px) scale({zoom}); transform-origin: center;
                  --misty-play: paused; --misty-at: -{at}s;"
         >
           <!-- A wrapper of its own, so the drag can hold the drawing still

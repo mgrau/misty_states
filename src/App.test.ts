@@ -1457,3 +1457,37 @@ describe('the gate palette', () => {
     }
   })
 })
+
+describe('panning and zooming the drawing', () => {
+  const stage = () => host.querySelector('[data-preview]') as HTMLElement
+  const pane = () => stage().parentElement as HTMLElement
+  const wheel = (init: WheelEventInit) => {
+    pane().dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ...init }))
+    flushSync()
+  }
+
+  it('slides the drawing when scrolled, without zooming it', () => {
+    boot()
+    wheel({ deltaX: 10, deltaY: 20 })
+    expect(stage().style.transform).toBe('translate(-10px, -20px) scale(1)')
+  })
+
+  it('turns a mouse wheel sideways with shift held', () => {
+    boot()
+    wheel({ deltaY: 20, shiftKey: true })
+    expect(stage().style.transform).toBe('translate(-20px, 0px) scale(1)')
+  })
+
+  it('zooms on a pinch, which arrives as a wheel with ctrl held', () => {
+    boot()
+    wheel({ deltaY: -50, ctrlKey: true })
+    expect(stage().style.transform).toMatch(/scale\(1\.6\d*\)/)
+  })
+
+  it('keeps the drawing from being slid away', () => {
+    boot()
+    wheel({ deltaY: 10_000 })
+    // The drawing has no size in this DOM, so all a pan has is the margin.
+    expect(stage().style.transform).toBe('translate(0px, -32px) scale(1)')
+  })
+})

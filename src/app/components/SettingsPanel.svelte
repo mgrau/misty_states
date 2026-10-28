@@ -225,8 +225,8 @@
         <h3 class="text-xs font-medium text-slate-500">This diagram</h3>
 
         <!--
-          Scroll and pinch zoom the drawing directly, which is what anyone
-          reaches for. The slider is here for when a figure wants a particular
+          Pinching zooms the drawing directly and scrolling pans it, which is
+          what anyone reaches for. The slider is here for when a figure wants a particular
           size rather than whatever the wheel landed on — and it is the only way
           on a phone, where a slider in the editing column costs a row that the
           drawing wants more.
