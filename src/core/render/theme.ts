@@ -262,11 +262,12 @@ export function drawQubit(
   const unknown = p.value === 'unknown'
   const fill = p.value === 1 ? pal.one : pal.zero
   const d = shapePath(p.shape, p.size)
-  // No fill, no shadow, no shading: it is not a solid thing with a colour.
+  // No fill, no shadow, no shading: it is not a solid thing with a colour. Drawn
+  // in the muted grey rather than ink, so it is not read as a black glyph.
   if (p.outline) {
     return g(
       { transform: `translate(${n(p.cx)} ${n(p.cy)})` },
-      el('path', { d, fill: 'none', stroke: pal.ink, 'stroke-width': m.stroke, 'stroke-linejoin': 'round' }),
+      el('path', { d, fill: 'none', stroke: pal.muted, 'stroke-width': m.stroke, 'stroke-linejoin': 'round' }),
     )
   }
   // Behind everything, and only where the glyph is opaque enough to cast one.

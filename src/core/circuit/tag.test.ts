@@ -11,7 +11,8 @@ import { parseCircuit } from './parse'
 import { layoutCircuit } from './layout'
 import { canonical, simulate } from './simulate'
 import { render } from '../index'
-import type { QubitPrim } from '../render/primitives'
+import { DEFAULT_METRICS, type QubitPrim } from '../render/primitives'
+import { LIGHT_PALETTE } from '../render/theme'
 
 const doc = (src: string) => parseCircuit(src)
 const outlines = (src: string): QubitPrim[] =>
@@ -52,6 +53,13 @@ describe('drawing it', () => {
     const marks = outlines('in 000\ntag')
     expect(marks.map((p) => p.shape)).toEqual(geometry.shapes)
     expect(marks.map((p) => p.cx)).toEqual(geometry.columns)
+  })
+
+  it('sits inside the pipe, in grey rather than ink', () => {
+    const [mark] = outlines('in 0\ntag')
+    expect(mark.size).toBeCloseTo(DEFAULT_METRICS.pipeWidth * 0.55)
+    const svg = render('in 0\ntag', { check: false }).svg
+    expect(svg).toContain(`fill="none" stroke="${LIGHT_PALETTE.muted}"`)
   })
 
   it('leaves the pipe whole, to show through the outline', () => {

@@ -100,6 +100,8 @@ export interface CircuitLayout extends Layout {
 
 /** Pipe above and below a tag's shape: a tag is a mark on the pipe, not a box. */
 const TAG_PAD = 8
+/** A tag's shape across, as a share of the pipe: inside it, so the pipe frames it. */
+const TAG_SCALE = 0.55
 
 /** Horizontal padding between a gate's edge and the outermost pipe it covers. */
 const GATE_PAD_X = 12
@@ -643,7 +645,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
         // A bend wants room for both its elbows, one above the other.
         const bend = gate.kind === 'identity' && plan.bends[at].find((b) => b.qubit === gate.qubit)
         if (bend) return Math.max(m.gateHeight, 2 * turnRadius(bend) + 2 * TURN_PAD) * (gate.height ?? 1)
-        if (gate.kind === 'tag') return (m.qubit + 2 * TAG_PAD) * (gate.height ?? 1)
+        if (gate.kind === 'tag') return (m.pipeWidth * TAG_SCALE + 2 * TAG_PAD) * (gate.height ?? 1)
         return bodyHeight(gate, m)
       }),
     )
@@ -928,7 +930,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
         for (const q of gate.qubits) {
           glyphs.push({
             t: 'qubit', shape: shapeFor(q - 1), value: 0, outline: true,
-            cx: colX(q), cy: y + layerH / 2, size: m.qubit, key, ...(highlight ? { highlight } : {}),
+            cx: colX(q), cy: y + layerH / 2, size: m.pipeWidth * TAG_SCALE, key, ...(highlight ? { highlight } : {}),
           })
         }
         continue
