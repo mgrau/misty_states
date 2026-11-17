@@ -48,16 +48,23 @@
   }
 
   /**
-   * Dropped open, the way a use is usually written; a click on its frame
-   * folds it, the same as any other.
+   * Dropped folded, as drawn here; a click on it opens it. One that cannot
+   * fold (it measures, or moves a wire) is dropped open instead.
    */
-  const droppable = (item: DefinitionEntry): Droppable =>
-    useDroppable({
+  function droppable(item: DefinitionEntry): Droppable {
+    let collapsed = true
+    try {
+      render(`${item.defs}\n${item.name} collapsed`, { check: false })
+    } catch {
+      collapsed = false
+    }
+    return useDroppable({
       line: 0,
       name: item.name,
       wires: Array.from({ length: item.wires }, (_, i) => i + 1),
-      collapsed: false,
+      collapsed,
     })
+  }
 </script>
 
 <div class="flex shrink-0 flex-col gap-1">
