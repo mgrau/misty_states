@@ -24,6 +24,8 @@
   import SidePanel from './app/components/SidePanel.svelte'
   import BlochSphere from './app/components/BlochSphere.svelte'
   import GatePalette from './app/components/GatePalette.svelte'
+  import DefinitionPalette from './app/components/DefinitionPalette.svelte'
+  import { definitionsOf } from './core/circuit/parse'
   import MenuButton from './app/components/MenuButton.svelte'
   import MenuItems from './app/components/MenuItems.svelte'
   import type { MenuItem } from './app/components/menu'
@@ -325,10 +327,14 @@
   const heldName = $derived.by(() => {
     const held = carry.carrying
     if (!held) return ''
+    // A use of a definition is carried as itself, whichever of its gates was held.
+    if (held.from === 'diagram' && held.gate.use) return held.gate.use
     const drop = held.from === 'palette' ? held.gate : asDroppable(held.gate)
     return drop.shows ?? drop.head
   })
   let dragPreview = $state.raw<Edit | null>(null)
+  /** The source's own gates, read from its `def` blocks so a slip elsewhere keeps them. */
+  const definitions = $derived(definitionsOf(source))
   /** The element the anchor compensation is applied to. */
   let anchorEl = $state<HTMLElement | undefined>()
   let previewEl = $state<HTMLElement | undefined>()
@@ -1663,6 +1669,11 @@
         source cannot squeeze it away entirely — past that the writing scrolls
         instead.
       -->
+      {#if definitions.length}
+        <div class="hidden shrink-0 flex-col px-3 pb-3 sm:px-4 sm:pb-4 lg:flex">
+          <DefinitionPalette {definitions} {theme} {dark} {accent} onpick={board.carryNew} />
+        </div>
+      {/if}
       <div class="hidden min-h-32 flex-1 flex-col px-3 pb-3 sm:px-4 sm:pb-4 lg:flex">
         <GatePalette {theme} {dark} {accent} onpick={board.carryNew} />
       </div>

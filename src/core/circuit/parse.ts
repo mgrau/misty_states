@@ -42,7 +42,7 @@ import { parseState } from '../state/parse'
 import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
 import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
-import type { ChartSpec, CircuitDoc, Frame, Gate, GateStyle, Layer, TableColumn, TableLine, TableSpec, TagGate, ViewGate } from './ast'
+import type { ChartSpec, CircuitDoc, DefinitionUse, Frame, Gate, GateStyle, Layer, TableColumn, TableLine, TableSpec, TagGate, ViewGate } from './ast'
 import type { AnimationOptions } from './animate'
 import { actedOn, gateSpan } from './ast'
 import { bendOf, bendTarget, coveredWires, homeOf, planWires, WireError } from './wires'
@@ -1813,6 +1813,44 @@ function readDefinitions(lines: string[]): { defs: Map<string, Definition>; skip
   return { defs, skip }
 }
 
+/** A definition as something to pick up: what it is called and how wide it is. */
+export interface DefinitionEntry {
+  /** As written in the `def`. */
+  name: string
+  /** How many wires a use of it takes. */
+  wires: number
+  /** Every `def` block in the source, which is what drawing a use of it needs. */
+  defs: string
+}
+
+/**
+ * The definitions a source writes, each with the number of wires it takes.
+ *
+ * Read from the `def` blocks alone, so a mistake elsewhere — the circuit
+ * half-typed — does not take them away. A definition that cannot be used on
+ * its own (it uses itself, or holds a state) is left out.
+ */
+export function definitionsOf(source: string): DefinitionEntry[] {
+  const lines = source.split('\n')
+  let found: ReturnType<typeof readDefinitions>
+  try {
+    found = readDefinitions(lines)
+  } catch {
+    return []
+  }
+  const defs = lines.filter((_, i) => found.skip.has(i)).join('\n')
+  const out: DefinitionEntry[] = []
+  for (const def of found.defs.values()) {
+    try {
+      const use = parseCircuit(`${defs}\n${def.name}`).uses?.[0]
+      if (use?.wires.length) out.push({ name: def.name, wires: use.wires.length, defs })
+    } catch {
+      // Not usable as it stands; nothing to offer.
+    }
+  }
+  return out
+}
+
 /** A gate moved onto other wires: local wire `q` goes to `to(q)`. */
 function mapGate(gate: Gate, to: (q: number) => number): Gate {
   if (gate.given) {
@@ -2006,6 +2044,9 @@ export function parseCircuit(text: string): CircuitDoc {
     brk(): void
   }
 
+  /** Uses written in the circuit itself, in the order they are read. */
+  const uses: DefinitionUse[] = []
+
   /** The wires a definition is written on, worked out the first time it is used. */
   const widths = new Map<string, number>()
   const widthOf = (def: Definition, chain: string[]): number => {
@@ -2102,6 +2143,18 @@ export function parseCircuit(text: string): CircuitDoc {
     // Only a use written in the circuit itself has a line of its own to fold;
     // one inside another definition is written once for all its uses.
     const fold = chain.length ? undefined : line
+    if (!chain.length) {
+      uses.push({
+        line,
+        name: def.name,
+        wires: Array.from({ length: n }, (_, i) => to(i + 1)),
+        collapsed,
+        ...(named.length ? { label: named[0].text } : {}),
+      })
+      // Everything it draws answers to it, so any of it picks the use up.
+      const inner = sink
+      sink = { ...inner, gates: (gs) => inner.gates(gs.map((g) => ({ ...g, use: def.name }))) }
+    }
 
     if (!collapsed) {
       sink.open(style, undefined, fold)
@@ -2542,5 +2595,6 @@ export function parseCircuit(text: string): CircuitDoc {
     calculateInputNote,
     answerInput: answerInput || undefined,
     answerOutput: answerOutput || undefined,
+    ...(uses.length ? { uses } : {}),
   }
 }

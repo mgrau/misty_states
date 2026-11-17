@@ -267,10 +267,15 @@ export function createBoard(host: BoardHost): Board {
     // A gate a definition put there is not on a line of its own, so it cannot
     // be carried off alone. A click on it, or anywhere else in a frame, folds
     // the frame; a click on a folded box opens it.
+    //
+    // The use of a definition *is* on a line of its own, though, so a press on
+    // anything it drew is also a hold on the whole use: released where it
+    // began it folds, as before; moved, it carries the use.
     let fold: number | undefined
     if (gate?.bound) {
       fold = gate.kind === 'box' ? gate.fold : undefined
-      gate = undefined
+      if (fold === undefined && gate.use) fold = frameAt(view?.geometry, at)
+      if (!gate.use) gate = undefined
     }
     // Both, where both are there. Inside a window the two overlap by
     // construction — its qubits are drawn within it — and which one was meant
@@ -278,7 +283,13 @@ export function createBoard(host: BoardHost): Board {
     // moved, it carries the window; released where it began, it flips the qubit
     // under it, that being the smaller and more particular of the two.
     const spot = qubitAt(view?.spots ?? [], at)
-    if (!gate && !spot && fold === undefined) fold = frameAt(view?.geometry, at)
+    if (!gate && !spot && fold === undefined) {
+      fold = frameAt(view?.geometry, at)
+      // The frame of a use, pressed between its gates: any of them stands for it.
+      if (fold !== undefined) {
+        gate = held.doc.layers.flatMap((l) => l.gates).find((g) => g.use && g.line === fold)
+      }
+    }
     if (!gate && !spot && fold === undefined) {
       held = null
       // Nothing here to edit — the press is the host's to do with as it likes,
@@ -354,7 +365,7 @@ export function createBoard(host: BoardHost): Board {
       } else if (tapped.fold !== undefined) {
         const folded = toggleFold(held.source, tapped.fold)
         if (folded) host.oncommit(folded)
-      } else if (tapped.gate) {
+      } else if (tapped.gate && !tapped.gate.bound) {
         const spun = cycleTarget(held.source, held.doc, tapped.gate)
         if (spun) host.oncommit(spun)
         else {

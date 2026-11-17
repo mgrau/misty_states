@@ -246,6 +246,14 @@ export type Gate = (
    */
   bound?: boolean
   /**
+   * The definition whose use, written in the circuit itself, put this here.
+   *
+   * Set on everything a top-level use draws — its gates, or the one box it
+   * folds into — so that picking any of them up picks up the use, which is
+   * the thing on a line of its own and so the thing that can be moved.
+   */
+  use?: string
+  /**
    * Written `if M1`: done only when wire 1 was measured black — or white, for
    * `if M1=0`.
    *
@@ -398,6 +406,19 @@ export interface Frame {
   fold?: number
 }
 
+/** A definition used on a line of its own in the circuit: `oracle 2-3`. */
+export interface DefinitionUse {
+  /** The line it is written on. */
+  line: number
+  /** The definition's name, as it was written in the `def`. */
+  name: string
+  /** The circuit's wires its own 1, 2, … went to, in order. */
+  wires: number[]
+  collapsed: boolean
+  /** A quoted name given at the use, in place of the definition's. */
+  label?: string
+}
+
 export interface CircuitDoc {
   kind: 'circuit'
   qubits: number
@@ -462,4 +483,6 @@ export interface CircuitDoc {
    * pipe stubs either way, and a lone gate reads as a piece of plumbing.
    */
   header?: boolean
+  /** Every use of a definition written in the circuit itself, in order. */
+  uses?: DefinitionUse[]
 }

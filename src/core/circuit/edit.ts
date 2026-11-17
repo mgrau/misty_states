@@ -15,7 +15,7 @@
  * aimed; parsing is pure and takes microseconds, so that costs nothing.
  */
 
-import type { CircuitDoc, Gate } from './ast'
+import type { CircuitDoc, DefinitionUse, Gate } from './ast'
 import { gateSpan } from './ast'
 import { liftGateAnnotations, parseCircuit, splitStatements, wiresLeftOut, withWires } from './parse'
 import { resolveCalculations } from './simulate'
@@ -624,6 +624,7 @@ export function removeGate(
   doc: CircuitDoc,
   gate: Gate,
 ): { source: string; line: number; layerRemoved?: number } | null {
+  if (gate.use) return removeUse(source, doc, gate)
   const found = locate(source, doc, gate)
   if (!found) return null
   const { lines, at, parts, which, layer: layerOf } = found
@@ -652,6 +653,53 @@ export function removeGate(
     layerRemoved: !kept.length && alone && (doc.layers[layerOf]?.lines.length ?? 0) === 1
       ? layerOf
       : undefined,
+  }
+}
+
+/** The use of a definition a gate was drawn by, where it was written in the circuit itself. */
+export function useOf(doc: CircuitDoc, gate: Gate): DefinitionUse | undefined {
+  return gate.use ? doc.uses?.find((u) => u.line === gate.line) : undefined
+}
+
+/** The layers that hold nothing but what this line put there, last first. */
+function layersOnlyOf(doc: CircuitDoc, line: number): number[] {
+  return doc.layers
+    .map((l, i) => (l.lines.length && l.lines.every((x) => x === line) ? i : -1))
+    .filter((i) => i >= 0)
+    .reverse()
+}
+
+/**
+ * Take a definition's use out: the whole line, since every gate it draws
+ * stands for it.
+ */
+function removeUse(
+  source: string,
+  doc: CircuitDoc,
+  gate: Gate,
+): { source: string; line: number; layerRemoved?: number } | null {
+  const use = useOf(doc, gate)
+  if (!use) return null
+  const lines = source.split('\n')
+  if (use.line < 1 || use.line > lines.length) return null
+  const next = withoutEmptyFrames(lines.filter((_, i) => i !== use.line - 1))
+  const gone = layersOnlyOf(doc, use.line)
+  return {
+    source: next.join('\n'),
+    line: use.line,
+    ...(gone.length === 1 ? { layerRemoved: gone[0] } : {}),
+  }
+}
+
+/** How to write a use of a definition again, somewhere else. */
+export function useDroppable(use: DefinitionUse): Droppable {
+  const n = use.wires.length
+  return {
+    head: use.name,
+    wires: n,
+    range: n > 1,
+    ...(use.label !== undefined ? { label: `"${use.label}"` } : {}),
+    ...(use.collapsed ? { tail: 'collapsed' } : {}),
   }
 }
 
@@ -749,6 +797,20 @@ export function moveGate(
   gate: Gate,
   target: DropTarget,
 ): Edit | null {
+  const use = useOf(doc, gate)
+  if (use) {
+    const cut = removeUse(source, doc, gate)
+    if (!cut) return null
+    let reduced: CircuitDoc
+    try {
+      reduced = parseCircuit(cut.source)
+    } catch {
+      return null
+    }
+    // A use can take several layers with it, each shifting the aim in turn.
+    const aim = layersOnlyOf(doc, use.line).reduce(afterRemoval, target)
+    return insertGate(cut.source, reduced, aim, useDroppable(use))
+  }
   // Read before the cut, while the line it was written on still exists: a gate
   // put down again should read the way it read before, arrow and all.
   const written = locate(source, doc, gate)?.parts[locate(source, doc, gate)!.which]

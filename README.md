@@ -264,7 +264,9 @@ use another.
 
 In the editor, clicking a frame folds it — `collapsed` is written on the line
 that made it — and clicking the folded box opens it again. Gates a definition
-put there are moved with the line that uses it, not one at a time.
+put there are moved with the line that uses it, not one at a time: drag any
+of them to move the use, or off to the left to delete it. Each definition
+also appears in a Definitions palette above the gates, to drag in as a use.
 
 ```
 def oracle "U_f" fill=#fef3c7 {

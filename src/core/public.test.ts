@@ -86,6 +86,8 @@ describe('the published surfaces', () => {
       'tintColour',
       'toggleFold',
       'traceGate',
+      'useDroppable',
+      'useOf',
     ])
   })
 
