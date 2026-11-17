@@ -45,6 +45,15 @@ export interface IdentityGate {
    * just goes somewhere else. Which is why it is an identity.
    */
   move?: { by?: number; to?: number }
+  /**
+   * Written `_`: the wire is left out of the drawing here, blank space where
+   * its pipe would run — so a measurement on one output need not be drawn
+   * beside lengths of pipe on all the others. Still an identity: the qubit is
+   * there and untouched, only not shown. Blanks in layers one after another
+   * are one stretch of space, and one that runs to the bottom takes the stub
+   * past the last gate with it, so the wire simply ends where it was last used.
+   */
+  gap?: true
 }
 
 /**

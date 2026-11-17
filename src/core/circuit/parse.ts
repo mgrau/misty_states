@@ -216,7 +216,7 @@ export function readShapes(arg: string, lineNo: number): ShapePick[] {
 /** The keywords that open a statement, so anything else can be tried as a state. */
 const KEYWORDS = new Set([
   'qubits', 'wires', 'shape', 'shapes', 'header', 'labels', 'coefficients', 'in', 'out', 'view', 'show', 'window',
-  'animate', 'tag',
+  'animate', 'tag', '_',
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
   'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
@@ -248,7 +248,7 @@ const CALCULATE = /^calc(ulate)?\s*(?::\s*(.*?))?\s*$/i
 
 /** The gate names, as opposed to the directives that also open a line. */
 const GATE_KEYWORDS = new Set([
-  'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
+  '_', 'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
   'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
 ])
@@ -282,7 +282,7 @@ const GLUED = /^([a-z]+)(\d+(?:-\d+)?)$/i
  * is written, and there is nothing to work that out from.
  */
 const ARITY: Record<string, number> = {
-  h: 1, pete: 1, x: 1, not: 1, y: 1, z: 1, s: 1, t: 1, i: 1, id: 1, identity: 1, m: 1, measure: 1,
+  _: 1, h: 1, pete: 1, x: 1, not: 1, y: 1, z: 1, s: 1, t: 1, i: 1, id: 1, identity: 1, m: 1, measure: 1,
   cnot: 2, cx: 2, cz: 2, swap: 2,
   toffoli: 3, ccnot: 3, ccx: 3, cswap: 3, fredkin: 3,
 }
@@ -1074,6 +1074,13 @@ function parseGate(src: string, line: number): Gate {
     return qs[0]
   }
 
+  // `_ 2`: wire 2 is blank space here — an identity that is not drawn.
+  if (head === '_') {
+    noBox()
+    noColour()
+    return { kind: 'identity', qubit: oneQubit(), gap: true }
+  }
+
   if (head === 'I' || head === 'ID' || head === 'IDENTITY') {
     noBox()
     noColour()
@@ -1304,6 +1311,14 @@ function parseStatements(src: string, line: number, base?: number): Gate[] {
   if (/^[A-Za-z]+$/.test(token) && isGateRun(token)) {
     return from([...token.toUpperCase()].map((letter, i) => parseGate(`${letter} ${i + 1}`, line)))
   }
+  // `_ 2-3` is a blank on each: space is per wire, like the pipe it replaces.
+  if (/^_\s/.test(token)) {
+    const words = token.slice(1).trim().split(/\s+/)
+    const options = words.filter((w) => w.includes('=')).join(' ')
+    const wires = words.filter((w) => !w.includes('='))
+    const qs = wires.length ? parseQubits(tokenize(wires.join(' '), line), line) : []
+    if (qs.length > 1) return from(qs.map((q) => parseStatement(`_ ${q} ${options}`, line)))
+  }
   return from([parseStatement(src, line, base)])
 }
 
@@ -1410,7 +1425,13 @@ function parseSizedGate(src: string, line: number): Gate {
     throw new ParseError('a tag is a shape on its pipe, with no box to widen — height= gives it more room', 0, line)
   }
   if (width !== undefined && gate.kind === 'identity') {
-    throw new ParseError('I is a plain pipe, with no box to widen — height= gives it more room', 0, line)
+    throw new ParseError(
+      gate.gap
+        ? 'a blank is empty space, with no box to widen — height= gives it more room'
+        : 'I is a plain pipe, with no box to widen — height= gives it more room',
+      0,
+      line,
+    )
   }
   return { ...gate, ...(width !== undefined ? { width } : {}), ...(height !== undefined ? { height } : {}) }
 }
@@ -1494,6 +1515,9 @@ function checkConditions(layers: Layer[]): void {
  * somewhere along the turn, and there is no good place for it.
  */
 function shifted(gate: Gate, value: string, line: number): Gate {
+  if (gate.kind === 'identity' && gate.gap) {
+    throw new ParseError('a blank is not drawn, so it cannot bend — write the bend as an I, e.g. I 3 shift=2', 0, line)
+  }
   if (gate.kind !== 'identity') {
     throw new ParseError('only I bends a wire — write the bend as its own I, e.g. I 3 shift=2', 0, line)
   }

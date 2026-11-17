@@ -57,6 +57,7 @@ out calculate
 | Statement | Meaning |
 | --- | --- |
 | `H 1` | Single-qubit gate (`X Y Z S T I`, also `PETE` for `H`) |
+| `_ 3`, `M _ _` | Blank space: wire 3 not drawn in this layer |
 | `I 3 shift=2` | Bend wire 3 two columns right; `I 3 -> 5` bends it to position 5 |
 | `X 3 if M1` | Only if wire 1 was measured black (`if M1=0`: white) — any one-wire gate |
 | `RZ(90) 1` | Rotation in degrees (`RX`, `RY`, `P`) |
@@ -182,6 +183,22 @@ to rest at least a column apart, two bends in one layer keep off each other's
 stretch, and a bend cannot turn through a gate. A gate covers every wire that
 stands between its own, wherever that wire started. A bend cannot be folded
 into a `collapsed` box.
+
+### Blank space
+
+`_` is an identity that is not drawn: the wire leaves blank space where its
+pipe would run, so a measurement on one output need not stand beside lengths of
+pipe on all the others. It takes the next free wire along a row like any gate,
+and `_ 2-3` blanks several. Blanks one after another are one stretch of space;
+one that runs to the end of the circuit takes the stub with it, so the wire
+simply ends where it was last used. Used again further down, the pipe begins
+again in open air. The qubit is untouched — only not shown.
+
+```
+in 000
+box "U" 1-3
+M _ _              # measure 1; wires 2 and 3 end at U
+```
 
 ### Naming a wire
 

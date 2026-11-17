@@ -108,6 +108,7 @@
         { code: 'H', text: 'No wire given means the first: same as H 1' },
         { code: 'HZT', text: 'A row of one-letter gates, one per wire' },
         { code: 'I 2', text: 'Identity — plain pipe, just holds a slot in the layer' },
+        { code: 'M _ _', text: 'Measure wire 1 and leave 2 and 3 blank: no pipe drawn there' },
         { code: 'I 3 shift=2', text: 'Bend wire 3 two columns right (negative is left); it stays there' },
         { code: 'I 3 -> 5', text: 'Bend wire 3 to position 5 — wire n starts at n' },
         { code: 'X 3 if M1', text: 'Only if wire 1 was measured black; if M1=0 for white' },

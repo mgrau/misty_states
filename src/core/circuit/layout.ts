@@ -859,6 +859,25 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   const turns = new Map<number, { y: number; x: number; r: number }[]>()
   const turnGeometry: CircuitGeometry['turns'] = []
 
+  /**
+   * Where each wire's current run of blanks began, while it lasts.
+   *
+   * Blanks one after another are one stretch of space: cut layer by layer, the
+   * gap between two layers would keep a sliver of pipe. A run begun in the first
+   * layer takes the pipe from the top, so the wire never starts.
+   */
+  const blankFrom = new Map<number, number>()
+  /** The foot of the layer before, where a run of blanks that just ended stops. */
+  let lastFoot = y
+  const endBlank = (q: number, to: number) => {
+    const from = blankFrom.get(q)
+    if (from === undefined) return
+    blankFrom.delete(q)
+    blocked.set(q, [...(blocked.get(q) ?? []), { y0: from, y1: to }])
+    // The pipe that comes back below begins in open air, like one under a bare view.
+    if (Number.isFinite(to)) openMouths.set(q, [...(openMouths.get(q) ?? []), to])
+  }
+
   doc.layers.forEach((layer, at) => {
     here = plan.at[at]
     // The bands between two gates are inside the circuit: what comes out of one
@@ -874,6 +893,12 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     if (opened) y += lift
     const layerH = layerHeight(layer, at)
     layerGeometry.push({ y, h: layerH })
+
+    for (let q = 1; q <= doc.qubits; q++) {
+      const blank = layer.gates.some((g) => g.kind === 'identity' && g.gap && g.qubit === q)
+      if (!blank) endBlank(q, lastFoot)
+      else if (!blankFrom.has(q)) blankFrom.set(q, at === 0 ? -Infinity : y)
+    }
 
     // Every bend in the layer turns at its middle, so they all run across at
     // one height and the wires they pass read as being passed.
@@ -1034,6 +1059,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     }
 
     y += layerH
+    lastFoot = y
     for (let i = frames.length - 1; i >= 0; i--) {
       if (frames[i].layers[1] !== at) continue
       y += FRAME_PAD
@@ -1087,6 +1113,9 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     }
     boxes.push(box)
   })
+
+  // Blank to the end: the wire stops where it was last used, stub and all.
+  for (const q of [...blankFrom.keys()]) endBlank(q, Infinity)
 
   const lastGateBottom = doc.layers.length ? y - m.gateGap : pipeTop
   // A circuit with no gates has no plumbing: `0|0|-1` with a chart under it is

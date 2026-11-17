@@ -5,8 +5,8 @@
  */
 
 import { writeFileSync } from 'node:fs'
-import { render } from '../src/lib/index'
-import type { ThemeId } from '../src/lib/render/theme'
+import { render } from '../src/core/index'
+import type { ThemeId } from '../src/core/render/theme'
 
 const [out, raw, theme = 'solid'] = process.argv.slice(2)
 if (!out || !raw) {
