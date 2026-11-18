@@ -383,6 +383,14 @@ by gate in the gates' colours; it follows the dial as it turns and keeps time
 with an animation or the stepper. Calculate and Animate, in the corner of the
 drawing, each add their line to the source and take it away again.
 
+**Shot** runs the circuit once, the way an experiment would: a pulse of light
+runs down the pipes, and as it passes each measurement the box shows what it
+read — one way, with the Born rule's odds — in the wire's own shape. A circuit with no measurement is read on every wire at the
+end, and the record is drawn where the output goes, captioned *shot*. The
+**Shots** drawer keeps the tally: a bar per outcome, a tick where the odds say it
+is heading, and a run of 100 shots spread over two seconds to watch the bars
+settle onto their ticks. An edit to the source starts the tally over.
+
 Clicking a control's dot turns it between acting on black (a filled dot, `1`)
 and acting on white (an open ring, `1=0`) — on every dot of a controlled-Z, the
 last one too. Clicking anywhere else on a controlled gate moves its `⊕` to the

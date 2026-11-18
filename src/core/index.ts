@@ -3,11 +3,13 @@
  */
 
 import { parseState, ParseError } from './state/parse'
-import type { StateDoc } from './state/ast'
+import type { StateDoc, StateRow } from './state/ast'
 import { productWidth } from './state/ast'
 import { parseCircuit } from './circuit/parse'
 import { detectMode } from './mode'
-import { diracLines, diracOf, resolveCalculations, sideAmplitudes } from './circuit/simulate'
+import { diracLines, diracOf, resolveCalculations, sideAmplitudes, stateFrom } from './circuit/simulate'
+import { shotPlan, type Shot } from './circuit/shots'
+import { ONE } from './circuit/complex'
 import { checkCircuit, checkState, type Check } from './check'
 import type { QubitSpot } from './circuit/edit'
 export type { QubitSpot } from './circuit/edit'
@@ -67,6 +69,12 @@ export interface RenderOptions {
    * exists to show a phase flip.
    */
   keepSign?: boolean
+  /**
+   * One shot through the circuit, drawn: each measurement holds what it read,
+   * and a circuit with no measurement shows the record as its output. Left
+   * off while stepping, whose extra layer would put the readings one out.
+   */
+  shot?: Shot
   /**
    * Write a whole-number weight on a calculated state as a number, `0|2*1`.
    * On by default; off writes the term that many times, `0|1|1`. A circuit's
@@ -365,6 +373,12 @@ function paletteFor(opts: RenderOptions): Palette {
   return withAccent(opts.palette ?? (opts.dark ? DARK_PALETTE : LIGHT_PALETTE), opts.accent)
 }
 
+/** A shot's record drawn as the output, captioned so it is not read as the state worked out. */
+const shotRow = (row: StateRow): StateRow => ({
+  ...row,
+  sides: row.sides.map((side, i) => (i === 0 ? { ...side, caption: 'shot' } : side)),
+})
+
 export function render(source: string, opts: RenderOptions = {}): RenderResult {
   const metrics: Metrics = { ...DEFAULT_METRICS, ...opts.metrics }
   const shapeOrder = opts.shapeOrder ?? DEFAULT_SHAPE_ORDER
@@ -420,7 +434,12 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
     })
     // An animation draws its own ends: the qubits travelling *are* the input
     // and output, so leaving the written ones in would stand a copy at each.
-    const shown = opts.answers ? doc : conceal(doc)
+    const concealed = opts.answers ? doc : conceal(doc)
+    const shot = opts.step === null || opts.step === undefined ? opts.shot : undefined
+    const shown =
+      shot && !doc.animate && shotPlan(doc).atEnd && shot.record.length === doc.qubits
+        ? { ...concealed, output: [shotRow(stateFrom(new Map([[shot.record, ONE]]), doc.qubits))] }
+        : concealed
     return {
       doc,
       // The injected step is not one of the circuit's own layers.
@@ -441,6 +460,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
         attach: theme.attach,
         bareEnds: !!doc.animate,
         highlight: opts.highlight,
+        readings: shot?.readings,
       }),
     }
   }

@@ -338,7 +338,7 @@ function spreadOf(gate: Gate): Spread | null {
   }
 }
 
-function applyGate(amps: Amplitudes, gate: Gate): Amplitudes {
+export function applyGate(amps: Amplitudes, gate: Gate): Amplitudes {
   const spread = spreadOf(gate)
   return spread ? mapStates(amps, spread) : amps
 }
@@ -877,11 +877,18 @@ export function branchesByLayer(doc: CircuitDoc): Branch[][] {
   return out
 }
 
-function simulateFrom(doc: CircuitDoc, layers: number, each?: (branches: Branch[]) => void) {
+/**
+ * The state going into the first layer: the input, or — where the input is
+ * asked for — the state written further down, run back up to the top.
+ */
+export function startOf(doc: CircuitDoc): Amplitudes {
   const anchor = anchorOf(doc)
-
   // Behind the anchor, the circuit is run in reverse; from there, forwards.
-  const start = anchor.at > 0 ? undoLayers(anchor.amps, doc.layers.slice(0, anchor.at)) : anchor.amps
+  return anchor.at > 0 ? undoLayers(anchor.amps, doc.layers.slice(0, anchor.at)) : anchor.amps
+}
+
+function simulateFrom(doc: CircuitDoc, layers: number, each?: (branches: Branch[]) => void) {
+  const start = startOf(doc)
 
   let branches: Branch[] = [{ amps: start, odds: CERTAIN }]
   let measured = false

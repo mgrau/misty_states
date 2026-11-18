@@ -547,7 +547,8 @@ function makeTheme(
             size,
             pal,
           )
-          return body + meterGlyph(cx, cy, r, pal, m) + label
+          // A box holding a reading shows the reading, not the dial it was read on.
+          return body + (p.read ? '' : meterGlyph(cx, cy, r, pal, m)) + label
         }
 
         case 'control':

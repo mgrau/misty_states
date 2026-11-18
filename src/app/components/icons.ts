@@ -25,6 +25,11 @@ export const ICONS = {
   rewind: 'M16 5 8 10l8 5zM4.5 4.5v11',
   eye: 'M10 5c4 0 7 5 7 5s-3 5-7 5-7-5-7-5 3-5 7-5ZM10 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z',
   repeat: 'M4.5 8.5A3.5 3.5 0 0 1 8 5h7m0 0-2.5-2.5M15 5l-2.5 2.5M15.5 11.5A3.5 3.5 0 0 1 12 15H5m0 0 2.5 2.5M5 15l2.5-2.5',
+  /** A crosshair: one shot through the circuit. */
+  shot: 'M10 2.5v3.5M10 14v3.5M2.5 10h3.5M14 10h3.5M10 7.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z',
+  /** Bars of a tally: many shots. */
+  shots: 'M4 16.5V12M8 16.5V6M12 16.5V9M16 16.5V3.5',
+  stop: 'M5.5 5.5h9v9h-9z',
 } as const
 
 export type IconName = keyof typeof ICONS

@@ -56,6 +56,11 @@ export interface CircuitLayoutOptions {
    * drawing them too would leave a copy standing at each end.
    */
   bareEnds?: boolean
+  /**
+   * What each measurement read on one shot, drawn in its box in place of the
+   * dial: the wire's shape, white or black. See `sampleShot`.
+   */
+  readings?: { layer: number; qubit: number; value: 0 | 1 }[]
 }
 
 /**
@@ -92,6 +97,11 @@ export interface CircuitGeometry {
    * click on one can be told which line to rewrite.
    */
   frames?: { box: Box; fold?: number }[]
+  /**
+   * Every run of pipe that is drawn, gates left out: where something running
+   * along the pipes — a shot on its way down — can be seen.
+   */
+  pipes: { cx: number; y0: number; y1: number; w: number; turns?: { y: number; x: number; r: number }[] }[]
 }
 
 export interface CircuitLayout extends Layout {
@@ -1027,7 +1037,20 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       const wasCables = cables.length
       const wasTabs = tabs.length
       emitGate(body, box, cy, gateX, m, bodies, glyphs)
-      if (gate.kind === 'measure') meters.set(gate.qubit, box)
+      if (gate.kind === 'measure') {
+        meters.set(gate.qubit, box)
+        // The last reading of this wire in this layer: the one a shot left.
+        const read = opts.readings?.filter((r) => r.layer === at && r.qubit === gate.qubit).pop()
+        if (read) {
+          const meter = bodies[bodies.length - 1]
+          if (meter?.t === 'measurebox') meter.read = true
+          glyphs.push({
+            t: 'qubit', shape: shapeFor(gate.qubit - 1), value: read.value,
+            cx: box.x + box.w / 2, cy: box.y + box.h / 2,
+            size: Math.min(m.qubit, box.h * 0.62, box.w * 0.62),
+          })
+        }
+      }
       if (gate.given) {
         const meter = meters.get(gate.given.qubit)
         if (meter) emitReading(gate, meter, box, cy)
@@ -1331,6 +1354,9 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       layers: layerGeometry,
       bands: bandGeometry,
       ...(frameBoxes.length ? { frames: frameBoxes } : {}),
+      pipes: pipes.flatMap((p) =>
+        p.t === 'pipe' && !p.cut ? [{ cx: p.cx, y0: p.y0, y1: p.y1, w: p.w, turns: p.turns }] : [],
+      ),
       startY,
       endY,
     },

@@ -23,6 +23,10 @@
   import SettingsPanel from './app/components/SettingsPanel.svelte'
   import SidePanel from './app/components/SidePanel.svelte'
   import BlochSphere from './app/components/BlochSphere.svelte'
+  import ShotsPanel from './app/components/ShotsPanel.svelte'
+  import { sampleShot, shotOdds, shotPlan, type Reading, type Shot } from './core/circuit/shots'
+  import ShotPulse from './app/components/ShotPulse.svelte'
+  import { parseCircuit } from './core/circuit/parse'
   import GatePalette from './app/components/GatePalette.svelte'
   import DefinitionPalette from './app/components/DefinitionPalette.svelte'
   import { definitionsOf } from './core/circuit/parse'
@@ -373,6 +377,8 @@
         step: stepOn ? stepAt : undefined,
         highlight: dragPreview?.line,
         check: checking,
+        // Not while a gate is being dragged: the shot was of the circuit before.
+        shot: dragPreview ? undefined : (lastShot ?? undefined),
       })
       return { ok: true as const, ...r }
     } catch (err) {
@@ -762,6 +768,171 @@
   })
 
   const hasAnswer = $derived(result.ok ? !!result.hasAnswer : false)
+
+  /* -- Shots -------------------------------------------------------------- */
+
+  /**
+   * Running the circuit one shot at a time.
+   *
+   * A shot comes out one way at every measurement, and the drawing shows what
+   * each read; the tally of them all is in a drawer of its own, beside the
+   * odds it should come to. Nothing here touches the source — a shot is a
+   * look at the circuit, not an edit to it — so an edit starts the tally over.
+   */
+  let shotsOpen = $state(false)
+  /**
+   * What the drawing shows of the shots so far: each measurement's latest
+   * reading, and the latest record to reach the bottom. Built up as pulses
+   * arrive rather than handed over whole, so a box changes when its own pulse
+   * gets to it.
+   */
+  let shown = $state<{ readings: Record<string, Reading>; record: string | null }>({ readings: {}, record: null })
+  const lastShot = $derived<Shot | null>(
+    shown.record === null && !Object.keys(shown.readings).length
+      ? null
+      : { record: shown.record ?? '', readings: Object.values(shown.readings) },
+  )
+  let tally = $state<Record<string, number>>({})
+  let shotTotal = $state(0)
+  let running = $state(false)
+  let runTimer: ReturnType<typeof setInterval> | null = null
+  /** How many a run takes, and how long it is spread over: slow enough to watch the bars move. */
+  const RUN_SIZE = 100
+  const RUN_MS = 2000
+
+  /** What a shot is taken of: the circuit as written, worked out once per edit. */
+  const shooting = $derived.by(() => {
+    if (!result.ok) return { ok: false as const, message: 'Fix the source first' }
+    if (result.kind !== 'circuit') return { ok: false as const, message: 'Add a gate first: there is no circuit to run yet' }
+    try {
+      const doc = parseCircuit(source)
+      const plan = shotPlan(doc)
+      // Asked for here so a circuit that cannot be run says why before the first shot.
+      const odds = shotOdds(doc)
+      const shapes = result.geometry?.shapes ?? []
+      return { ok: true as const, doc, plan, odds, shapes: plan.wires.map((w) => shapes[w - 1] ?? 'circle') }
+    } catch (err) {
+      return { ok: false as const, message: `This circuit cannot be run shot by shot: ${(err as Error).message}` }
+    }
+  })
+
+  /**
+   * Shots on their way down: each a pulse of light running down the pipes,
+   * started at `start` and taking `ms` to reach the bottom.
+   */
+  interface Flight {
+    shot: Shot
+    start: number
+    ms: number
+    /** Readings not yet reached, top to bottom. */
+    ahead: Reading[]
+    /**
+     * Drawn, or only timed. A run sends a shot every few milliseconds, and
+     * drawn all at once their glows run together into one solid beam; every
+     * few of them is enough to see the shots streaming down.
+     */
+    seen: boolean
+  }
+  let flights: Flight[] = []
+  /** Where each pulse is now, from 0 at the top of the pipes to 1 at the bottom. */
+  let pulses = $state<{ at: number; fade: number }[]>([])
+  let pulseFrame = 0
+  /** How long one shot takes to fall, alone and as one of a run. */
+  const SHOT_MS = 190
+  const RUN_SHOT_MS = 155
+  const reduceMotion = () =>
+    typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  /** How far down the pipes a layer's middle is, from 0 to 1. */
+  function depthOf(layer: number): number {
+    const g = result.ok ? result.geometry : undefined
+    const band = g?.layers[layer]
+    if (!g || !band) return 0
+    return Math.min(1, Math.max(0, (band.y + band.h / 2 - g.pipeTop) / Math.max(1, g.pipeBottom - g.pipeTop)))
+  }
+
+  /** A pulse got to a measurement: its box shows what this shot read. */
+  function arrive(r: Reading) {
+    shown.readings[`${r.layer}:${r.qubit}`] = r
+  }
+
+  /** A pulse got to the bottom: the shot is done, and counted. */
+  function land(shot: Shot) {
+    shown.record = shot.record
+    tally[shot.record] = (tally[shot.record] ?? 0) + 1
+    shotTotal += 1
+  }
+
+  function pulseTick() {
+    const now = performance.now()
+    const still: Flight[] = []
+    for (const f of flights) {
+      const at = (now - f.start) / f.ms
+      while (f.ahead.length && depthOf(f.ahead[0].layer) <= at) arrive(f.ahead.shift()!)
+      if (at >= 1) land(f.shot)
+      else still.push(f)
+    }
+    flights = still
+    pulses = flights.filter((f) => f.seen).map((f) => ({ at: (now - f.start) / f.ms, fade: f.ms === SHOT_MS ? 1 : 0.6 }))
+    pulseFrame = flights.length ? requestAnimationFrame(pulseTick) : 0
+  }
+
+  /** Send one shot down the circuit. */
+  let launched = 0
+  function launch(ms: number) {
+    if (!shooting.ok) return
+    const shot = sampleShot(shooting.doc)
+    if (reduceMotion()) {
+      for (const r of shot.readings) arrive(r)
+      land(shot)
+      return
+    }
+    const ahead = [...shot.readings].sort((a, b) => depthOf(a.layer) - depthOf(b.layer))
+    // Alone, always drawn; in a run, one in four.
+    flights.push({ shot, start: performance.now(), ms, ahead, seen: ms === SHOT_MS || launched++ % 4 === 0 })
+    if (!pulseFrame) pulseFrame = requestAnimationFrame(pulseTick)
+  }
+
+  function stopRun() {
+    if (runTimer) clearInterval(runTimer)
+    runTimer = null
+    running = false
+  }
+
+  function resetShots() {
+    stopRun()
+    flights = []
+    pulses = []
+    if (pulseFrame) cancelAnimationFrame(pulseFrame)
+    pulseFrame = 0
+    shown = { readings: {}, record: null }
+    tally = {}
+    shotTotal = 0
+  }
+
+  // An edit makes a different circuit, and its shots a different experiment.
+  $effect(() => {
+    void source
+    untrack(resetShots)
+  })
+
+  const takeShot = () => launch(SHOT_MS)
+
+  /** A run of shots, one after another — or, while one is going, stop it. */
+  function runShots() {
+    if (running) return stopRun()
+    if (!shooting.ok) return
+    running = true
+    let left = RUN_SIZE
+    runTimer = setInterval(() => {
+      if (!shooting.ok || left <= 0) return stopRun()
+      launch(RUN_SHOT_MS)
+      left -= 1
+      if (left <= 0) stopRun()
+    }, RUN_MS / RUN_SIZE)
+  }
+
+  $effect(() => () => resetShots())
 
   /* -- Bloch sphere ------------------------------------------------------- */
 
@@ -1458,7 +1629,30 @@
     <div class="ml-auto flex items-center gap-1.5">
       <button
         type="button"
-        onclick={() => (blochOpen = !blochOpen)}
+        onclick={() => {
+          shotsOpen = !shotsOpen
+          if (shotsOpen) blochOpen = false
+        }}
+        disabled={!shotsOpen && !shooting.ok}
+        title={shooting.ok ? 'Tally shots of the circuit against the odds' : shooting.message}
+        aria-label="Shots"
+        aria-pressed={shotsOpen}
+        class="flex items-center gap-1.5 rounded border px-2 py-1 text-xs transition-colors
+               disabled:cursor-not-allowed disabled:opacity-40
+               {shotsOpen
+          ? 'border-slate-800 bg-slate-800 text-white'
+          : 'border-slate-300 bg-white text-slate-700 enabled:hover:bg-slate-50'}"
+      >
+        <Icon name="shots" />
+        Shots
+      </button>
+
+      <button
+        type="button"
+        onclick={() => {
+          blochOpen = !blochOpen
+          if (blochOpen) shotsOpen = false
+        }}
         disabled={!blochOpen && !bloch.ok}
         title={bloch.ok ? 'Show the qubit on a Bloch sphere' : `Only for one qubit: ${bloch.message}`}
         aria-label="Bloch sphere"
@@ -1531,7 +1725,7 @@
     style="--misty-pane: {paneWidth}px;"
     class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-0
            lg:grid-cols-[var(--misty-pane)_minmax(0,1fr)] lg:grid-rows-none
-           {panel || blochOpen ? 'hidden sm:grid' : ''}"
+           {panel || blochOpen || shotsOpen ? 'hidden sm:grid' : ''}"
   >
     <!-- Editor ------------------------------------------------------------ -->
     <!--
@@ -2052,9 +2246,12 @@
         >
           <!-- A wrapper of its own, so the drag can hold the drawing still
                without the template overwriting the transform each render. -->
-          <div bind:this={anchorEl} style="transform-origin: center;">
+          <div bind:this={anchorEl} class="relative" style="transform-origin: center;">
             <!-- Generated by our own renderer; all values are escaped in svg.ts. -->
             {@html svg}
+            {#if pulses.length && result.ok && result.geometry}
+              <ShotPulse {pulses} geometry={result.geometry} {svg} />
+            {/if}
           </div>
         </div>
       </div>
@@ -2069,6 +2266,25 @@
         so a drag across the drawing is not caught by the gap between.
       -->
       <div class="pointer-events-none absolute right-4 bottom-4 z-10 flex gap-2">
+        <button
+          type="button"
+          onclick={takeShot}
+          disabled={!shooting.ok || running || stepOn || animated}
+          title={!shooting.ok
+            ? shooting.message
+            : stepOn
+              ? 'Turn off stepping to take a shot'
+              : animated
+                ? 'Stop animating to take a shot'
+                : 'Run the circuit once: each measurement shows what it read'}
+          class="pointer-events-auto flex h-16 w-16 flex-col items-center justify-center gap-1
+                 rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm transition-colors
+                 disabled:cursor-not-allowed disabled:opacity-50
+                 enabled:hover:border-slate-400 enabled:hover:bg-slate-50 enabled:hover:text-slate-900"
+        >
+          <Icon name="shot" class="h-6 w-6" />
+          <span class="text-[11px] font-medium">Shot</span>
+        </button>
         <button
           type="button"
           onclick={flipAnimate}
@@ -2107,6 +2323,24 @@
       </div>
     </section>
   </main>
+
+  {#if shotsOpen}
+    <SidePanel title="Shots" onclose={() => (shotsOpen = false)}>
+      <ShotsPanel
+        shapes={shooting.ok ? shooting.shapes : []}
+        odds={shooting.ok ? shooting.odds : []}
+        {tally}
+        total={shotTotal}
+        last={lastShot?.record ?? null}
+        {running}
+        runSize={RUN_SIZE}
+        blocked={shooting.ok ? (stepOn ? 'Turn off stepping to take shots.' : animated ? 'Stop animating to take shots.' : null) : shooting.message}
+        onshot={takeShot}
+        onrun={runShots}
+        onreset={resetShots}
+      />
+    </SidePanel>
+  {/if}
 
   {#if blochOpen}
     <SidePanel title="Bloch sphere" onclose={() => (blochOpen = false)}>

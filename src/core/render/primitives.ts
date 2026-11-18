@@ -211,6 +211,8 @@ export interface MeasureBoxPrim {
   box: Box
   basis: string
   fill?: string
+  /** Holding a shot's reading, drawn over it in place of the dial. */
+  read?: boolean
 }
 
 export interface ControlPrim {
