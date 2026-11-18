@@ -7,6 +7,10 @@
    * where the Born rule says that bar is heading. Watching the bars settle
    * onto their ticks as the shots go in is the point of the panel.
    *
+   * Beside the shapes, the record written out in bits and read as a number,
+   * the first wire the most significant — so a search that should land on 13
+   * can be seen to.
+   *
    * Horizontal, so a record's shapes sit on its own row however many wires it
    * has and the narrow drawer still has room for the bars.
    */
@@ -74,6 +78,11 @@
 
   const pct = (p: number) => (p === 0 ? '0%' : p < 0.001 ? '<0.1%' : `${(p * 100).toFixed(p < 0.1 ? 1 : 0)}%`)
 
+  /** The record read as a binary number, wire 1 the most significant bit. */
+  const decimal = (record: string) => (record ? parseInt(record, 2) : 0)
+  /** Room for the widest number a record of this many wires can be, so the column lines up. */
+  const digits = $derived(String(2 ** shapes.length - 1).length)
+
   /** One wire's outcome drawn as its shape, white or black, as the drawing draws a qubit. */
   const SIZE = 13
   const GAP = 3
@@ -134,15 +143,15 @@
         {@const seen = total ? row.count / total : 0}
         {@const width = shapes.length * (SIZE + GAP) - GAP + 4}
         <li
-          class="group grid grid-cols-[auto_minmax(0,1fr)_3.5rem] items-center gap-2 rounded px-1 py-0.5
+          class="group grid grid-cols-[auto_auto_minmax(0,1fr)_3.5rem] items-center gap-2 rounded px-1 py-0.5
                  {last === row.record ? 'bg-amber-50' : 'hover:bg-slate-50'}"
-          title="{row.count} of {total} · {pct(seen)} so far · {pct(row.expected)} expected"
+          title="{row.record} = {decimal(row.record)} · {row.count} of {total} · {pct(seen)} so far · {pct(row.expected)} expected"
         >
           <svg
             width={width}
             height={SIZE + 4}
             viewBox="-2 -2 {width} {SIZE + 4}"
-            aria-label={row.record}
+            aria-label="{row.record} ({decimal(row.record)})"
             role="img"
           >
             {#each [...row.record] as bit, i (i)}
@@ -156,6 +165,11 @@
               />
             {/each}
           </svg>
+
+          <span class="flex items-baseline gap-1.5 font-mono text-xs tabular-nums" aria-hidden="true">
+            <span class="text-slate-500">{row.record}</span>
+            <span class="text-right text-slate-800" style="min-width: {digits}ch">{decimal(row.record)}</span>
+          </span>
 
           <div class="relative h-4">
             <div class="absolute inset-y-0 left-0 w-full rounded-sm bg-slate-100"></div>
