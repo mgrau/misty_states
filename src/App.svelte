@@ -52,6 +52,8 @@
     shapeOrder: ShapeName[]
     qubitSize: number
     paneWidth: number
+    /** The source box's dragged height, or null to fit its text. */
+    sourceHeight: number | null
     separator: 'bar' | 'comma'
     cloudFluff: number
     cloudPad: number
@@ -76,6 +78,7 @@
       shapeOrder: [...DEFAULT_SHAPE_ORDER],
       qubitSize: 26,
       paneWidth: 320,
+      sourceHeight: null,
       separator: 'bar',
       cloudFluff: 1,
       cloudPad: 14,
@@ -233,6 +236,9 @@
    * not the same job — and the drawing wants whatever is left.
    */
   let paneWidth = $state(initial.paneWidth)
+  let sourceHeight = $state<number | null>(
+    typeof initial.sourceHeight === 'number' && initial.sourceHeight > 0 ? initial.sourceHeight : null,
+  )
   const PANE_MIN = 240
   const PANE_MAX = 640
 
@@ -454,7 +460,7 @@
 
   $effect(() => {
     const snapshot: Saved = {
-      source, name, theme, dark, accent, shapeOrder, qubitSize, paneWidth, separator, cloudFluff,
+      source, name, theme, dark, accent, shapeOrder, qubitSize, paneWidth, sourceHeight, separator, cloudFluff,
       cloudPad, factorCalculated, exactOdds, keepSign, coefficients, phaseDial, animateInside, movieFps, checking,
       dragFormat,
     }
@@ -1822,13 +1828,20 @@
       </div>
 
       <!--
-        `shrink-0`: the box has a minimum height, and a flex item that is
-        allowed to shrink below its content would let the reference below it
-        ride up over the box in a short window. The column scrolls instead.
+        The one part of the column that gives way. Everything else here keeps
+        its size; the source box takes what is left, down to a few lines, and
+        scrolls inside itself past that — so the column never needs a scroll
+        bar of its own, however long the source or however far it is dragged.
       -->
-      <div class="flex shrink-0 flex-col gap-1">
+      <div class="flex min-h-0 shrink flex-col gap-1">
         <span class="text-xs font-medium text-slate-500">Source</span>
-        <SourceEditor bind:this={sourceEditor} bind:value={source} {accent} oninput={() => (typed = true)} />
+        <SourceEditor
+          bind:this={sourceEditor}
+          bind:value={source}
+          bind:height={sourceHeight}
+          {accent}
+          oninput={() => (typed = true)}
+        />
       </div>
 
       {#if !result.ok}
