@@ -1935,13 +1935,22 @@ function mapGate(gate: Gate, to: (q: number) => number): Gate {
     case 'single':
     case 'measure':
       return { ...gate, qubit: to(gate.qubit) }
+    // What a control acts on goes with its wire: left behind, an open ring
+    // written on the definition's wire 3 would land on whichever of the
+    // circuit's wires happens to be numbered 3.
     case 'controlled':
-      return { ...gate, controls: gate.controls.map(to), target: to(gate.target) }
+      return {
+        ...gate,
+        controls: gate.controls.map(to),
+        target: to(gate.target),
+        ...(gate.open ? { open: gate.open.map(to) } : {}),
+      }
     case 'swap':
       return {
         ...gate,
         qubits: [to(gate.qubits[0]), to(gate.qubits[1])],
         ...(gate.controls ? { controls: gate.controls.map(to) } : {}),
+        ...(gate.open ? { open: gate.open.map(to) } : {}),
       }
     case 'box':
       return {

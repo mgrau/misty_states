@@ -229,3 +229,20 @@ describe('a controlled-Z under a name', () => {
     expect(() => parseCircuit('CZ "Phase" 1 2=0')).toThrow(/no dot to act on 0/)
   })
 })
+
+describe('inside a definition', () => {
+  it('moves what each control acts on along with its wire', () => {
+    // Written on the definition's wires 1 and 2, used on the circuit's 3 and 4:
+    // the open ring has to follow wire 1 to wire 3, not stay on wire 1.
+    const src = 'def flip {\n  CNOT 1=0 -> 2\n}\nin 1000\nflip 3-4'
+    const g = parseCircuit(src).layers.flatMap((l) => l.gates).find((x) => x.kind === 'controlled')!
+    expect(g).toMatchObject({ controls: [3], target: 4, open: [3] })
+    expect(out(src)).toEqual(['1*1001'])
+    expect(out('def flip {\n  CNOT 1=0 -> 2\n}\nin 1000\nflip 3-4 collapsed')).toEqual(['1*1001'])
+  })
+
+  it('moves an open control on a swap too', () => {
+    const src = 'def cs {\n  CSWAP 1=0 2 3\n}\nin 00010\ncs 3-5'
+    expect(out(src)).toEqual(['1*00001'])
+  })
+})
