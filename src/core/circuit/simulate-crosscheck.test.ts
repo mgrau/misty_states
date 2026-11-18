@@ -120,8 +120,12 @@ describe('identities that must hold for every input', () => {
  * Random circuits, generated from a fixed seed so a failure can be reproduced
  * exactly rather than being a story about a run that once went wrong.
  */
-function randomCircuit(rand: () => number): { src: string; qubits: number } {
+function randomCircuit(rand: () => number, marked = false): { src: string; qubits: number } {
   const qubits = 1 + Math.floor(rand() * 4)
+  // Asked for, a control acts on white half the time — and so may any wire of
+  // a controlled-Z. Drawn from the generator only then, so the circuits the
+  // plain run makes are the ones it always made.
+  const w = (q: number) => (marked && rand() < 0.5 ? `${q}=0` : String(q))
   const lines: string[] = [`qubits ${qubits}`]
   const pick = (n: number) => 1 + Math.floor(rand() * n)
 
@@ -144,13 +148,15 @@ function randomCircuit(rand: () => number): { src: string; qubits: number } {
     // first arithmetic here nobody can work out by hand.
     else if (choice === 8) lines.push(`${['RX', 'RY', 'RZ', 'P'][Math.floor(rand() * 4)]}(${Math.floor(rand() * 24) * 15}) ${a}`)
     else if (qubits < 2) lines.push(`H ${a}`)
-    else if (choice === 3) lines.push(`CNOT ${a} -> ${b}`)
-    else if (choice === 4) lines.push(`CZ ${a} ${b}`)
+    else if (choice === 3) lines.push(`CNOT ${w(a)} -> ${b}`)
+    else if (choice === 4) lines.push(`CZ ${w(a)} ${w(b)}`)
     else if (choice === 9 && qubits >= 3) {
       // A third distinct wire, so a Fredkin has a control and a pair.
       let c = pick(qubits)
       while (c === a || c === b) c = pick(qubits)
-      lines.push(`CSWAP ${a} -> ${b} ${c}`)
+      lines.push(`CSWAP ${w(a)} -> ${b} ${c}`)
+      // Two controls, on a Toffoli and on a controlled-Z across all three.
+      if (marked) lines.push('---', `TOFFOLI ${w(a)} ${w(c)} -> ${b}`, '---', `CZ ${w(c)} ${w(a)} ${w(b)}`)
     } else lines.push(`SWAP ${a} ${b}`)
   }
   return { src: lines.join('\n'), qubits }
@@ -202,6 +208,36 @@ describe('agreement with a dense floating-point implementation', () => {
 
     // Guard against the loop quietly skipping everything.
     expect(checked).toBeGreaterThan(250)
+  })
+
+  it('matches on 300 random circuits with controls that act on white', () => {
+    const rand = seededRandom('misty-crosscheck-open')
+    let checked = 0
+    let open = 0
+    for (let i = 0; i < 300; i++) {
+      const { src, qubits } = randomCircuit(rand, true)
+      if (src.includes('=0')) open++
+      const input = randomInput(rand, qubits)
+      const doc = parseCircuit(`in ${input}\n${src}`)
+      let mine: Amplitudes
+      try {
+        mine = simulate(doc, doc.layers.length)
+      } catch {
+        continue
+      }
+      const theirs = referenceAmplitudes(doc, amplitudesOf(doc.input!, doc.qubits))
+      const where = `#${i}\n${input}\n${src}`
+      expect([...mine.keys()].sort(), where).toEqual([...theirs.keys()].sort())
+      const ratio = div(amp0(mine), amp0(theirs))
+      for (const [bits, amp] of mine) {
+        const want = mul(theirs.get(bits)!, ratio)
+        expect(amp.re, `${where}\nat ${bits} (re)`).toBeCloseTo(want.re, 6)
+        expect(amp.im, `${where}\nat ${bits} (im)`).toBeCloseTo(want.im, 6)
+      }
+      checked++
+    }
+    expect(checked).toBeGreaterThan(250)
+    expect(open).toBeGreaterThan(100)
   })
 
   it('would notice if the simulator were wrong', () => {

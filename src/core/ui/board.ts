@@ -37,7 +37,7 @@
 import type { CircuitDoc, Gate } from '../circuit/ast'
 import type { CircuitGeometry } from '../circuit/layout'
 import {
-  cycleTarget, dropTarget, gateAt, insertGate, moveGate, nextQubit, qubitAt, removeGate, setQubit,
+  cycleTarget, dropTarget, gateAt, toggleControl, insertGate, moveGate, nextQubit, qubitAt, removeGate, setQubit,
   toggleFold,
 } from '../circuit/edit'
 import type { DropTarget, Droppable, Edit, QubitSpot } from '../circuit/edit'
@@ -166,7 +166,7 @@ export function createBoard(host: BoardHost): Board {
    * carry it to — so it waits here only to find out whether the press was a
    * click.
    */
-  let pending: { gate?: Gate; spot?: QubitSpot; fold?: number; x: number; y: number } | null = null
+  let pending: { gate?: Gate; wire?: number; spot?: QubitSpot; fold?: number; x: number; y: number } | null = null
   let flipFrom: Map<string, DOMRect> | null = null
 
   /**
@@ -296,7 +296,10 @@ export function createBoard(host: BoardHost): Board {
       // which is how a drag-to-export can tell an empty grab from a gate.
       return false
     }
-    pending = { gate, spot, fold, x: event.clientX, y: event.clientY }
+    // The wire under the press, so a click on one of a gate's dots can be told
+    // from a click on the rest of it.
+    const wire = gate && view?.geometry ? dropTarget(view.geometry, at).wire : undefined
+    pending = { gate, wire, spot, fold, x: event.clientX, y: event.clientY }
     window.addEventListener('pointermove', onPendingMove)
     window.addEventListener('pointerup', clickGate, { once: true })
     return true
@@ -347,8 +350,9 @@ export function createBoard(host: BoardHost): Board {
   }
 
   /**
-   * A press that went nowhere is a click, and a click on a controlled gate
-   * moves its target to the next wire it covers.
+   * A press that went nowhere is a click. On a control's dot it turns the dot
+   * between acting on black and acting on white; anywhere else on a controlled
+   * gate it moves the target to the next wire the gate covers.
    *
    * The wires are obvious from where the gate was dropped; which of them takes
    * the ⊕ is not, and rewriting the line by hand to find out is the one edit
@@ -366,7 +370,9 @@ export function createBoard(host: BoardHost): Board {
         const folded = toggleFold(held.source, tapped.fold)
         if (folded) host.oncommit(folded)
       } else if (tapped.gate && !tapped.gate.bound) {
-        const spun = cycleTarget(held.source, held.doc, tapped.gate)
+        const spun =
+          (tapped.wire !== undefined && toggleControl(held.source, held.doc, tapped.gate, tapped.wire)) ||
+          cycleTarget(held.source, held.doc, tapped.gate)
         if (spun) host.oncommit(spun)
         else {
           host.ontap?.({

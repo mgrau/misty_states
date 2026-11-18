@@ -472,6 +472,21 @@ export function notGlyph(
   return circle + bar(cx - r * 0.55, cy, cx + r * 0.55, cy) + bar(cx, cy - r * 0.55, cx, cy + r * 0.55)
 }
 
+/**
+ * A control that acts on white: the dot as a ring, the paper inside it.
+ *
+ * The same outer size as the filled dot, the stroke drawn inward, so swapping
+ * one for the other changes what it says and nothing about where it sits. The
+ * paper fill hides the link and the pipe behind it — a ring with a line
+ * through it would read as a ⊕.
+ */
+export function openControl(
+  cx: number, cy: number, r: number, colour: string, pal: Palette, m: Metrics,
+): string {
+  const w = Math.min(m.stroke * 1.3, r * 0.6)
+  return el('circle', { cx, cy, r: r - w / 2, fill: pal.paper, stroke: colour, 'stroke-width': w })
+}
+
 export function swapGlyph(
   cx: number, cy: number, r: number, pal: Palette, m: Metrics, colour = pal.accent,
 ): string {

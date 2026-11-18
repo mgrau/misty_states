@@ -173,6 +173,23 @@ export interface Droppable {
    * which is a different gate.
    */
   targetAt?: number
+  /**
+   * Which wires of the span are controls, counted from the top of it.
+   *
+   * Absent, every wire but the target is. A gate already in the drawing says,
+   * because its controls need not be side by side: a `CNOT 1 -> 3` put down
+   * again with the wire between them made a control as well is a Toffoli.
+   */
+  controlsAt?: number[]
+  /** A swap's two crossed wires, counted from the top of the span. */
+  pairAt?: [number, number]
+  /** The wires written `=0`, acting on white, counted from the top of the span. */
+  openAt?: number[]
+  /**
+   * Written controls first and target last, never with an arrow: a CZ cannot
+   * take one, so where its named wire is not the last there is no other way.
+   */
+  inOrder?: boolean
   /** Written with an arrow, because that is how it was written before. */
   arrow?: boolean
   /**
@@ -231,9 +248,20 @@ export function gateLine(gate: Droppable, wire: number, qubits: number): string 
   // it was written before.
   const at = gate.targetAt ?? gate.wires - 1
   const target = wires[Math.max(0, Math.min(at, gate.wires - 1))]
-  const controls = wires.filter((w) => w !== target)
-  const arrow = gate.arrow || (controls.length > 0 && at !== gate.wires - 1)
-  const span = arrow ? [...controls, '->', target].join(' ') : wires.join(' ')
+  const mark = marked(gate.openAt?.map((o) => start + o))
+  const pair = gate.pairAt?.map((o) => wires[o]).filter((w) => w !== undefined)
+  const controls = gate.controlsAt
+    ? gate.controlsAt.map((o) => wires[o]).filter((w) => w !== undefined)
+    : wires.filter((w) => w !== target && !pair?.includes(w))
+  let span: string
+  if (pair?.length === 2) {
+    span = [...controls.map(mark), gate.arrow && controls.length ? '->' : '', ...pair].filter(Boolean).join(' ')
+  } else {
+    const arrow = !gate.inOrder && (gate.arrow || (controls.length > 0 && controls.some((c) => c > target)))
+    span = arrow
+      ? [...controls.map(mark), '->', mark(target)].join(' ')
+      : [...controls, target].map(mark).join(' ')
+  }
   return [gate.head, gate.label, span, gate.tail, gate.options].filter(Boolean).join(' ')
 }
 
@@ -503,33 +531,87 @@ export function cycleTarget(source: string, doc: CircuitDoc, gate: Gate): Edit |
   // is the same edit: the wires stay, the dot walks to the next one they cover.
   if (gate.kind === 'swap') return cycleSwapControl(source, doc, gate)
   if (gate.kind !== 'controlled' || !gate.controls.length || gate.targetGlyph === 'z') return null
-  const found = locate(source, doc, gate)
-  if (!found) return null
 
   const wires = [...gate.controls, gate.target].sort((a, b) => a - b)
   const target = wires[(wires.indexOf(gate.target) + 1) % wires.length]
   const controls = wires.filter((w) => w !== target)
+  // Each control keeps what it acts on. The wire the ⊕ moves onto has no say
+  // any more, and the one it leaves starts out acting on black.
+  const open = gate.open?.filter((w) => controls.includes(w))
+  return restate(source, doc, gate, (was) => controlledText(was, gate, controls, target, open))
+}
 
-  // The keyword as it was written — `CX` should not silently become `CNOT` —
-  // and the arrow only where there already was one.
-  const was = found.parts[found.which]
+/**
+ * Turn one dot of a controlled gate between acting on black and acting on
+ * white — a filled dot and an open ring, `1` and `1=0`.
+ *
+ * Null when `wire` is not one of its controls, so a click elsewhere on the
+ * gate can go on meaning what it meant. Every dot of a controlled-Z is a
+ * control, its last one too.
+ */
+export function toggleControl(source: string, doc: CircuitDoc, gate: Gate, wire: number): Edit | null {
+  if (gate.kind === 'swap') {
+    const controls = gate.controls ?? []
+    if (!controls.includes(wire)) return null
+    const open = flipped(gate.open, wire)
+    return restate(source, doc, gate, (was) => swapText(was, controls, gate.qubits, open))
+  }
+  if (gate.kind !== 'controlled' || !gate.controls.length) return null
+  const dots = gate.targetGlyph === 'z' ? [...gate.controls, gate.target] : gate.controls
+  if (!dots.includes(wire)) return null
+  const open = flipped(gate.open, wire)
+  return restate(source, doc, gate, (was) => controlledText(was, gate, gate.controls, gate.target, open))
+}
+
+/** `open` with `wire` added if it was not there, taken out if it was. */
+const flipped = (open: number[] | undefined, wire: number): number[] =>
+  open?.includes(wire) ? open.filter((w) => w !== wire) : [...(open ?? []), wire]
+
+/** A wire as it is written: `2`, or `2=0` where it acts on white. */
+const marked = (open: number[] | undefined) => (w: number): string =>
+  open?.includes(w) ? `${w}=0` : String(w)
+
+/**
+ * A controlled gate written afresh on the wires given.
+ *
+ * The keyword as it was written — `CX` should not silently become `CNOT` —
+ * and the arrow only where there already was one.
+ */
+function controlledText(
+  was: string, gate: Gate & { kind: 'controlled' }, controls: number[], target: number, open?: number[],
+): string {
   const head = was.trim().split(/\s+/)[0]
   const arrow = was.includes('->')
   const name = gate.label ? `"${gate.label}"` : ''
-  const text = [
+  const mark = marked(open)
+  return [
     head,
     !gate.labelOnLink ? name : '',
-    controls.join(' '),
+    controls.map(mark).join(' '),
     arrow ? '->' : '',
-    String(target),
+    mark(target),
     gate.labelOnLink ? name : '',
     writtenOptions(was),
   ]
     .filter(Boolean)
     .join(' ')
+}
 
+/** A controlled swap written afresh: its controls, then the pair. */
+function swapText(was: string, controls: number[], pair: number[], open?: number[]): string {
+  const head = was.trim().split(/\s+/)[0] // CSWAP, as it was written
+  const arrow = was.includes('->')
+  return [head, controls.map(marked(open)).join(' '), arrow ? '->' : '', pair.join(' '), writtenOptions(was)]
+    .filter(Boolean)
+    .join(' ')
+}
+
+/** Write one gate's statement again, leaving the rest of its line as it was. */
+function restate(source: string, doc: CircuitDoc, gate: Gate, write: (was: string) => string): Edit | null {
+  const found = locate(source, doc, gate)
+  if (!found) return null
   const parts = [...found.parts]
-  parts[found.which] = text
+  parts[found.which] = write(found.parts[found.which])
   const lines = [...found.lines]
   lines[found.at] = rewrite(lines[found.at], parts.join('; '))
   return { source: lines.join('\n'), line: gate.line! }
@@ -545,26 +627,14 @@ export function cycleTarget(source: string, doc: CircuitDoc, gate: Gate): Edit |
  */
 function cycleSwapControl(source: string, doc: CircuitDoc, gate: Gate): Edit | null {
   if (gate.kind !== 'swap' || (gate.controls?.length ?? 0) !== 1) return null
-  const found = locate(source, doc, gate)
-  if (!found) return null
 
   const cur = gate.controls![0]
   const wires = [cur, ...gate.qubits].sort((a, b) => a - b)
   const control = wires[(wires.indexOf(cur) + 1) % wires.length]
   const pair = wires.filter((w) => w !== control)
-
-  const was = found.parts[found.which]
-  const head = was.trim().split(/\s+/)[0] // CSWAP, as it was written
-  const arrow = was.includes('->')
-  const text = [head, String(control), arrow ? '->' : '', pair.join(' '), writtenOptions(was)]
-    .filter(Boolean)
-    .join(' ')
-
-  const parts = [...found.parts]
-  parts[found.which] = text
-  const lines = [...found.lines]
-  lines[found.at] = rewrite(lines[found.at], parts.join('; '))
-  return { source: lines.join('\n'), line: gate.line! }
+  // What the control acts on goes with it.
+  const open = gate.open?.length ? [control] : undefined
+  return restate(source, doc, gate, (was) => swapText(was, [control], pair, open))
 }
 
 /**
@@ -842,6 +912,10 @@ export function moveGate(
   })
 }
 
+/** The wires acting on white, counted from the top of the span. */
+const openAt = (open: number[] | undefined, q0: number): { openAt?: number[] } =>
+  open?.length ? { openAt: open.map((w) => w - q0) } : {}
+
 /** How to write a gate that is already in the document back out again. */
 export function asDroppable(gate: Gate): Droppable {
   const [q0, q1] = gateSpan(gate)
@@ -860,9 +934,13 @@ export function asDroppable(gate: Gate): Droppable {
       // A controlled swap writes `CSWAP <controls> <pair>`, so the pair is the
       // last two wires — which is how the bare form reads them back. This round
       // trips whenever the controls come before the pair, as a Fredkin's does.
-      return gate.controls?.length
-        ? { head: 'CSWAP', wires }
-        : { head: 'SWAP', wires: 2 }
+      return {
+        head: gate.controls?.length ? 'CSWAP' : 'SWAP',
+        wires,
+        controlsAt: (gate.controls ?? []).map((c) => c - q0),
+        pairAt: [gate.qubits[0] - q0, gate.qubits[1] - q0],
+        ...openAt(gate.open, q0),
+      }
     case 'measure':
       return { head: 'measure', wires: 1, tail: gate.basis }
     case 'view':
@@ -888,12 +966,41 @@ export function asDroppable(gate: Gate): Droppable {
       // before the wires, where it stands on the target.
       if (gate.custom) {
         return gate.controls.length
-          ? { head: 'CGATE', wires, label: `"${gate.label}"`, targetAt: gate.target - q0 }
+          ? {
+              head: 'CGATE', wires, label: `"${gate.label}"`, targetAt: gate.target - q0,
+              controlsAt: gate.controls.map((c) => c - q0), ...openAt(gate.open, q0),
+            }
           : { head: 'GATE', wires: 1, label: `"${gate.label}"` }
       }
       if (!gate.controls.length) return { head: 'X', wires: 1 }
-      const head =
-        gate.targetGlyph === 'z' ? 'CZ' : gate.controls.length > 1 ? 'TOFFOLI' : 'CNOT'
+      const head = gate.phase ? 'CZ' : gate.controls.length > 1 ? 'TOFFOLI' : 'CNOT'
+      // A name on a controlled-Z stands on its last wire, which is the one
+      // thing setting that wire apart — so it is kept last, and written there
+      // without an arrow, the only way a CZ can be.
+      if (gate.phase && !gate.labelOnLink && gate.label) {
+        return {
+          head,
+          wires,
+          label: `"${gate.label}"`,
+          targetAt: gate.target - q0,
+          controlsAt: gate.controls.map((c) => c - q0),
+          ...openAt(gate.open, q0),
+          inOrder: true,
+        }
+      }
+      // Otherwise a controlled-Z has no target to keep track of — nothing tells
+      // its wires apart but what each acts on — so it is written in order.
+      if (gate.phase) {
+        const all = [...gate.controls, gate.target].sort((a, b) => a - b)
+        return {
+          head,
+          wires,
+          tail: gate.label ? `"${gate.label}"` : undefined,
+          targetAt: all[all.length - 1] - q0,
+          controlsAt: all.slice(0, -1).map((c) => c - q0),
+          ...openAt(gate.open, q0),
+        }
+      }
       // Which side the name goes on is which name it is: before the wires it
       // stands on the target, after them it labels the link. Writing it back on
       // the wrong side would silently make it the other kind.
@@ -905,6 +1012,8 @@ export function asDroppable(gate: Gate): Droppable {
         tail: gate.labelOnLink ? name : undefined,
         // Where the ⊕ sits within the span, so a move carries it along.
         targetAt: gate.target - q0,
+        controlsAt: gate.controls.map((c) => c - q0),
+        ...openAt(gate.open, q0),
       }
     }
     default:

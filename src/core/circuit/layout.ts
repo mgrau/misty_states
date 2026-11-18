@@ -1390,7 +1390,8 @@ function emitGate(
       const { accent } = gate
       glyphs.push({ t: 'link', x0: Math.min(...xs), x1: Math.max(...xs), cy, accent })
       for (const c of controls) {
-        glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R, accent })
+        const open = gate.open?.includes(c) || undefined
+        glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R, accent, open })
       }
       glyphs.push({ t: 'swap', cx: gateX(a), cy, r: m.pipeWidth * 0.3, accent })
       glyphs.push({ t: 'swap', cx: gateX(b), cy, r: m.pipeWidth * 0.3, accent })
@@ -1432,7 +1433,8 @@ function emitGate(
         }
         glyphs.push({ t: 'link', x0, x1, cy, accent })
         for (const c of gate.controls) {
-          glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R, accent })
+          const open = gate.open?.includes(c) || undefined
+          glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R, accent, open })
         }
       }
       if (chip) {
@@ -1455,6 +1457,7 @@ function emitGate(
           r: m.pipeWidth * (isZ ? CONTROL_R : TARGET_R),
           glyph: isZ ? 'z' : 'not',
           accent,
+          open: (isZ && gate.open?.includes(gate.target)) || undefined,
         })
       }
 

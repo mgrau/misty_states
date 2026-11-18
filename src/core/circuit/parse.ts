@@ -117,6 +117,55 @@ function parseQubits(tokens: Token[], line: number): number[] {
   return out
 }
 
+/**
+ * Wires that may each say which value they act on: `1=0` acts on white, drawn
+ * as an open ring, and `1=1` — the same as `1` — on black.
+ *
+ * Written the way `if M1=0` already says a measured wire must have come out
+ * white, so the notation has one way of saying it. A range takes the mark as a
+ * whole: `1-2=0` is both.
+ */
+function parseMarked(tokens: Token[], line: number, head: string): { qubits: number[]; open: number[] } {
+  const qubits: number[] = []
+  const open: number[] = []
+  for (const t of tokens) {
+    const mark = t.quoted ? null : /^(.*?)=(.*)$/.exec(t.text)
+    if (mark && mark[2] !== '0' && mark[2] !== '1') {
+      throw new ParseError(
+        `"${t.text}": a control acts on 0 or 1 — e.g. ${head} 1=0 2, to act when wire 1 is white`,
+        0,
+        line,
+      )
+    }
+    const qs = parseQubits([mark ? { text: mark[1], quoted: false } : t], line)
+    qubits.push(...qs)
+    if (mark?.[2] === '0') open.push(...qs)
+  }
+  return { qubits, open }
+}
+
+/** `open`, but left off altogether when nothing is. */
+const openOf = (open: number[]): { open?: number[] } => (open.length ? { open } : {})
+
+/**
+ * A controlled gate's wires: the controls, then the target, split on `->` —
+ * or, without one, the last `count` wires are the target.
+ */
+function splitControls(rest: Token[], line: number, head: string, count = 1) {
+  const arrow = rest.findIndex((t) => t.text === '->')
+  const split = arrow < 0 ? rest.length - count : arrow
+  const controls = parseMarked(rest.slice(0, Math.max(0, split)), line, head)
+  const targets = parseMarked(rest.slice(arrow < 0 ? Math.max(0, split) : arrow + 1), line, head)
+  if (targets.open.length) {
+    throw new ParseError(
+      `only a control can act on 0 — the ${count > 1 ? 'swapped wires are' : 'target is'} not one`,
+      0,
+      line,
+    )
+  }
+  return { controls: controls.qubits, targets: targets.qubits, open: controls.open }
+}
+
 function toQubit(tok: string, line: number): number {
   const v = Number(tok)
   if (!Number.isInteger(v) || v < 1) {
@@ -218,7 +267,7 @@ const KEYWORDS = new Set([
   'qubits', 'wires', 'shape', 'shapes', 'header', 'labels', 'coefficients', 'in', 'out', 'view', 'show', 'window',
   'animate', 'tag', '_',
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
-  'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
+  'cz', 'ccz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
 ])
 
@@ -249,7 +298,7 @@ const CALCULATE = /^calc(ulate)?\s*(?::\s*(.*?))?\s*$/i
 /** The gate names, as opposed to the directives that also open a line. */
 const GATE_KEYWORDS = new Set([
   '_', 'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
-  'cz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
+  'cz', 'ccz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
 ])
 
@@ -284,7 +333,7 @@ const GLUED = /^([a-z]+)(\d+(?:-\d+)?)$/i
 const ARITY: Record<string, number> = {
   _: 1, h: 1, pete: 1, x: 1, not: 1, y: 1, z: 1, s: 1, t: 1, i: 1, id: 1, identity: 1, m: 1, measure: 1,
   cnot: 2, cx: 2, cz: 2, swap: 2,
-  toffoli: 3, ccnot: 3, ccx: 3, cswap: 3, fredkin: 3,
+  toffoli: 3, ccnot: 3, ccx: 3, ccz: 3, cswap: 3, fredkin: 3,
 }
 
 /** Does this word begin a gate — named, turned, run together, or glued to its wire? */
@@ -408,7 +457,7 @@ export function splitStatements(body: string, lineNo: number): Statement[] {
  * no telling which it was.
  */
 export function wiresLeftOut(text: string): number {
-  const words = text.replace(CONDITION, ' ').trim().split(/\s+/).filter((w) => !w.includes('='))
+  const words = text.replace(CONDITION, ' ').trim().split(/\s+/).filter((w) => !/^[a-z]+=/i.test(w))
   if (words.some((w) => w.startsWith('"'))) return 0
   const head = words[0]?.toLowerCase() ?? ''
   const arity = ARITY[head] ?? (isTurn(head) ? 1 : 0)
@@ -1154,15 +1203,12 @@ function parseGate(src: string, line: number): Gate {
       return { ...custom, controls: [], target: qs[0] }
     }
     // Read as a CNOT's wires are: the last is the target unless an arrow says.
-    const arrow = rest.findIndex((t) => t.text === '->')
-    const split = arrow < 0 ? rest.length - 1 : arrow
-    const controls = parseQubits(rest.slice(0, Math.max(0, split)), line)
-    const targets = parseQubits(rest.slice(arrow < 0 ? split : arrow + 1), line)
+    const { controls, targets, open } = splitControls(rest, line, head)
     if (!controls.length) {
       throw new ParseError(`CGATE needs at least one control — with none it is GATE`, 0, line)
     }
     if (targets.length !== 1) throw new ParseError('CGATE needs exactly one target', 0, line)
-    return { ...custom, controls, target: targets[0] }
+    return { ...custom, controls, target: targets[0], ...openOf(open) }
   }
 
   // `RZ(45)` arrives as one token — nothing splits on a bracket — so the angle
@@ -1201,16 +1247,14 @@ function parseGate(src: string, line: number): Gate {
     // reader might wonder. Without one the last wire is the target — the same
     // reading `CZ 1 2` and `SWAP 1 2` already take, so `CNOT 1 2` means what
     // anyone would expect it to rather than being an error about punctuation.
-    const arrow = rest.findIndex((t) => t.text === '->')
-    const split = arrow < 0 ? rest.length - 1 : arrow
-    const controls = parseQubits(rest.slice(0, Math.max(0, split)), line)
-    const targets = parseQubits(rest.slice(arrow < 0 ? split : arrow + 1), line)
+    const { controls, targets, open } = splitControls(rest, line, head)
     if (!controls.length) throw new ParseError(`${head} needs at least one control`, 0, line)
     if (targets.length !== 1) throw new ParseError(`${head} needs exactly one target`, 0, line)
     return {
       kind: 'controlled',
       controls,
       target: targets[0],
+      ...openOf(open),
       targetGlyph: front ? 'label' : 'not',
       label: front?.text ?? back?.text,
       labelOnLink: back && !front ? true : undefined,
@@ -1218,16 +1262,38 @@ function parseGate(src: string, line: number): Gate {
     }
   }
 
-  if (head === 'CZ') {
+  /*
+   * A controlled-Z on any number of wires: `CZ 1 2 3`, or `CCZ`, flips the sign
+   * where every one of them is black. Which is the target makes no difference
+   * to what it does, so there is no arrow to write, and every dot — the last
+   * included — may be told to act on white instead.
+   */
+  if (head === 'CZ' || head === 'CCZ') {
     noBox()
     const front = rest[0]?.quoted ? rest.shift() : undefined
     const back = rest[rest.length - 1]?.quoted ? rest.pop() : undefined
-    const qs = parseQubits(rest, line)
-    if (qs.length !== 2) throw new ParseError('CZ takes two qubits', 0, line)
+    if (rest.some((t) => t.text === '->')) {
+      throw new ParseError(`${head} has no target to point at — every wire of it is a control, e.g. CZ 1 2 3`, 0, line)
+    }
+    const { qubits: qs, open } = parseMarked(rest, line, head)
+    if (head === 'CCZ' && qs.length !== 3) throw new ParseError('CCZ takes three qubits', 0, line)
+    if (qs.length < 2) throw new ParseError('CZ takes two qubits or more', 0, line)
+    const target = qs[qs.length - 1]
+    // A name before the wires stands on the last of them, in place of its dot —
+    // so there is no ring there to say it acts on white.
+    if (front && open.includes(target)) {
+      throw new ParseError(
+        `the name "${front.text}" stands on wire ${target}, so it has no dot to act on 0 — mark another wire, or put the name after the wires`,
+        0,
+        line,
+      )
+    }
     return {
       kind: 'controlled',
-      controls: [qs[0]],
-      target: qs[1],
+      controls: qs.slice(0, -1),
+      target,
+      ...openOf(open),
+      phase: true,
       targetGlyph: front ? 'label' : 'z',
       label: front?.text ?? back?.text,
       labelOnLink: back && !front ? true : undefined,
@@ -1248,13 +1314,10 @@ function parseGate(src: string, line: number): Gate {
   // `SWAP 1 2` and `CNOT 1 2` already read their trailing wire.
   if (head === 'CSWAP' || head === 'FREDKIN') {
     noBox()
-    const arrow = rest.findIndex((t) => t.text === '->')
-    const split = arrow < 0 ? rest.length - 2 : arrow
-    const controls = parseQubits(rest.slice(0, Math.max(0, split)), line)
-    const targets = parseQubits(rest.slice(arrow < 0 ? split : arrow + 1), line)
+    const { controls, targets, open } = splitControls(rest, line, head, 2)
     if (!controls.length) throw new ParseError(`${head} needs at least one control`, 0, line)
     if (targets.length !== 2) throw new ParseError(`${head} swaps exactly two qubits`, 0, line)
-    return { kind: 'swap', qubits: [targets[0], targets[1]], controls, accent: colour }
+    return { kind: 'swap', qubits: [targets[0], targets[1]], controls, ...openOf(open), accent: colour }
   }
 
   if (head === 'MEASURE' || head === 'M') {

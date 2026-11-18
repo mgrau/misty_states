@@ -220,6 +220,8 @@ export interface ControlPrim {
   r: number
   /** In place of the palette's accent, where the gate was given a colour. */
   accent?: string
+  /** Acts on white: drawn as an open ring rather than a filled dot. */
+  open?: boolean
 }
 
 export interface TargetPrim {
@@ -238,6 +240,8 @@ export interface TargetPrim {
   glyph: 'not' | 'z' | (string & {})
   /** In place of the palette's accent, where the gate was given a colour. */
   accent?: string
+  /** A controlled-Z's last dot, acting on white; see `ControlPrim.open`. */
+  open?: boolean
 }
 
 export interface SwapPrim {

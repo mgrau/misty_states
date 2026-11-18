@@ -12,7 +12,7 @@ import { Path, el, g, n } from '../svg'
 import type { Metrics, PipePrim, Prim } from './primitives'
 import {
   FLAT_ATTACH, basisLabel, drawBar, drawCloud, drawQubit, drawDial, drawSign, drawText, mix,
-  labelChip, meterGlyph, notGlyph, swapGlyph,
+  labelChip, meterGlyph, notGlyph, openControl, swapGlyph,
   type Attach, type Palette, type QubitStyle, type Theme, type ThemeId,
 } from './theme'
 import type { QubitValue } from '../state/ast'
@@ -551,12 +551,15 @@ function makeTheme(
         }
 
         case 'control':
-          return el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: p.accent ?? pal.accent })
+          return p.open
+            ? openControl(p.cx, p.cy, p.r, p.accent ?? pal.accent, pal, m)
+            : el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: p.accent ?? pal.accent })
 
         case 'target': {
           const accent = p.accent ?? pal.accent
           if (p.glyph === 'not') return notGlyph(p.cx, p.cy, p.r, pal, m, accent)
           if (p.glyph === 'z') {
+            if (p.open) return openControl(p.cx, p.cy, p.r, accent, pal, m)
             return el('circle', { cx: p.cx, cy: p.cy, r: p.r, fill: accent })
           }
           // A marked port: the ring a control has, with its mark inside it.

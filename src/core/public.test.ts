@@ -84,6 +84,7 @@ describe('the published surfaces', () => {
       'stateFrom',
       'tabulate',
       'tintColour',
+      'toggleControl',
       'toggleFold',
       'traceGate',
       'useDroppable',

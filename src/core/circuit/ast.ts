@@ -75,12 +75,27 @@ export interface ControlledGate {
   kind: 'controlled'
   controls: number[]
   target: number
-  /** 'not' draws ⊕, otherwise the label sits in a chip on the target. */
+  /**
+   * Written `1=0`: the wires that act on white rather than black, drawn as an
+   * open ring where the others are a filled dot.
+   *
+   * Usually a subset of the controls. A controlled-Z is the exception: every
+   * dot on it is as much a control as any other, so its target may be one too.
+   */
+  open?: number[]
   /**
    * `not` is the ⊕, `z` the filled dot, `label` puts the gate's name there —
    * and anything else is a mark of its own, drawn in a ring.
    */
   targetGlyph: 'not' | 'z' | 'label' | (string & {})
+  /**
+   * Written `CZ`: it flips the sign rather than the target.
+   *
+   * Kept apart from the glyph, which is only what is drawn there: a name on
+   * the target hides the dot, not what the gate does. `CZ "Phase" 1 2` is
+   * still a controlled-Z.
+   */
+  phase?: true
   /**
    * A name for what the gate does.
    *
@@ -120,6 +135,8 @@ export interface SwapGate {
    * gate draws its controls.
    */
   controls?: number[]
+  /** Controls written `1=0`, which act on white; see `ControlledGate.open`. */
+  open?: number[]
   /** Written `colour=`: what its crosses, bar and dots are drawn in. */
   accent?: string
 }

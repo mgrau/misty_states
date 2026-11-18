@@ -64,6 +64,9 @@ out calculate
 | `CNOT 1 -> 2` | Controlled-NOT (arrow optional; `CX` is an alias) |
 | `TOFFOLI 1 2 -> 3` | Two controls (`CCNOT`/`CCX`) |
 | `CZ 1 2` | Controlled-Z |
+| `CZ 1 2 3` | Controlled-Z on any number of wires — the sign flips where all are black (`CCZ` is three) |
+| `CNOT 1=0 -> 2` | A control that acts on white, drawn as an open ring; works on `TOFFOLI`, `CSWAP`, `CGATE` too |
+| `CZ 1 2=0` | Any dot of a CZ may act on white, its last one included |
 | `SWAP 1 2` | Swap |
 | `CSWAP 1 2 3` | Controlled swap / Fredkin (`CSWAP 1 -> 2 3` too) |
 | `measure 1 Z` | Measurement (`M` is an alias) |
@@ -379,6 +382,11 @@ circuit, the **Bloch** button slides in a sphere showing the qubit's path, gate
 by gate in the gates' colours; it follows the dial as it turns and keeps time
 with an animation or the stepper. Calculate and Animate, in the corner of the
 drawing, each add their line to the source and take it away again.
+
+Clicking a control's dot turns it between acting on black (a filled dot, `1`)
+and acting on white (an open ring, `1=0`) — on every dot of a controlled-Z, the
+last one too. Clicking anywhere else on a controlled gate moves its `⊕` to the
+next wire it covers.
 
 ### Themes
 

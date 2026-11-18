@@ -296,18 +296,19 @@ function spreadOf(gate: Gate): Spread | null {
       if (gate.custom) {
         throw new SimulationError(`“${gate.label}” is a drawing, so there is no operation to apply`)
       }
-      const on = (bits: string) => gate.controls.every((c) => bits[c - 1] === '1')
-      if (gate.targetGlyph === 'z') {
-        return (bits, amp, emit) =>
-          emit(bits, on(bits) && bits[gate.target - 1] === '1' ? neg(amp) : amp)
+      const on = activeOn(gate.controls, gate.open)
+      // Every wire of a controlled-Z is a control, its last one included: the
+      // sign flips where they all hold what they act on.
+      if (gate.phase) {
+        const all = activeOn([...gate.controls, gate.target], gate.open)
+        return (bits, amp, emit) => emit(bits, all(bits) ? neg(amp) : amp)
       }
       return (bits, amp, emit) => emit(on(bits) ? flip(bits, gate.target) : bits, amp)
     }
 
     case 'swap': {
       const [a, b] = gate.qubits
-      const controls = gate.controls ?? []
-      const on = (bits: string) => controls.every((c) => bits[c - 1] === '1')
+      const on = activeOn(gate.controls ?? [], gate.open)
       return (bits, amp, emit) => {
         if (!on(bits)) return emit(bits, amp)
         const chars = [...bits]
@@ -1310,4 +1311,13 @@ export function resolveCalculations(doc: CircuitDoc, given: PresentOptions = {})
   }
 
   return { ...doc, layers, input, output, table, chart }
+}
+
+/**
+ * Do these wires all hold what they act on? Black, unless written `1=0`, which
+ * acts on white.
+ */
+function activeOn(wires: number[], open: number[] = []): (bits: string) => boolean {
+  const want = wires.map((w) => [w - 1, open.includes(w) ? '0' : '1'] as const)
+  return (bits) => want.every(([i, v]) => bits[i] === v)
 }

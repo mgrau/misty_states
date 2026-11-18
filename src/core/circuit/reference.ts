@@ -32,6 +32,8 @@ const I2: Matrix = [[r(1), r(0)], [r(0), r(1)]]
 const X2: Matrix = [[r(0), r(1)], [r(1), r(0)]]
 const Y2: Matrix = [[r(0), r(0, -1)], [r(0, 1), r(0)]]
 const Z2: Matrix = [[r(1), r(0)], [r(0), r(-1)]]
+/** The sign on white instead: what a controlled-Z's dot written `=0` does. */
+const Z0: Matrix = [[r(-1), r(0)], [r(0), r(1)]]
 const S2: Matrix = [[r(1), r(0)], [r(0), r(0, 1)]]
 /** Unnormalised, matching the course's PETE box. */
 const H2: Matrix = [[r(1), r(1)], [r(1), r(-1)]]
@@ -112,18 +114,23 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
 
     case 'controlled': {
       if (gate.custom) throw new Error(`reference: ${gate.label} has no matrix here`)
-      const act = gate.targetGlyph === 'z' ? Z2 : X2
+      const act = gate.phase ? Z2 : X2
+      const open = gate.open ?? []
+      // A controlled-Z acting on white at its target puts the sign on white.
+      const flip = !!gate.phase && open.includes(gate.target)
       // Every assignment of the controls, the acting one carrying the operator.
       // The projectors sum to the identity, so the pieces cover every case
-      // exactly once.
+      // exactly once. The acting one is all ones — read as all whites on the
+      // wires that act on white.
       let out: Matrix | null = null
       const total = 1 << gate.controls.length
       for (let mask = 0; mask < total; mask++) {
         const ops: Record<number, Matrix> = {}
         gate.controls.forEach((c, i) => {
-          ops[c] = mask & (1 << i) ? P1 : P0
+          const one = !!(mask & (1 << i)) !== open.includes(c)
+          ops[c] = one ? P1 : P0
         })
-        if (mask === total - 1) ops[gate.target] = act
+        if (mask === total - 1) ops[gate.target] = flip ? Z0 : act
         out = out ? sum(out, embed(n, ops)) : embed(n, ops)
       }
       return out ?? embed(n, { [gate.target]: act })
@@ -136,7 +143,8 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
       // only acts where the controls are all ones. Empty for a plain SWAP, in
       // which case this is exactly the swap.
       const gated: Record<number, Matrix> = {}
-      for (const c of controls) gated[c] = P1
+      const open = gate.open ?? []
+      for (const c of controls) gated[c] = open.includes(c) ? P0 : P1
       let out = [
         embed(n, { ...gated, [a]: P0, [b]: P0 }),
         embed(n, { ...gated, [a]: P1, [b]: P1 }),
@@ -151,7 +159,7 @@ function matrixOf(gate: Gate, n: number): Matrix | null {
       for (let mask = 0; mask < total - 1; mask++) {
         const ops: Record<number, Matrix> = {}
         controls.forEach((c, i) => {
-          ops[c] = mask & (1 << i) ? P1 : P0
+          ops[c] = !!(mask & (1 << i)) !== open.includes(c) ? P1 : P0
         })
         out = sum(out, embed(n, ops))
       }
