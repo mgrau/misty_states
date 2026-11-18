@@ -10,7 +10,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { parseCircuit } from './parse'
-import { insertGate, isLocked, moveGate, respectsLocks, toggleLock } from './edit'
+import { insertGate, isLocked, moveGate, removeGate, respectsLocks, toggleLock } from './edit'
+import { EXAMPLES } from '../examples'
 import { render } from '../index'
 import type { Gate } from './ast'
 
@@ -139,5 +140,57 @@ describe('the padlocks', () => {
     const shown = render(CODE, { locks: true }).geometry!
     expect(shown.frames).toEqual(plain.frames)
     expect(shown.layers).toEqual(plain.layers)
+  })
+})
+
+describe('a slot for the error', () => {
+  // Shor's code as the examples have it: everything locked but "Error" 1-9,
+  // which names its wires and so keeps its place when it is emptied.
+  const SHOR = EXAMPLES.find((e) => e.id === 'shor-code')!.source
+  const shor = parseCircuit(SHOR)
+  const slotLayer = shor.layers.findIndex((l) => l.gates.some((g) => g.kind === 'single' && g.label === 'Y'))
+  const y = shor.layers[slotLayer].gates.find((g) => g.kind === 'single' && g.label === 'Y')!
+  /** Where every layer and frame is drawn: the thing that must not move. */
+  const shape = (src: string) => {
+    // Boxes only: which line a frame folds from shifts with the text above it.
+    const g = render(src).geometry!
+    return JSON.stringify([g.layers, g.frames?.map((f) => f.box)])
+  }
+  const errorLines = (src: string) => block(src, 'Error').split('\n').slice(1, -1)
+
+  it('may be empty, and is drawn as pipe the height of a gate', () => {
+    const empty = 'in 00\n"Error" 1-2 {\n}\nH 1'
+    expect(() => parseCircuit(empty)).not.toThrow()
+    expect(render(empty).geometry!.layers).toHaveLength(2)
+    // Without wires an empty frame is still a mistake, and says how to mean it.
+    expect(() => parseCircuit('in 00\n"Error" {\n}\nH 1')).toThrow(/name its wires/)
+  })
+
+  it('keeps the circuit round it where it is, wherever the error goes', () => {
+    const before = shape(SHOR)
+    for (const wire of [1, 4, 9]) {
+      const out = moveGate(SHOR, shor, y, { wire, layer: slotLayer, where: 'in' })!.source
+      expect(errorLines(out)).toEqual([`Y ${wire}`])
+      expect(shape(out)).toBe(before)
+    }
+  })
+
+  it('stays when its error is taken out, and takes the next one in', () => {
+    const cut = removeGate(SHOR, shor, y)!
+    expect(cut.layerRemoved).toBeUndefined()
+    expect(errorLines(cut.source)).toEqual([])
+    expect(shape(cut.source)).toBe(shape(SHOR))
+    for (const where of ['in', 'before', 'after'] as const) {
+      const back = insertGate(cut.source, parseCircuit(cut.source), { wire: 2, layer: slotLayer, where }, { head: 'Z', wires: 1 })
+      expect(errorLines(back.source)).toEqual(['Z 2'])
+    }
+  })
+
+  it('is where a drop aimed at a locked block goes', () => {
+    for (const layer of [0, slotLayer - 1, slotLayer + 1, shor.layers.length - 1]) {
+      const out = moveGate(SHOR, shor, y, { wire: 6, layer, where: 'in' })!.source
+      expect(errorLines(out)).toEqual(['Y 6'])
+      expect(shape(out)).toBe(shape(SHOR))
+    }
   })
 })
