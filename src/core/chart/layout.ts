@@ -50,6 +50,8 @@ const TICK_GAP = 7
 const TITLE_GAP = 4
 /** A bar with nothing in it still needs to be visible as an empty place. */
 const MIN_BAR = 1.5
+/** The imaginary part's bar, as a share of the real one's width. */
+const IMAGINARY_WIDTH = 0.5
 
 /** Ticks down the axis, top to bottom. */
 const ticksFor = (mode: ChartSpec['mode']): { at: number; text: string }[] =>
@@ -124,7 +126,8 @@ export function layoutChart(
   // The half below the axis is drawn only when something is down there. It is
   // the taller part of the plot and, on a state with no negative term, says
   // nothing the axis does not already say.
-  const signed = mode === 'amplitude' && bars.some((bar) => (bar.amplitude ?? 0) < 0)
+  const signed = mode === 'amplitude' &&
+    bars.some((bar) => (bar.amplitude ?? 0) < 0 || (bar.imaginary ?? 0) < 0)
 
   const labels = bars.map((bar) => stacked(bar, m, opts))
 
@@ -174,6 +177,23 @@ export function layoutChart(
         h: Math.max(h, MIN_BAR),
       },
     })
+
+    // The imaginary part stands in front of the real one, on the same axis.
+    // Narrower, so that where the two are the same height — any amplitude at
+    // an eighth turn — both are still there to be seen; and in its own pair of
+    // colours, so +i is not mistaken for +1. Only where there is one: a real
+    // amplitude has no imaginary sliver, so a real plot is drawn as it was.
+    if (mode === 'amplitude' && bar.imaginary !== undefined) {
+      const im = bar.imaginary
+      const ih = Math.max(Math.abs(im) * UNIT, MIN_BAR)
+      const iw = barW * IMAGINARY_WIDTH
+      prims.push({
+        t: 'pane',
+        tone: im,
+        imaginary: true,
+        box: { x: x + (barW - iw) / 2, y: im < 0 ? zero : zero - ih, w: iw, h: ih },
+      })
+    }
 
     // Written over the bar only while it fits over the bar. Stacked labels make
     // for narrow bars, and a row of chances running into each other says less

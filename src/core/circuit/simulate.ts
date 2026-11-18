@@ -1244,10 +1244,10 @@ export function chartBars(
       const amp = mul(amps.get(b) ?? ZERO, turn)
       return {
         state: stateFrom(new Map([[b, ONE]]), doc.qubits, opts),
-        // A bar has one height, so only an amplitude that lies on the axis has
-        // one to give. A phase off it is left out rather than flattened, and
-        // the plot says so.
-        amplitude: isReal(amp) ? amp.re / length : undefined,
+        // A bar has one height, so a complex amplitude is drawn as two laid
+        // over each other: the real part, and the imaginary part in front.
+        amplitude: amp.re / length,
+        ...(isReal(amp) ? {} : { imaginary: amp.im / length }),
         probability: abs2(amp) / total,
         label: oddsLabel(frac(abs2(amp), total), opts.exactOdds),
       }
@@ -1307,16 +1307,6 @@ export function resolveCalculations(doc: CircuitDoc, given: PresentOptions = {})
   const chart = doc.chart
     ? { ...doc.chart, ...chartBars(doc, doc.layers.length, opts) }
     : undefined
-  // A bar has one height, so an amplitude off the real axis has none to give.
-  // Said rather than drawn as nothing — an empty bar reads as a term that
-  // cancelled, which is the opposite of a term with a phase on it.
-  if (chart?.mode === 'amplitude' && !chart.measured &&
-      chart.bars?.some((b) => b.amplitude === undefined)) {
-    throw new SimulationError(
-      'these amplitudes have a phase, which a bar cannot show — chart the probabilities instead',
-    )
-  }
-
   return { ...doc, layers, input, output, table, chart }
 }
 

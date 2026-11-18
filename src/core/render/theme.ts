@@ -42,6 +42,14 @@ export interface Palette {
    */
   chartUp: string
   chartDown: string
+  /**
+   * The same two ends for an amplitude on the imaginary axis: +i and −i.
+   *
+   * Blue, purple, red, yellow is one walk round the colour wheel, so 1, i, −1,
+   * −i keep the order a phase turns them in.
+   */
+  chartUpI: string
+  chartDownI: string
 }
 
 export const LIGHT_PALETTE: Palette = {
@@ -73,6 +81,8 @@ export const LIGHT_PALETTE: Palette = {
   uncertain: '#b6b6b6',
   chartUp: '#4a7fd4',
   chartDown: '#d4574a',
+  chartUpI: '#9a4fd0',
+  chartDownI: '#d9a300',
 }
 
 export const DARK_PALETTE: Palette = {
@@ -102,6 +112,8 @@ export const DARK_PALETTE: Palette = {
   uncertain: '#565660',
   chartUp: '#6f9dff',
   chartDown: '#ff8878',
+  chartUpI: '#c08cff',
+  chartDownI: '#f2c94c',
 }
 
 /**

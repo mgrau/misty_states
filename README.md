@@ -347,6 +347,8 @@ numbers whatever the setting says.
 ### Charts and tables
 
 `chart` draws a bar per basis state — amplitude (coloured, signed) by default,
+with any imaginary part as a narrower bar in front of the real one, purple
+above the axis and yellow below,
 or `chart(probability)` (grey, unsigned). `tabulate` draws an outcome table.
 Both go where an output goes.
 

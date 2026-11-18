@@ -378,8 +378,17 @@ export interface TableSpec {
 export interface ChartBar {
   /** The basis state this bar stands over, drawn. */
   state: StateRow
-  /** Signed, between -1 and 1. Absent after a measurement, which leaves none. */
+  /**
+   * The real part, signed, between -1 and 1. Absent after a measurement, which
+   * leaves none.
+   */
   amplitude?: number
+  /**
+   * The imaginary part, likewise signed, where there is one: drawn over the
+   * real bar, narrower and in colours of its own, so +i stands up and −i hangs
+   * down as +1 and −1 do. Absent when the amplitude is real.
+   */
+  imaginary?: number
   /** Between 0 and 1. */
   probability: number
   /** That chance written out, for the bar's label. */

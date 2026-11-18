@@ -520,7 +520,10 @@ function makeTheme(
           const toned =
             p.tone === undefined
               ? undefined
-              : mix(pal.paper, p.tone < 0 ? pal.chartDown : pal.chartUp,
+              : mix(pal.paper,
+                  p.imaginary
+                    ? p.tone < 0 ? pal.chartDownI : pal.chartUpI
+                    : p.tone < 0 ? pal.chartDown : pal.chartUp,
                   0.16 + 0.64 * Math.min(1, Math.abs(p.tone)))
           // `||`, not `??`, for the same reason as the gate fill below: an
           // empty string would reach the SVG and paint the pane black.

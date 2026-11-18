@@ -157,6 +157,63 @@ describe('reading it at a glance', () => {
     expect(tones('chart(probability)').every((t) => t === undefined)).toBe(true)
   })
 
+  it('lays the imaginary part over the real one, in its own pair of colours', () => {
+    const panes = (src: string) => {
+      const doc = resolveCalculations(parseCircuit(src))
+      return layoutChart(doc.chart!.bars!, doc.chart!, { metrics: DEFAULT_METRICS })
+        .prims.filter((p) => p.t === 'pane')
+        .map((p) => (p.t === 'pane' ? [p.tone, p.imaginary ?? false] : []))
+    }
+    // The two-qubit QFT of 01: 1, i, −1, −i, each a half. An imaginary bar has
+    // an empty real one under it, and leans up and down as the real pair does.
+    expect(panes(
+      'in 01\nH 1\nT 1; T 2\nCNOT 1 -> 2\nP(-45) 2\nCNOT 1 -> 2\nH 2\nSWAP 1 2\nchart',
+    )).toEqual([
+      [0.5, false],
+      [0, false], [0.5, true],
+      [-0.5, false],
+      [0, false], [-0.5, true],
+    ])
+    // A real plot is untouched by any of this.
+    expect(panes('in 00\nH 1\nH 2\nCZ 1 2\nchart').every(([, i]) => i === false)).toBe(true)
+  })
+
+  it('paints the imaginary bars in colours the real ones never take', () => {
+    // The chart is drawn last, so its final rounded rect is the |1⟩ bar.
+    const last = (src: string) =>
+      [...svg(src).matchAll(/<rect\b[^>]*\brx="2"[^>]*\bfill="(#[0-9a-f]{6})"/gi)].at(-1)?.[1]
+    // |0⟩ + |1⟩, |0⟩ + i|1⟩, |0⟩ − i|1⟩: the second bar is blue, purple, yellow.
+    const blue = last('in 0\nH 1\nchart')
+    const purple = last('in 0\nH 1\nS 1\nchart')
+    const yellow = last('in 0\nH 1\nS 1\nZ 1\nchart')
+    expect(blue).toBeDefined()
+    expect(new Set([blue, purple, yellow]).size).toBe(3)
+    // ...and red is a fourth.
+    const red = last('in 0\nH 1\nZ 1\nchart')
+    expect(new Set([blue, purple, yellow, red]).size).toBe(4)
+  })
+
+  it('draws a phase off both axes as both parts at once', () => {
+    // |0⟩ + e^{iπ/4}|1⟩: the second bar is half real and half imaginary, the
+    // two the same height — which is why the imaginary one is the narrower.
+    const [first, second] = bars('in 0\nH 1\nT 1\nchart')
+    expect(first.imaginary).toBeUndefined()
+    expect(second.amplitude).toBeCloseTo(0.5)
+    expect(second.imaginary).toBeCloseTo(0.5)
+    const doc = resolveCalculations(parseCircuit('in 0\nH 1\nT 1\nchart'))
+    const [, real, imag] = layoutChart(doc.chart!.bars!, doc.chart!, { metrics: DEFAULT_METRICS })
+      .prims.filter((p) => p.t === 'pane')
+    if (real.t !== 'pane' || imag.t !== 'pane') throw new Error('expected panes')
+    expect(imag.box.w).toBeLessThan(real.box.w)
+    expect(imag.box.x + imag.box.w / 2).toBeCloseTo(real.box.x + real.box.w / 2)
+  })
+
+  it('hangs the axis below zero for a negative imaginary part too', () => {
+    const up = render('in 0\nH 1\nS 1\nchart').height
+    const down = render('in 0\nH 1\nS 1\nZ 1\nchart').height
+    expect(down).toBeGreaterThan(up)
+  })
+
   it('names the scale, written up the axis', () => {
     expect(svg('in 00\nH 1\nchart')).toMatch(/rotate\(-90[^)]*\)[^>]*>Amplitude</)
     expect(svg('in 00\nH 1\nchart(probability)')).toMatch(/rotate\(-90[^)]*\)[^>]*>Probability</)

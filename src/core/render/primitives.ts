@@ -185,6 +185,8 @@ export interface PanePrim {
    * the palette is chosen, and dark mode wants different ends to the ramp.
    */
   tone?: number
+  /** The tone is an imaginary part's, so it takes the chart's other pair of colours. */
+  imaginary?: boolean
 }
 
 /**
