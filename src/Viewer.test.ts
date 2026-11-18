@@ -59,18 +59,18 @@ describe('routing on ?format=', () => {
   it('shows the bare diagram, with none of the editor chrome', () => {
     bootFrom('/?format=svg&src=' + encodeURIComponent('00|11'))
     expect(host.querySelector('svg')).not.toBeNull()
-    expect(host.querySelector('textarea')).toBeNull()
+    expect(host.querySelector('.cm-editor')).toBeNull()
     expect(host.textContent).not.toContain('Copy link')
   })
 
   it('shows the editor when no format is given', () => {
     bootFrom('/?src=' + encodeURIComponent('00|11'))
-    expect(host.querySelector('textarea')).not.toBeNull()
+    expect(host.querySelector('.cm-editor')).not.toBeNull()
   })
 
   it('shows the editor for an unrecognised format', () => {
     bootFrom('/?format=exe&src=' + encodeURIComponent('00|11'))
-    expect(host.querySelector('textarea')).not.toBeNull()
+    expect(host.querySelector('.cm-editor')).not.toBeNull()
   })
 })
 

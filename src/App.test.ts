@@ -8,6 +8,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { flushSync, mount, unmount } from 'svelte'
 import App from './App.svelte'
+import { EditorView } from '@codemirror/view'
 import { replaceLibrary, resetLibrary } from './app/library-store.svelte'
 
 /**
@@ -51,10 +52,27 @@ function diagram(): SVGSVGElement {
   return el as SVGSVGElement
 }
 
-function editor(): HTMLTextAreaElement {
-  const el = host.querySelector('textarea')
-  if (!el) throw new Error('editor textarea not found')
-  return el
+/**
+ * The source box, read and written as the text it holds.
+ *
+ * A write goes in as typing would, through the editor, so the app sees it as
+ * typed rather than as a change made from outside.
+ */
+function editor(): { value: string } {
+  const el = host.querySelector<HTMLElement>('.cm-editor')
+  const view = el && EditorView.findFromDOM(el)
+  if (!view) throw new Error('source editor not found')
+  return {
+    get value() {
+      return view.state.doc.toString()
+    },
+    set value(text: string) {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: text },
+        userEvent: 'input.type',
+      })
+    },
+  }
 }
 
 /**
@@ -68,9 +86,7 @@ function pointer(type: string, x: number, y: number): PointerEvent {
 }
 
 function setSource(text: string) {
-  const el = editor()
-  el.value = text
-  el.dispatchEvent(new Event('input', { bubbles: true }))
+  editor().value = text
   flushSync()
 }
 

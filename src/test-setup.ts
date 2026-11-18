@@ -144,3 +144,16 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
       dispatchEvent: () => false,
     }) as MediaQueryList
 }
+
+/**
+ * jsdom lays nothing out, so a `Range` has no rectangles. The source editor
+ * measures with them to draw its selection; empty lists say "nothing visible",
+ * which is true here. Nothing should assert on where the editor draws a caret.
+ */
+if (typeof Range !== 'undefined') {
+  const empty = () => ({ x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, toJSON() {} }) as DOMRect
+  if (!Range.prototype.getClientRects) {
+    Range.prototype.getClientRects = () => Object.assign([], { item: () => null }) as unknown as DOMRectList
+  }
+  if (!Range.prototype.getBoundingClientRect) Range.prototype.getBoundingClientRect = empty
+}

@@ -28,6 +28,7 @@
   import ShotPulse from './app/components/ShotPulse.svelte'
   import { parseCircuit } from './core/circuit/parse'
   import GatePalette from './app/components/GatePalette.svelte'
+  import SourceEditor from './app/components/SourceEditor.svelte'
   import DefinitionPalette from './app/components/DefinitionPalette.svelte'
   import { definitionsOf } from './core/circuit/parse'
   import MenuButton from './app/components/MenuButton.svelte'
@@ -129,6 +130,7 @@
   const initial = load()
 
   let source = $state(initial.source)
+  let sourceEditor = $state<SourceEditor>()
   let name = $state(initial.name)
 
   /* -- Taking it back ------------------------------------------------------ */
@@ -139,7 +141,7 @@
    * Kept here rather than left to the browser because the text box is only one
    * of the ways the document changes: a gate dragged onto the drawing, a gate
    * dragged off it, a rotation turned by its dial, an example or a library
-   * entry chosen, a figure opened from a file. The textarea's own undo stack
+   * entry chosen, a figure opened from a file. The text box's own undo stack
    * knows about none of those, and a programmatic write throws away what it
    * does know — so a drag that went wrong could not be taken back at all.
    *
@@ -200,12 +202,9 @@
     recordedAt = 0 // the next edit starts a step of its own
     flushSync()
     travelling = false
-    const box = document.activeElement
-    if (box instanceof HTMLTextAreaElement) {
-      let i = 0
-      while (i < next.length && i < was.length && next[i] === was[i]) i++
-      box.setSelectionRange(i, i)
-    }
+    let i = 0
+    while (i < next.length && i < was.length && next[i] === was[i]) i++
+    sourceEditor?.place(i)
   }
   const undo = () => travel(past, future, (p, f) => ((past = p), (future = f)))
   const redo = () => travel(future, past, (f, p) => ((future = f), (past = p)))
@@ -1832,18 +1831,10 @@
         allowed to shrink below its content would let the reference below it
         ride up over the box in a short window. The column scrolls instead.
       -->
-      <label class="flex shrink-0 flex-col gap-1">
+      <div class="flex shrink-0 flex-col gap-1">
         <span class="text-xs font-medium text-slate-500">Source</span>
-        <textarea
-          bind:value={source}
-          oninput={() => (typed = true)}
-          spellcheck="false"
-          rows="5"
-          class="field-sizing-content min-h-24 w-full resize-y rounded border
-                 border-slate-300 bg-white p-2.5 font-mono text-sm leading-relaxed
-                 focus:border-slate-500 focus:outline-none lg:min-h-40"
-        ></textarea>
-      </label>
+        <SourceEditor bind:this={sourceEditor} bind:value={source} {accent} oninput={() => (typed = true)} />
+      </div>
 
       {#if !result.ok}
         <p
