@@ -23,6 +23,7 @@
     syntaxHighlighting,
   } from '@codemirror/language'
   import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+  import { colourSwatches } from '../editor/colours'
   import { braceFolding, gateColourVars, mistyHighlighter, mistyLanguage } from '../editor/language'
   import { LIGHT_PALETTE, withAccent } from '../../core/render/theme'
 
@@ -63,6 +64,7 @@
           mistyLanguage,
           braceFolding,
           syntaxHighlighting(mistyHighlighter),
+          colourSwatches(),
           indentOnInput(),
           bracketMatching(),
           closeBrackets(),
@@ -193,4 +195,103 @@
   .source-editor :global(.ms-value) { color: #0e7490; }
   .source-editor :global(.ms-op) { color: #94a3b8; }
 
+  /* A colour value, painted with itself. Clicked, it opens the picker. */
+  .source-editor :global(.ms-colour) {
+    border-radius: 3px;
+    padding: 0 2px;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+  }
+  .source-editor :global(.ms-colour),
+  .source-editor :global(.ms-colour *) {
+    color: var(--ms-colour-ink) !important;
+  }
+
+  /* The picker that opens under a colour. */
+  .source-editor :global(.cm-tooltip:has(> .ms-picker)) {
+    border: none;
+    background: transparent;
+  }
+  .source-editor :global(.ms-picker) {
+    width: 13rem;
+    margin-top: 4px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.375rem;
+    box-shadow: 0 8px 24px rgb(15 23 42 / 0.16);
+    font-family: var(--font-sans);
+  }
+  .source-editor :global(.ms-picker-sv) {
+    position: relative;
+    height: 8rem;
+    border-radius: 0.25rem;
+    background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent);
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .source-editor :global(.ms-picker-hue) {
+    position: relative;
+    height: 0.75rem;
+    border-radius: 999px;
+    background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+    cursor: ew-resize;
+    touch-action: none;
+  }
+  .source-editor :global(.ms-picker-knob) {
+    position: absolute;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 999px;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.4);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .source-editor :global(.ms-picker-hue .ms-picker-knob) {
+    top: 50%;
+  }
+  .source-editor :global(.ms-picker-tints) {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 0.25rem;
+  }
+  .source-editor :global(.ms-picker-tint) {
+    aspect-ratio: 1;
+    border-radius: 0.25rem;
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+    cursor: pointer;
+  }
+  .source-editor :global(.ms-picker-tint:hover) {
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15), 0 0 0 2px #94a3b8;
+  }
+  .source-editor :global(.ms-picker-row) {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+  .source-editor :global(.ms-picker-chip) {
+    width: 1.5rem;
+    height: 1.5rem;
+    flex-shrink: 0;
+    border-radius: 0.25rem;
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+  }
+  .source-editor :global(.ms-picker-hex) {
+    min-width: 0;
+    flex: 1;
+    padding: 0.125rem 0.375rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.25rem;
+    font: 0.75rem var(--font-mono);
+    color: #0f172a;
+  }
+  .source-editor :global(.ms-picker-hex:focus) {
+    outline: none;
+    border-color: #64748b;
+  }
+  .source-editor :global(.ms-bracket) { color: #64748b; }
 </style>
