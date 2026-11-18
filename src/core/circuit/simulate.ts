@@ -23,7 +23,7 @@ import { gateQubits } from './ast'
 import type { CloudNode, Factor, Product, QubitNode, StateRow, Term } from '../state/ast'
 import {
   I, ONE, ZERO, abs2, add as cxAdd, commonFactor, cx, eq, isReal, isZero, mul, neg, over,
-  isWhole, show, times as cxTimes, unitToClear, type Cx,
+  isWhole, show, times as cxTimes, unitToClear, wholeRatio, type Cx,
 } from './complex'
 
 /**
@@ -406,8 +406,12 @@ export function canonical(
   amps: Amplitudes,
   opts: { keepSign?: boolean } = {},
 ): [string, Cx][] {
-  const terms = sorted(amps)
+  let terms = sorted(amps)
   if (!terms.length) return terms
+  // Decimals that are whole numbers in disguise are written as the whole
+  // numbers, so one state measured two ways reads as one state.
+  const whole = wholeRatio(terms.map(([, amp]) => amp))
+  if (whole) terms = terms.map(([bits], i) => [bits, whole[i]])
   const divisor = commonFactor(terms.map(([, amp]) => amp))
   // The overall phase is not observable, so one is chosen and stuck to: the
   // first term is turned onto the positive real axis where a quarter turn will
@@ -1129,10 +1133,14 @@ export function tabulate(
  * whenever the sum of squares happens to be a square.
  */
 export function diracOf(amps: Amplitudes, opts: PresentOptions = {}): string {
-  const entries = sorted(amps)
+  let entries = sorted(amps)
   if (!entries.length) {
     throw new SimulationError('the terms all cancel, leaving no state to write')
   }
+  // Written in whole numbers where it is whole numbers in disguise, as the
+  // drawing is — or the text beside it would disagree with it.
+  const whole = wholeRatio(entries.map(([, amp]) => amp))
+  if (whole) entries = entries.map(([bits], i) => [bits, whole[i]])
 
   const size = commonFactor(entries.map(([, amp]) => amp))
   // The overall phase is not observable, so it is turned away the same way a
@@ -1160,7 +1168,9 @@ export function diracOf(amps: Amplitudes, opts: PresentOptions = {}): string {
 
   if (root === 1) return body
   const wrapped = terms.length > 1 ? `(${body})` : body
-  return Number.isInteger(root) ? `${wrapped}/${root}` : `${wrapped}/√${square}`
+  // Ten figures, so floating point's last digit does not reach the page as
+  // √3.5000000000000004.
+  return Number.isInteger(root) ? `${wrapped}/${root}` : `${wrapped}/√${+square.toPrecision(10)}`
 }
 
 /**

@@ -93,6 +93,40 @@ export function gcd(a: number, b: number): number {
 export const commonFactor = (all: Cx[]): number =>
   all.every(isWhole) ? all.reduce((g, a) => gcd(gcd(g, a.re), a.im), 0) || 1 : 1
 
+/** How close to a whole number floating point has to come to be taken for one. */
+const NEARLY = 1e-9
+
+/**
+ * The same amplitudes in whole numbers, if dividing by the smallest makes them so.
+ *
+ * A rotation followed by a measurement leaves each outcome as decimals —
+ * `6.88|0⟩ + 13.75|1⟩` in one branch and `3.21|0⟩ + 6.41|1⟩` in the next —
+ * which are the same state, 1 to 2, scaled differently. Drawn as they come they
+ * read as two different states. Scaled to the smallest term they are both
+ * `0|2*1`, which is what they are. Null where the ratios are not whole — a
+ * cosine against a sine has no such form, and is better left as it is.
+ */
+export function wholeRatio(all: Cx[]): Cx[] | null {
+  if (all.every(isWhole)) return null
+  const sized = all.filter((a) => Math.hypot(a.re, a.im) > NEARLY)
+  if (!sized.length) return null
+  const least = sized.reduce((a, b) => (Math.hypot(b.re, b.im) < Math.hypot(a.re, a.im) ? b : a))
+  const size = Math.hypot(least.re, least.im)
+  // An overall phase off the axes is unobservable and is divided away with the
+  // size — a rotation about X leaves one. On an axis it is left for the usual
+  // sign rule, which `keepSign` may want to see.
+  const onAxis = Math.abs(least.re) < NEARLY * size || Math.abs(least.im) < NEARLY * size
+  const by = onAxis ? { re: size, im: 0 } : least
+  const norm = by.re * by.re + by.im * by.im
+  const scaled = all.map((a) => ({
+    re: (a.re * by.re + a.im * by.im) / norm,
+    im: (a.im * by.re - a.re * by.im) / norm,
+  }))
+  const snap = (v: number) => (Math.abs(v - Math.round(v)) < NEARLY * Math.max(1, Math.abs(v)) ? Math.round(v) : NaN)
+  const whole = scaled.map((a) => cx(snap(a.re), snap(a.im)))
+  return whole.every((a) => Number.isFinite(a.re) && Number.isFinite(a.im)) ? whole : null
+}
+
 /** Divide through by a whole number, which is only ever done by a factor of it. */
 export const over = (a: Cx, k: number): Cx => cx(a.re / k, a.im / k)
 
