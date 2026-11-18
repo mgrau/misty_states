@@ -50,6 +50,12 @@ export interface CircuitLayoutOptions {
    */
   highlight?: number
   /**
+   * Draw a padlock on every frame and folded box a click could lock, shut on
+   * the locked ones. For an editor: a figure exported for print has no use for
+   * them, and the lock means nothing off the screen.
+   */
+  locks?: boolean
+  /**
    * Leave the input and output states undrawn.
    *
    * An animation replaces them with the qubits that travel between them, so
@@ -97,6 +103,8 @@ export interface CircuitGeometry {
    * click on one can be told which line to rewrite.
    */
   frames?: { box: Box; fold?: number }[]
+  /** Where each padlock is, the line a click on it locks, and whether it is shut. Only with `locks`. */
+  locks?: { box: Box; line: number; locked: boolean }[]
   /**
    * Every run of pipe that is drawn, gates left out: where something running
    * along the pipes — a shot on its way down — can be seen.
@@ -399,6 +407,21 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
   const bodies: Prim[] = []
   const glyphs: Prim[] = []
   const caps: Prim[] = []
+  /** Padlocks, over everything; see `CircuitLayoutOptions.locks`. */
+  const padlocks: Prim[] = []
+  const lockGeometry: { box: Box; line: number; locked: boolean }[] = []
+  const LOCK = m.fontSize * 0.78
+  const padlock = (x: number, cy: number, line: number, locked: boolean) => {
+    if (!opts.locks) return
+    padlocks.push({ t: 'lock', x, cy, size: LOCK, locked })
+    // A little more than the icon, so it can be hit without hunting for it.
+    const pad = 3
+    lockGeometry.push({
+      box: { x: x - LOCK / 2 - pad, y: cy - LOCK / 2 - pad, w: LOCK + 2 * pad, h: LOCK + 2 * pad },
+      line,
+      locked,
+    })
+  }
   const boxes: Box[] = []
   /** Per-qubit spans where a gate interrupts the pipe. */
   const blocked = new Map<number, Interval[]>()
@@ -1037,6 +1060,10 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       const wasCables = cables.length
       const wasTabs = tabs.length
       emitGate(body, box, cy, gateX, m, bodies, glyphs)
+      // A folded box locks from its corner, inside, where nothing else is drawn.
+      if (body.kind === 'box' && body.fold !== undefined) {
+        padlock(box.x + box.w - LOCK / 2 - 4, box.y + LOCK / 2 + 4, body.fold, !!body.locked)
+      }
       if (gate.kind === 'measure') {
         meters.set(gate.qubit, box)
         // The last reading of this wire in this layer: the one a shot left.
@@ -1113,6 +1140,8 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
     const x0 = Math.min(...xs) - m.pipeWidth / 2 - GATE_PAD_X - out
     let x1 = Math.max(...xs) + m.pipeWidth / 2 + GATE_PAD_X + out + reach
     const tabW = f.label ? textWidth(f.label, labelSize, true) + 12 : 0
+    // No room is made for a padlock: the layout is the same with or without
+    // them, so the figure an editor shows is the figure it exports.
     x1 = Math.max(x1, x0 + TAB_INSET + tabW + FRAME_PAD)
     const top = frameTop.get(i)!
     const box: Box = { x: x0, y: top, w: x1 - x0, h: frameBottom.get(i)! - top }
@@ -1133,6 +1162,12 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
         ...(f.border && f.border !== 'none' ? { color: f.border } : {}),
         key,
       })
+    }
+    if (f.fold !== undefined) {
+      // Just past the tab, on its centre line; a frame with no label has its
+      // corner instead.
+      const cy = top + TAB_INSET + tabH / 2
+      padlock(x0 + TAB_INSET + (tabW ? tabW + 4 : 0) + LOCK / 2, cy, f.fold, !!f.locked)
     }
     boxes.push(box)
   })
@@ -1342,7 +1377,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       ]
 
   return {
-    prims: [...framed, ...cables, ...stack, ...tabs, ...glyphs, ...caps],
+    prims: [...framed, ...cables, ...stack, ...tabs, ...glyphs, ...caps, ...padlocks],
     box: boxUnion(boxes),
     geometry: {
       columns: plan.at[0].map(xOf),
@@ -1354,6 +1389,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       layers: layerGeometry,
       bands: bandGeometry,
       ...(frameBoxes.length ? { frames: frameBoxes } : {}),
+      ...(lockGeometry.length ? { locks: lockGeometry } : {}),
       pipes: pipes.flatMap((p) =>
         p.t === 'pipe' && !p.cut ? [{ cx: p.cx, y0: p.y0, y1: p.y1, w: p.w, turns: p.turns }] : [],
       ),

@@ -171,6 +171,8 @@ export interface BoxGate {
    * definition's, and every use of it would open.
    */
   fold?: number
+  /** Written `locked`: the editor will not pick it up, nor drop anything on it. */
+  locked?: boolean
 }
 
 /**
@@ -430,6 +432,12 @@ export interface Frame {
   inner: number
   /** The line to write `collapsed` on to fold it; see `BoxGate.fold`. */
   fold?: number
+  /**
+   * Written `locked`, on the frame, on its definition or on the use: nothing
+   * in it can be picked up, and nothing can be dropped into it. Only the
+   * editor reads this; the drawing is the same either way.
+   */
+  locked?: boolean
 }
 
 /** A definition used on a line of its own in the circuit: `oracle 2-3`. */
@@ -443,6 +451,8 @@ export interface DefinitionUse {
   collapsed: boolean
   /** A quoted name given at the use, in place of the definition's. */
   label?: string
+  /** Written `locked`, here or on the definition. */
+  locked?: boolean
 }
 
 export interface CircuitDoc {

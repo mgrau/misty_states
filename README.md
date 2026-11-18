@@ -77,6 +77,7 @@ out calculate
 | `def oracle { … }` | Gates defined once, on wires 1 and up |
 | `oracle 2-3` | A definition used: framed, on wires 2 and 3 |
 | `oracle 2-3 collapsed` | The same as one box, still calculated |
+| `"Encode" locked { … }` | Locked in the editor: nothing in it can be dragged out, nothing dropped in. Also on a use (`oracle 2-3 locked`) or a whole definition (`def oracle locked {`). Click a frame's padlock to toggle it. The drawing and exports are unchanged |
 | `in 00\|11` | Input state above the circuit |
 | `out calculate` | Calculated output state |
 | `calculate` | The state at this point, worked out |

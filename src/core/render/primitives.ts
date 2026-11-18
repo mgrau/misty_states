@@ -264,6 +264,19 @@ export interface SwapPrim {
  * than doubling it, and so the grid can be drawn open — a rule under the
  * headers and nothing else — as well as closed.
  */
+/**
+ * A padlock, shut or open: whether the frame or box it sits on can be dragged
+ * from. Drawn only in an editor; see `CircuitLayoutOptions.locks`.
+ */
+export interface LockPrim {
+  t: 'lock'
+  /** Its centre. */
+  x: number
+  cy: number
+  size: number
+  locked: boolean
+}
+
 export interface RulePrim {
   t: 'rule'
   x0: number
@@ -310,7 +323,7 @@ export interface CablePrim {
 export type Prim = (
   | QubitPrim | CloudPrim | BarPrim | TextPrim | SignPrim | DialPrim | PipePrim
   | GateBoxPrim | PanePrim | MeasureBoxPrim | ControlPrim | TargetPrim | SwapPrim | LinkPrim
-  | RulePrim | FramePrim | CablePrim
+  | RulePrim | FramePrim | CablePrim | LockPrim
 ) & {
   opacity?: number
   /**
@@ -361,6 +374,7 @@ export function translatePrims(prims: Prim[], dx: number, dy: number): Prim[] {
       case 'bar':
       case 'text':
       case 'sign':
+      case 'lock':
         return { ...p, x: p.x + dx, cy: p.cy + dy }
       case 'pipe':
         return {

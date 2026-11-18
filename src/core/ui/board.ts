@@ -37,8 +37,8 @@
 import type { CircuitDoc, Gate } from '../circuit/ast'
 import type { CircuitGeometry } from '../circuit/layout'
 import {
-  cycleTarget, dropTarget, gateAt, toggleControl, insertGate, moveGate, nextQubit, qubitAt, removeGate, setQubit,
-  toggleFold,
+  cycleTarget, dropTarget, gateAt, toggleControl, insertGate, isLocked, moveGate, nextQubit, qubitAt,
+  removeGate, respectsLocks, setQubit, toggleFold, toggleLock,
 } from '../circuit/edit'
 import type { DropTarget, Droppable, Edit, QubitSpot } from '../circuit/edit'
 import { parseCircuit } from '../circuit/parse'
@@ -166,7 +166,12 @@ export function createBoard(host: BoardHost): Board {
    * carry it to — so it waits here only to find out whether the press was a
    * click.
    */
-  let pending: { gate?: Gate; wire?: number; spot?: QubitSpot; fold?: number; x: number; y: number } | null = null
+  let pending: {
+    gate?: Gate; wire?: number; spot?: QubitSpot; fold?: number
+    /** A padlock was pressed: the line a click locks or unlocks. */
+    lock?: number
+    x: number; y: number
+  } | null = null
   let flipFrom: Map<string, DOMRect> | null = null
 
   /**
@@ -263,6 +268,17 @@ export function createBoard(host: BoardHost): Board {
     if (event.button !== 0 || carrying || !hold() || !held) return false
     const view = host.view()
     const at = toDiagram(event)
+    // A padlock is small and sits on a frame's tab or a box's corner, so it is
+    // looked for first: a press on it is never meant for what it sits on.
+    const lock = view?.geometry?.locks?.find(({ box }) =>
+      at.x >= box.x && at.x <= box.x + box.w && at.y >= box.y && at.y <= box.y + box.h,
+    )
+    if (lock) {
+      pending = { lock: lock.line, x: event.clientX, y: event.clientY }
+      window.addEventListener('pointermove', onPendingMove)
+      window.addEventListener('pointerup', clickGate, { once: true })
+      return true
+    }
     let gate = view?.geometry ? gateAt(held.doc, view.geometry, at) : undefined
     // A gate a definition put there is not on a line of its own, so it cannot
     // be carried off alone. A click on it, or anywhere else in a frame, folds
@@ -290,6 +306,9 @@ export function createBoard(host: BoardHost): Board {
         gate = held.doc.layers.flatMap((l) => l.gates).find((g) => g.use && g.line === fold)
       }
     }
+    // Locked: there to be looked at and calculated through, not moved. A click
+    // can still fold it — that is about how it is drawn, not what it is.
+    if (gate && isLocked(held.source, gate)) gate = undefined
     if (!gate && !spot && fold === undefined) {
       held = null
       // Nothing here to edit — the press is the host's to do with as it likes,
@@ -366,6 +385,9 @@ export function createBoard(host: BoardHost): Board {
         // The one edit that needs nothing but the character it is written as.
         const written = setQubit(held.source, tapped.spot.at, nextQubit(tapped.spot.value))
         if (written) host.oncommit(written)
+      } else if (tapped.lock !== undefined) {
+        const turned = toggleLock(held.source, tapped.lock)
+        if (turned) host.oncommit(turned)
       } else if (tapped.fold !== undefined) {
         const folded = toggleFold(held.source, tapped.fold)
         if (folded) host.oncommit(folded)
@@ -425,11 +447,13 @@ export function createBoard(host: BoardHost): Board {
     // Through the mapping taken at pick-up, so the aim does not chase the
     // drawing as the drawing moves under it.
     const target = held.aim(event)
-    show(
+    const edit =
       carrying.from === 'palette'
         ? insertGate(held.source, held.doc, target, carrying.gate)
-        : moveGate(held.source, held.doc, carrying.gate, target),
-    )
+        : moveGate(held.source, held.doc, carrying.gate, target)
+    // Nowhere here that leaves the locked parts alone: show nothing, so a
+    // release puts the gate back where it came from.
+    show(edit && respectsLocks(held.source, edit.source) ? edit : null)
   }
 
   /** Commit, as a single edit rather than the hundred the drag drew. */

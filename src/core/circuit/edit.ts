@@ -130,6 +130,106 @@ function braces(lines: string[]): Map<number, number> {
   return pairs
 }
 
+/* -- Locks --------------------------------------------------------------- */
+
+/** Does this statement say `word`, outside any quoted label? */
+function says(statement: string, word: string): boolean {
+  const masked = statement.replace(/"[^"]*"/g, (q) => '"' + ' '.repeat(q.length - 2) + '"')
+  return new RegExp(`(^|\\s)${word}(?=\\s|\\{|$)`, 'i').test(masked)
+}
+
+const DEF_HEAD = /^def\s+([A-Za-z_]\w*)\b/i
+
+/**
+ * Does this line open a slot — a frame that names its own wires, `"Error" 1-9 {`?
+ *
+ * Such a frame is kept when it is emptied, holding its place with plain pipe,
+ * so it is never taken away with its last gate nor carried off with it.
+ */
+function opensSlot(line: string): boolean {
+  const head = statementOf(line)
+  if (!head.endsWith('{') || DEF_HEAD.test(head)) return false
+  const rest = head
+    .replace(/"[^"]*"/g, ' ')
+    .replace(/\{$/, ' ')
+    .replace(/\b\w+=\S+/g, ' ')
+    .replace(/(^|\s)(collapsed|locked)(?=\s|$)/gi, ' ')
+    .trim()
+  return /\d/.test(rest)
+}
+
+/**
+ * Every run of lines a drag may not touch, 0-based and inclusive.
+ *
+ * A frame written `locked` is its whole block, braces and all; a use written
+ * `locked`, or of a definition written that way, is its own line. Read from the
+ * text alone, so it can be asked of a source that does not parse — and so that
+ * it means the same to anything holding the text, whatever it parsed it with.
+ */
+function lockedRuns(source: string): [number, number][] {
+  const lines = source.split('\n')
+  const runs: [number, number][] = []
+  const lockedDefs = new Set<string>()
+  const defs = new Set<string>()
+  for (const [open, close] of braces(lines)) {
+    const head = statementOf(lines[open])
+    const def = DEF_HEAD.exec(head)
+    if (def) {
+      defs.add(def[1].toLowerCase())
+      if (says(head, 'locked')) lockedDefs.add(def[1].toLowerCase())
+      continue
+    }
+    if (says(head, 'locked')) runs.push([open, close])
+  }
+  lines.forEach((line, i) => {
+    const text = statementOf(line)
+    const word = text.split(/\s+/)[0]?.toLowerCase()
+    if (!word || !defs.has(word) || DEF_HEAD.test(text)) return
+    if (lockedDefs.has(word) || says(text, 'locked')) runs.push([i, i])
+  })
+  return runs.sort((a, b) => a[0] - b[0])
+}
+
+/** What the locked parts of a source say, in order — the thing a drag must leave alone. */
+const lockedText = (source: string): string[] => {
+  const lines = source.split('\n')
+  return lockedRuns(source).map(([a, b]) => lines.slice(a, b + 1).join('\n'))
+}
+
+/**
+ * Does `after` leave every locked part of `before` exactly as it was?
+ *
+ * Nothing taken out of one, nothing put into one, none of them moved past
+ * another. Comparing the text rather than the gates is what makes it strict:
+ * a gate appended to a locked line with `;`, or a line slipped in between a
+ * locked frame's braces, changes what it says, and that is the whole test.
+ */
+export function respectsLocks(before: string, after: string): boolean {
+  const was = lockedText(before)
+  const now = lockedText(after)
+  return was.length === now.length && was.every((text, i) => text === now[i])
+}
+
+/**
+ * Is this gate one a drag may not pick up?
+ *
+ * Inside a locked frame, part of a locked use, or a box folded from either.
+ */
+export function isLocked(source: string, gate: Gate): boolean {
+  if (gate.kind === 'box' && gate.locked) return true
+  if (gate.line === undefined) return false
+  const at = gate.line - 1
+  return lockedRuns(source).some(([a, b]) => at >= a && at <= b)
+}
+
+/**
+ * Lock a frame or a use, or unlock it: the one word `locked` on the line that
+ * made it, the same line `collapsed` goes on.
+ */
+export function toggleLock(source: string, line: number): Edit | null {
+  return toggleWord(source, line, 'locked')
+}
+
 /**
  * Where a new line goes, 1-based, to land just past `from` with `outside`
  * frames stepped out of — downwards over closing braces, or upwards over
@@ -338,6 +438,13 @@ function candidates(
   const closes = braces(lines).get(last - 1)
   const end = closes === undefined ? last + 1 : closes + 2
 
+  // An empty slot is a layer of pipe drawn from the line that opens it, and
+  // what is dropped on it goes between its braces.
+  if (target.where === 'in' && first === last && closes !== undefined &&
+      opensSlot(lines[last - 1]) && !lines.slice(last, closes).some((l) => statementOf(l))) {
+    return [{ source: spliceLine(lines, last + 1, text), line: last + 1 }]
+  }
+
   if (target.where === 'in') {
     // If the wires clash, `;` is refused outright — a new line is the answer.
     // Nor can anything join the line that opens a block.
@@ -409,11 +516,74 @@ export function insertGate(
 ): Edit {
   // A view takes a layer to itself, so there is no sharing one with a gate.
   const where = gate.shows && target.where === 'in' ? 'after' : target.where
-  const aim = { ...target, where } as DropTarget
+  let aim = { ...target, where } as DropTarget
+  // An empty slot is a single line of pipe and nothing else, so anywhere on
+  // it — its edges included, which would otherwise read as between layers —
+  // is a drop into it.
+  {
+    const lines = source.split('\n')
+    const only = doc.layers[aim.layer]?.lines
+    const open = only?.length === 1 ? only[0] - 1 : -1
+    const close = open >= 0 ? braces(lines).get(open) : undefined
+    if (close !== undefined && opensSlot(lines[open]) && !lines.slice(open + 1, close).some((l) => statementOf(l))) {
+      aim = { ...aim, where: 'in', outside: 0 }
+    }
+  }
+  const writes = (to: DropTarget) =>
+    bodies(gate, to, doc.qubits).flatMap((text) => candidates(source, doc, to, text))
+  let tries = writes(aim)
+
+  // Aimed into a locked frame, the nearest place outside it instead: a layer
+  // of its own between two layers, as close to the aim as can be found,
+  // stepping out of as many frames as it takes — the way it would land if the
+  // pointer were held against the locked frame's edge.
+  // Aimed at a layer that is nothing but locked lines — a row of locked uses
+  // one under the other, say — counts as aimed into a lock, even where a line
+  // could be slipped in between them without changing either.
+  const runs = lockedRuns(source)
+  const aimedLocked = (doc.layers[aim.layer]?.lines ?? []).length > 0 &&
+    doc.layers[aim.layer].lines.every((l) => runs.some(([a, b]) => l - 1 >= a && l - 1 <= b))
+  if (aimedLocked || !tries.some((c) => respectsLocks(source, c.source))) {
+    // A slot first, the nearest: it is there to be dropped into, and filling
+    // it leaves everything round it where it was.
+    const lines = source.split('\n')
+    const pairs = [...braces(lines)].filter(([open]) => opensSlot(lines[open]))
+    const inSlot = (line: number) => pairs.some(([open, close]) => line - 1 >= open && line - 1 < close)
+    const slots = doc.layers
+      .map((l, i) => (l.lines.length && l.lines.every(inSlot) ? i : -1))
+      .filter((i) => i >= 0)
+      .sort((a, b) => Math.abs(a - aim.layer) - Math.abs(b - aim.layer))
+    for (const layer of slots) {
+      const into = { ...aim, layer, where: 'in' as const, outside: 0 }
+      const found = writes(into)
+      if (found.some((c) => respectsLocks(source, c.source))) {
+        aim = into
+        tries = found
+        break
+      }
+    }
+  }
+  if (!tries.some((c) => respectsLocks(source, c.source))) {
+    search: for (let d = 0; d <= doc.layers.length; d++) {
+      const near: DropTarget[] = [
+        { ...aim, layer: aim.layer + d, where: 'after' },
+        { ...aim, layer: aim.layer - d, where: 'before' },
+      ]
+      for (const base of near) {
+        if (base.layer < 0 || base.layer >= Math.max(1, doc.layers.length)) continue
+        for (let more = 0; more <= 4; more++) {
+          const out = { ...base, outside: (target.outside ?? 0) + more }
+          const found = writes(out)
+          if (found.some((c) => respectsLocks(source, c.source))) {
+            aim = out
+            tries = found
+            break search
+          }
+        }
+      }
+    }
+  }
   const want = aimedAt(aim)
-  const tries = bodies(gate, aim, doc.qubits).flatMap((text) =>
-    candidates(source, doc, aim, text),
-  )
 
   /**
    * Did this candidate put the gate where it was aimed?
@@ -427,25 +597,33 @@ export function insertGate(
     parsed.layers[want]?.lines.includes(candidate.line) ||
     (gate.shows === 'calculate' && want >= parsed.layers.length && !!parsed.calculateOutput)
 
-  for (const candidate of tries) {
-    try {
-      const parsed = parseCircuit(candidate.source)
-      if (landed(parsed, candidate) && resolves(parsed)) {
-        return candidate
+  // A locked frame is left as it was where any way of writing the drop can
+  // manage that: the line goes just outside it rather than in. Only once no
+  // candidate can does the lock stop mattering here — it is the caller's to
+  // refuse, with `respectsLocks`, since a host that knows nothing of locks
+  // still expects somewhere to put the gate.
+  const kept = tries.filter((c) => respectsLocks(source, c.source))
+  for (const pool of kept.length && kept.length < tries.length ? [kept, tries] : [tries]) {
+    for (const candidate of pool) {
+      try {
+        const parsed = parseCircuit(candidate.source)
+        if (landed(parsed, candidate) && resolves(parsed)) {
+          return candidate
+        }
+      } catch {
+        // A candidate that will not parse is simply not the one.
       }
-    } catch {
-      // A candidate that will not parse is simply not the one.
     }
-  }
-  // Nothing aimed true, so the first that parses at all: the drawing is
-  // rendered from this same string, so whatever the packer decided is on
-  // screen before anything is committed.
-  for (const candidate of tries) {
-    try {
-      parseCircuit(candidate.source)
-      return candidate
-    } catch {
-      // Keep looking.
+    // Nothing aimed true, so the first that parses at all: the drawing is
+    // rendered from this same string, so whatever the packer decided is on
+    // screen before anything is committed.
+    for (const candidate of pool) {
+      try {
+        parseCircuit(candidate.source)
+        return candidate
+      } catch {
+        // Keep looking.
+      }
     }
   }
   return tries[0]
@@ -716,11 +894,17 @@ export function removeGate(
     : [...lines.slice(0, at), ...lines.slice(at + 1)]
   if (!kept.length) next = withoutEmptyFrames(next)
 
+  // Nor when it was the last thing in a slot, which keeps its layer as pipe.
+  const leftSlot = !kept.length && [...braces(lines)].some(
+    ([open, close]) =>
+      open < at && close > at && opensSlot(lines[open]) &&
+      lines.slice(open + 1, close).filter((l) => statementOf(l)).length === 1,
+  )
   return {
     source: next.join('\n'),
     line: gate.line!,
     // The layer goes only when this line was the whole of it.
-    layerRemoved: !kept.length && alone && (doc.layers[layerOf]?.lines.length ?? 0) === 1
+    layerRemoved: !kept.length && !leftSlot && alone && (doc.layers[layerOf]?.lines.length ?? 0) === 1
       ? layerOf
       : undefined,
   }
@@ -786,6 +970,7 @@ function withoutEmptyFrames(lines: string[]): string[] {
     const empty = [...braces(lines)].find(
       ([open, close]) =>
         !/^def\b/i.test(statementOf(lines[open])) &&
+        !opensSlot(lines[open]) &&
         !lines.slice(open + 1, close).some((l) => statementOf(l)),
     )
     if (!empty) return lines
@@ -828,6 +1013,11 @@ export function afterRemoval(target: DropTarget, layerRemoved: number | undefine
  * Found outside any quoted label, so a frame called "collapsed" stays one.
  */
 export function toggleFold(source: string, line: number): Edit | null {
+  return toggleWord(source, line, 'collapsed')
+}
+
+/** Add `word` to the line that opens a frame or uses a definition, or take it off. */
+function toggleWord(source: string, line: number, word: string): Edit | null {
   const lines = source.split('\n')
   const text = lines[line - 1]
   if (text === undefined) return null
@@ -839,16 +1029,16 @@ export function toggleFold(source: string, line: number): Edit | null {
   if (!body) return null
   // Quoted labels blanked out, so only the word itself is found.
   const masked = body.replace(/"[^"]*"/g, (q) => '"' + ' '.repeat(q.length - 2) + '"')
-  const word = /(^|\s)collapsed(?=\s|\{|$)/i.exec(masked)
+  const found = new RegExp(`(^|\\s)${word}(?=\\s|\\{|$)`, 'i').exec(masked)
   let next: string
-  if (word) {
-    const from = word.index + word[1].length
-    next = (body.slice(0, from) + body.slice(from + 'collapsed'.length)).replace(/\s{2,}/g, ' ').trim()
+  if (found) {
+    const from = found.index + found[1].length
+    next = (body.slice(0, from) + body.slice(from + word.length)).replace(/\s{2,}/g, ' ').trim()
   } else if (/\{$/.test(body)) {
     next = body.replace(/\s*\{$/, '').trim()
-    next = next ? `${next} collapsed {` : 'collapsed {'
+    next = next ? `${next} ${word} {` : `${word} {`
   } else {
-    next = `${body} collapsed`
+    next = `${body} ${word}`
   }
   lines[line - 1] = indent + next + (comment ? ` ${comment.trim()}` : '')
   return { source: lines.join('\n'), line }
@@ -881,6 +1071,11 @@ export function moveGate(
     const aim = layersOnlyOf(doc, use.line).reduce(afterRemoval, target)
     return insertGate(cut.source, reduced, aim, useDroppable(use))
   }
+  // A frame round nothing but this gate is the gate's own — "Error" round the
+  // one error being tried — and goes where it goes rather than being left
+  // behind empty and taken away.
+  const carried = carryFrame(source, doc, gate, target)
+  if (carried) return carried
   // Read before the cut, while the line it was written on still exists: a gate
   // put down again should read the way it read before, arrow and all.
   const written = locate(source, doc, gate)?.parts[locate(source, doc, gate)!.which]
@@ -910,6 +1105,73 @@ export function moveGate(
     ...(options ? { options } : {}),
     arrow: written?.includes('->') || undefined,
   })
+}
+
+/**
+ * The frame this gate is alone in, 0-based open and close lines, or null.
+ *
+ * Alone means the only statement between the braces, and the only gate on its
+ * line. A locked frame is never one: nothing comes out of it.
+ */
+function soleFrame(source: string, doc: CircuitDoc, gate: Gate): [number, number] | null {
+  const found = locate(source, doc, gate)
+  if (!found || found.parts.length !== 1) return null
+  const { lines, at } = found
+  let best: [number, number] | null = null
+  for (const [open, close] of braces(lines)) {
+    if (open >= at || close <= at) continue
+    if (!best || open > best[0]) best = [open, close]
+  }
+  if (!best) return null
+  const head = statementOf(lines[best[0]])
+  if (DEF_HEAD.test(head) || says(head, 'locked') || says(head, 'collapsed') || opensSlot(head)) return null
+  const inside = lines.slice(best[0] + 1, best[1]).map(statementOf).filter(Boolean)
+  return inside.length === 1 ? best : null
+}
+
+/**
+ * Move a gate that is alone in its frame, frame and all.
+ *
+ * Cut as a block, dropped as a gate on its own line, and the frame's braces
+ * put back round that line. A frame fences its layer, so the gate never shares
+ * one: aimed into a layer of other gates, it goes just after it instead.
+ */
+function carryFrame(source: string, doc: CircuitDoc, gate: Gate, target: DropTarget): Edit | null {
+  const frame = soleFrame(source, doc, gate)
+  if (!frame) return null
+  const [open, close] = frame
+  const lines = source.split('\n')
+  const head = lines[open]
+  const tail = lines[close]
+  const written = lines[open + 1 + lines.slice(open + 1, close).findIndex((l) => statementOf(l))]
+  const cutSource = [...lines.slice(0, open), ...lines.slice(close + 1)].join('\n')
+  let reduced: CircuitDoc
+  try {
+    reduced = parseCircuit(cutSource)
+  } catch {
+    return null
+  }
+  const layerOf = doc.layers.findIndex((l) => l.gates.includes(gate))
+  const alone = layerOf >= 0 && doc.layers[layerOf].lines.every((l) => l === gate.line)
+  let aim = afterRemoval(target, alone ? layerOf : undefined)
+  if (aim.where === 'in') aim = { ...aim, where: 'after' }
+  const options = writtenOptions(statementOf(written ?? ''))
+  const placed = insertGate(cutSource, reduced, aim, {
+    ...asDroppable(gate),
+    ...(options ? { options } : {}),
+    arrow: written?.includes('->') || undefined,
+  })
+  const out = placed.source.split('\n')
+  const at = placed.line - 1
+  // Shared with another gate after all: there is no line of its own to frame.
+  if (at < 0 || at >= out.length || statements(statementOf(out[at])).length !== 1) return null
+  const framed = [...out.slice(0, at), head, out[at], tail, ...out.slice(at + 1)].join('\n')
+  try {
+    parseCircuit(framed)
+  } catch {
+    return null
+  }
+  return { source: framed, line: placed.line + 1 }
 }
 
 /** The wires acting on white, counted from the top of the span. */

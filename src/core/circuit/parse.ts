@@ -1727,6 +1727,16 @@ interface FrameStyle {
   label?: string
   fill?: string
   border?: string
+  /** Written `locked`; see `Frame.locked`. */
+  locked?: boolean
+}
+
+/** Take the word `locked` out of a line's tokens, saying whether it was there. */
+function takeLocked(tokens: { text: string; quoted?: boolean }[]): boolean {
+  const at = tokens.findIndex((t) => !t.quoted && t.text.toLowerCase() === 'locked')
+  if (at < 0) return false
+  tokens.splice(at, 1)
+  return true
 }
 
 /** A line that opens a frame ends with `{`; one that closes it is `}` alone. */
@@ -1753,6 +1763,7 @@ function readFrameOpen(
     }
     tokens.splice(word, 1)
   }
+  const locked = takeLocked(tokens)
   const fill = takeOption(tokens, 'fill', lineNo)
   const border = takeOption(tokens, 'border', lineNo)
   let label: string | undefined
@@ -1772,7 +1783,7 @@ function readFrameOpen(
     const qs = parseQubits(tokens, lineNo)
     qubits = [Math.min(...qs), Math.max(...qs)]
   }
-  return { label, fill, border, qubits, collapsed }
+  return { label, fill, border, qubits, collapsed, ...(locked ? { locked } : {}) }
 }
 
 /**
@@ -2089,10 +2100,24 @@ export function parseCircuit(text: string): CircuitDoc {
 
   const closeFrame = (line: number) => {
     flushTail()
+    const open = frameStack[frameStack.length - 1]
+    // Empty, but saying which wires it covers: a slot kept for something to be
+    // put in — the error in an error-correcting code, dragged from wire to wire.
+    // It holds its place with plain pipe, so the circuit round it does not close
+    // up when it is emptied, and there is a layer there to drop into.
+    if (open !== undefined && !drafts[open].used && drafts[open].qubits && !drafts[open].collapsed) {
+      const [q0, q1] = drafts[open].qubits!
+      const at = drafts[open].line
+      const pipe: Gate[] = []
+      for (let q = q0; q <= q1; q++) pipe.push({ kind: 'identity', qubit: q, line: at, bound: true })
+      pushGates(pipe, at)
+    }
     const id = frameStack.pop()
     if (id === undefined) throw new ParseError('this "}" closes nothing', 0, line)
     const d = drafts[id]
-    if (!d.used) throw new ParseError('this frame has nothing in it', 0, d.line)
+    if (!d.used) {
+      throw new ParseError('this frame has nothing in it — name its wires, e.g. "Error" 1-3 {, to keep it as an empty slot', 0, d.line)
+    }
     pendingBreak = true
     if (!d.collapsed) return
 
@@ -2103,7 +2128,11 @@ export function parseCircuit(text: string): CircuitDoc {
     const box = foldedBox(
       d.label ?? '', d.fill, taken.flatMap((g) => g.gates), d.qubits, d.line, 'this frame',
     )
-    pushGates([{ ...box, line: d.line, ...(d.fold !== undefined ? { fold: d.fold } : {}) }], d.line)
+    pushGates([{
+      ...box, line: d.line,
+      ...(d.fold !== undefined ? { fold: d.fold } : {}),
+      ...(d.locked ? { locked: true } : {}),
+    }], d.line)
     pendingBreak = true
   }
 
@@ -2194,10 +2223,16 @@ export function parseCircuit(text: string): CircuitDoc {
     const word = tokens.findIndex((t) => !t.quoted && t.text.toLowerCase() === 'collapsed')
     const collapsed = word >= 0
     if (collapsed) tokens.splice(word, 1)
+    // On the use, or on the definition for every use of it.
+    const locked = takeLocked(tokens) || !!def.style.locked
     // A quoted name says what this use is for, in place of the definition's.
     const named = tokens.filter((t) => t.quoted)
     if (named.length > 1) throw new ParseError(`${def.name} takes one label`, 0, at)
-    const style = named.length ? { ...def.style, label: named[0].text } : def.style
+    const style = {
+      ...def.style,
+      ...(named.length ? { label: named[0].text } : {}),
+      ...(locked && !chain.length ? { locked } : {}),
+    }
     tokens.splice(0, tokens.length, ...tokens.filter((t) => !t.quoted))
     const n = widthOf(def, chain)
     const written = tokens.length ? parseQubits(tokens, at) : null
@@ -2222,6 +2257,7 @@ export function parseCircuit(text: string): CircuitDoc {
         wires: Array.from({ length: n }, (_, i) => to(i + 1)),
         collapsed,
         ...(named.length ? { label: named[0].text } : {}),
+        ...(locked ? { locked } : {}),
       })
       // Everything it draws answers to it, so any of it picks the use up.
       const inner = sink
@@ -2247,7 +2283,11 @@ export function parseCircuit(text: string): CircuitDoc {
       style.label ?? def.name, style.fill, body,
       [Math.min(...wires), Math.max(...wires)], at, def.name,
     )
-    sink.gates([{ ...box, line, ...(fold !== undefined ? { fold } : {}) }])
+    sink.gates([{
+      ...box, line,
+      ...(fold !== undefined ? { fold } : {}),
+      ...(locked && !chain.length ? { locked } : {}),
+    }])
   }
 
   /** The circuit itself, as somewhere a definition can be used. */
@@ -2652,6 +2692,7 @@ export function parseCircuit(text: string): CircuitDoc {
       layers: [Math.min(...ls), Math.max(...ls)],
       inner,
       ...(d.fold !== undefined ? { fold: d.fold } : {}),
+      ...(d.locked ? { locked: true } : {}),
     }
   }
   const drawn = frames.filter((f): f is Frame => !!f)

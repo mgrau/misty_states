@@ -148,6 +148,7 @@
         { code: 'def oracle {  …  }', text: 'Gates written once, on wires 1 and up' },
         { code: 'oracle 2-3', text: 'Used: drawn framed, its wires 1 and 2 moved onto 2 and 3' },
         { code: 'oracle 2-3 collapsed', text: 'Drawn as one box, still calculated' },
+        { code: '"Encode" locked {  …  }', text: 'Not dragged from or dropped into — click its padlock to toggle; also on a use or a def' },
       ],
     },
     {

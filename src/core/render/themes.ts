@@ -617,6 +617,33 @@ function makeTheme(
           })
         }
 
+        // Flat in every theme: it is a control on the editor, not part of the
+        // figure. Shut, in ink; open, faint and with its shackle lifted off one
+        // side, so it reads as something offered rather than something set.
+        case 'lock': {
+          const s = p.size
+          const w = s * 0.72
+          const h = s * 0.5
+          const top = p.cy - s / 2 + s * 0.5
+          const r = w * 0.3
+          const lift = p.locked ? 0 : s * 0.16
+          const left = p.x - r
+          const right = p.x + r
+          const shackle =
+            `M${n(left)} ${n(top)}V${n(top - s * 0.18 - lift)}` +
+            `A${n(r)} ${n(r)} 0 0 1 ${n(right)} ${n(top - s * 0.18 - lift)}` +
+            `V${n(top - (p.locked ? 0 : lift + s * 0.04))}`
+          const colour = p.locked ? pal.ink : pal.muted
+          const opacity = p.locked ? 0.85 : 0.5
+          return el('path', {
+            d: shackle, fill: 'none', stroke: colour, 'stroke-width': s * 0.13,
+            'stroke-linecap': 'round', opacity,
+          }) + el('rect', {
+            x: p.x - w / 2, y: top, width: w, height: h, rx: s * 0.08,
+            fill: colour, opacity,
+          })
+        }
+
         // Flat in every theme, like the pane: a table is a piece of paper
         // beside the drawing rather than another object in the scene.
         case 'rule':

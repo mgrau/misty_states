@@ -123,6 +123,12 @@ export interface RenderOptions {
    */
   highlight?: number
   /**
+   * Draw a padlock on each frame and folded box, shut where it is `locked`, and
+   * report where they are in `geometry.locks`. For an editor; off by default,
+   * so nothing exported carries them.
+   */
+  locks?: boolean
+  /**
    * Draw what `answer` marks, rather than hiding it behind unknowns. Off by
    * default: a figure with an answer in it is a question until it is asked.
    */
@@ -460,6 +466,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
         attach: theme.attach,
         bareEnds: !!doc.animate,
         highlight: opts.highlight,
+        locks: opts.locks,
         readings: shot?.readings,
       }),
     }
