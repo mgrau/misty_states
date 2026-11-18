@@ -38,7 +38,7 @@ square, triangle, and so on.
 | `50%: 0(0\|1) : note` | Annotations left and right of `:` |
 | `?` | Unknown qubit |
 | `"text"` | Label |
-| `shape os^` | Set which shape each position draws |
+| `shape os^` | Set which shape each position draws — twelve: `o s ^ d v * p h x c k q` (circle, square, triangle, diamond, heart, star, pentagon, hexagon, cross, crescent, spade, drop) |
 | `0@3` | Force this qubit to shape 3 |
 
 Each line is a row. `#` starts a comment.

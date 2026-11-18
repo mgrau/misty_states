@@ -83,7 +83,7 @@
     {
       heading: 'Shapes',
       rows: [
-        { code: 'shape os^', text: 'Set the register: o s ^ d v * p h' },
+        { code: 'shape os^', text: 'Set the register: o s ^ d v * p h x c k q' },
         { code: '0@3', text: 'Force this qubit to use shape 3' },
       ],
     },

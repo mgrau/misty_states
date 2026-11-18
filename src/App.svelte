@@ -5,7 +5,7 @@
   import { Tween } from 'svelte/motion'
   import { cubicInOut } from 'svelte/easing'
   import type { ThemeId } from './core/render/theme'
-  import { DEFAULT_SHAPE_ORDER, SHAPE_NAMES, type ShapeName } from './core/shapes'
+  import { DEFAULT_SHAPE_ORDER, savedShapeOrder, type ShapeName } from './core/shapes'
   import { EXAMPLES, DEFAULT_EXAMPLE } from './core/examples'
   import {
     libraryStore, findByTitle, findEntry, saveEntry, seedFromProject,
@@ -115,12 +115,7 @@
         ...fallback,
         ...parsed,
         // Guard against a stale or hand-edited shape list.
-        shapeOrder:
-          Array.isArray(parsed.shapeOrder) &&
-          parsed.shapeOrder.length === DEFAULT_SHAPE_ORDER.length &&
-          parsed.shapeOrder.every((s) => SHAPE_NAMES.includes(s))
-            ? parsed.shapeOrder
-            : fallback.shapeOrder,
+        shapeOrder: savedShapeOrder(parsed.shapeOrder) ?? fallback.shapeOrder,
       })
     } catch {
       return withShared(fallback)

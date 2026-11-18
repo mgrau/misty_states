@@ -886,7 +886,7 @@ describe('settings panel', () => {
     boot()
     openSettings()
     const rows = panel()!.querySelectorAll('li')
-    expect(rows.length).toBe(8)
+    expect(rows.length).toBe(12)
     expect(rows[0].textContent).toContain('circle')
   })
 
@@ -962,8 +962,8 @@ describe('settings panel', () => {
     boot()
     openSettings()
     // FLIP is what makes the swap readable; without it rows would jump.
-    expect(panel()!.querySelectorAll('li').length).toBe(8)
-    expect(grips().length).toBe(8)
+    expect(panel()!.querySelectorAll('li').length).toBe(12)
+    expect(grips().length).toBe(12)
   })
 
   it('reorders shapes with the arrow keys on the grip', () => {

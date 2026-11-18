@@ -13,7 +13,7 @@ import { parseCircuit } from './circuit/parse'
 import { layoutState } from './state/layout'
 import { layoutCircuit } from './circuit/layout'
 import { resolveCalculations } from './circuit/simulate'
-import { parseShapeSpec, SHAPE_SYMBOLS } from './shapes'
+import { DEFAULT_SHAPE_ORDER, parseShapeSpec, savedShapeOrder, SHAPE_SYMBOLS } from './shapes'
 import { detectMode, render } from './index'
 import type { ShapeName } from './shapes'
 
@@ -32,14 +32,30 @@ describe('the symbols', () => {
   it('covers every shape', () => {
     const named = new Set(Object.values(SHAPE_SYMBOLS))
     expect([...named].sort()).toEqual([
-      'circle', 'diamond', 'heart', 'hexagon', 'pentagon', 'square', 'star', 'triangle',
+      'circle', 'crescent', 'cross', 'diamond', 'drop', 'heart', 'hexagon', 'pentagon',
+      'spade', 'square', 'star', 'triangle',
     ])
   })
 
   it('reads a run of them in order', () => {
-    expect(parseShapeSpec('os^dv*ph')?.picks).toEqual([
+    expect(parseShapeSpec('os^dv*phxckq')?.picks).toEqual([
       'circle', 'square', 'triangle', 'diamond', 'heart', 'star', 'pentagon', 'hexagon',
+      'cross', 'crescent', 'spade', 'drop',
     ])
+  })
+
+  it('has twelve shapes before a register wraps round', () => {
+    expect(new Set(DEFAULT_SHAPE_ORDER).size).toBe(12)
+    // Shor's code: nine wires, nine shapes, no circle drawn twice.
+    expect(new Set(circuitShapes('in 000000000\nI 1')).size).toBe(9)
+  })
+
+  it('keeps an order saved before the list grew, adding the new shapes at the end', () => {
+    const eight: ShapeName[] = ['square', 'circle', 'triangle', 'diamond', 'heart', 'star', 'pentagon', 'hexagon']
+    expect(savedShapeOrder(eight)).toEqual([...eight, 'cross', 'crescent', 'spade', 'drop'])
+    expect(savedShapeOrder(['circle', 'circle'])).toBeNull()
+    expect(savedShapeOrder(['circle', 'blob'])).toBeNull()
+    expect(savedShapeOrder('circle')).toBeNull()
   })
 
   it('ignores spacing, so os^ and o s ^ agree', () => {

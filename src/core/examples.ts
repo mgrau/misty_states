@@ -81,7 +81,7 @@ export const EXAMPLES: Example[] = [
   {
     id: 'shape-line',
     title: 'Naming the register',
-    note: 'One character per shape: o s ^ d v * p h. Works in states and circuits alike.',
+    note: 'One character per shape: o s ^ d v * p h x c k q. Works in states and circuits alike.',
     source: 'shape s^o\n010\n(01|10)0',
   },
   {

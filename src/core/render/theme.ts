@@ -307,7 +307,7 @@ export function drawQubit(
       ? el(
           'text',
           {
-            x: 0,
+            x: inscribed.dx,
             y: inscribed.dy + baselineOffset(markSize),
             'text-anchor': 'middle',
             'font-family': FONT_STACK,
