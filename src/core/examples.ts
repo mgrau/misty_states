@@ -336,6 +336,33 @@ export const EXAMPLES: Example[] = [
       'out calculate',
     ].join('\n'),
   },
+  {
+    id: 'grover',
+    title: "Grover's search — five qubits",
+    note: 'The oracle flips the sign of one state, 10011 — the open rings on wires 2 and 3 pick out white there — and the diffusion reflects every amplitude about the average. Each round grows the marked state at the expense of the rest: about 26%, 60%, 90%, then 99.9% after four, the best there is for 32 states. Press Shot to see the search find it.',
+    source: [
+      'def oracle "Oracle" fill=#e2f0d9 {',
+      '  CZ 1 2=0 3=0 4 5',
+      '}',
+      '',
+      'def diffusion "Diffusion" fill=#deebf7 {',
+      'HHHHH',
+      'CZ 1=0 2=0 3=0 4=0 5=0',
+      'HHHHH',
+      '}',
+      '',
+      '00000',
+      'HHHHH',
+      'oracle collapsed',
+      'diffusion collapsed',
+      'oracle collapsed',
+      'diffusion collapsed',
+      'oracle collapsed',
+      'diffusion collapsed',
+      'oracle collapsed',
+      'diffusion collapsed',
+    ].join('\n'),
+  },
 
   /* -- Setting an exercise -------------------------------------------------- */
 
