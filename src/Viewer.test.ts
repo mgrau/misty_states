@@ -60,17 +60,20 @@ describe('routing on ?format=', () => {
     bootFrom('/?format=svg&src=' + encodeURIComponent('00|11'))
     expect(host.querySelector('svg')).not.toBeNull()
     expect(host.querySelector('.cm-editor')).toBeNull()
+    expect(host.querySelector('button[aria-label="Source"]')).toBeNull()
     expect(host.textContent).not.toContain('Copy link')
   })
 
   it('shows the editor when no format is given', () => {
     bootFrom('/?src=' + encodeURIComponent('00|11'))
-    expect(host.querySelector('.cm-editor')).not.toBeNull()
+    // The editor's own button: the source box itself waits in a closed drawer.
+    expect(host.querySelector('button[aria-label="Source"]')).not.toBeNull()
   })
 
   it('shows the editor for an unrecognised format', () => {
     bootFrom('/?format=exe&src=' + encodeURIComponent('00|11'))
-    expect(host.querySelector('.cm-editor')).not.toBeNull()
+    // The editor's own button: the source box itself waits in a closed drawer.
+    expect(host.querySelector('button[aria-label="Source"]')).not.toBeNull()
   })
 })
 

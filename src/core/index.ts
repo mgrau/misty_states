@@ -129,6 +129,11 @@ export interface RenderOptions {
    */
   locks?: boolean
   /**
+   * Draw a switch on everything written `on` or `off`, and report where they
+   * are in `geometry.switches`. For an editor, like `locks`.
+   */
+  switches?: boolean
+  /**
    * Draw what `answer` marks, rather than hiding it behind unknowns. Off by
    * default: a figure with an answer in it is a question until it is asked.
    */
@@ -467,6 +472,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
         bareEnds: !!doc.animate,
         highlight: opts.highlight,
         locks: opts.locks,
+        switches: opts.switches,
         readings: shot?.readings,
       }),
     }

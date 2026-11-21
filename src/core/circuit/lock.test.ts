@@ -148,8 +148,8 @@ describe('a slot for the error', () => {
   // which names its wires and so keeps its place when it is emptied.
   const SHOR = EXAMPLES.find((e) => e.id === 'shor-code')!.source
   const shor = parseCircuit(SHOR)
-  const slotLayer = shor.layers.findIndex((l) => l.gates.some((g) => g.kind === 'single' && g.label === 'Y'))
-  const y = shor.layers[slotLayer].gates.find((g) => g.kind === 'single' && g.label === 'Y')!
+  const slotLayer = shor.layers.findIndex((l) => l.gates.some((g) => g.kind === 'single' && g.label === 'RY'))
+  const y = shor.layers[slotLayer].gates.find((g) => g.kind === 'single' && g.label === 'RY')!
   /** Where every layer and frame is drawn: the thing that must not move. */
   const shape = (src: string) => {
     // Boxes only: which line a frame folds from shifts with the text above it.
@@ -170,7 +170,7 @@ describe('a slot for the error', () => {
     const before = shape(SHOR)
     for (const wire of [1, 4, 9]) {
       const out = moveGate(SHOR, shor, y, { wire, layer: slotLayer, where: 'in' })!.source
-      expect(errorLines(out)).toEqual([`Y ${wire}`])
+      expect(errorLines(out)).toEqual([`RY(135) ${wire}`])
       expect(shape(out)).toBe(before)
     }
   })
@@ -187,10 +187,17 @@ describe('a slot for the error', () => {
   })
 
   it('is where a drop aimed at a locked block goes', () => {
-    for (const layer of [0, slotLayer - 1, slotLayer + 1, shor.layers.length - 1]) {
+    // The last layer is the syndrome measurement, which is not locked; the one
+    // before it is the last locked block.
+    for (const layer of [0, slotLayer - 1, slotLayer + 1, shor.layers.length - 2]) {
       const out = moveGate(SHOR, shor, y, { wire: 6, layer, where: 'in' })!.source
-      expect(errorLines(out)).toEqual(['Y 6'])
+      expect(errorLines(out)).toEqual(['RY(135) 6'])
       expect(shape(out)).toBe(shape(SHOR))
     }
+  })
+
+  it('is not where a drop on an unlocked layer goes', () => {
+    const out = moveGate(SHOR, shor, y, { wire: 6, layer: shor.layers.length - 1, where: 'in' })!.source
+    expect(errorLines(out)).toEqual([])
   })
 })

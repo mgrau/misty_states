@@ -112,6 +112,7 @@
         { code: 'I 3 shift=2', text: 'Bend wire 3 two columns right (negative is left); it stays there' },
         { code: 'I 3 -> 5', text: 'Bend wire 3 to position 5 — wire n starts at n' },
         { code: 'X 3 if M1', text: 'Only if wire 1 was measured black; if M1=0 for white' },
+        { code: 'X 3 off', text: 'Switched off: drawn faded, does nothing — click its switch for on; any gate' },
         { code: 'SWAP 1 2', text: 'Swap two qubits' },
         { code: 'RZ(90) 1', text: 'A rotation in degrees — also RX, RY and P' },
         { code: 'P(45) 1', text: 'A phase on the black half — T is P(45). Odd angles draw with rounded decimals' },
@@ -130,6 +131,8 @@
         { code: 'CSWAP 1 2 3', text: 'Controlled swap (Fredkin) — control 1, swap 2 and 3' },
         { code: 'CNOT "Oracle" 1 2', text: 'A name before the wires stands on the target' },
         { code: 'CNOT 1 2 "Tiger?"', text: 'A name after them labels the link' },
+        { code: 'CH 1 2', text: 'A C before any gate for each control, the controls first: CCRZ(90) 1 2 3, CS 1=0 2' },
+        { code: 'Coracle 1 2-3', text: 'A definition too: oracle on 2 and 3, done where wire 1 is black' },
       ],
     },
     {
@@ -149,6 +152,7 @@
         { code: 'oracle 2-3', text: 'Used: drawn framed, its wires 1 and 2 moved onto 2 and 3' },
         { code: 'oracle 2-3 collapsed', text: 'Drawn as one box, still calculated' },
         { code: '"Encode" locked {  …  }', text: 'Not dragged from or dropped into — click its padlock to toggle; also on a use or a def' },
+        { code: '"Bomb" 1-2 off {  …  }', text: 'Everything inside switched off — or on; click the switch on its tab. Also on a use: oracle 1-3 off' },
       ],
     },
     {

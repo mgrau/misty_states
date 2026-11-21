@@ -59,6 +59,26 @@ export const GATE_GALLERY: GateGroup[] = [
       { code: 'TOFFOLI 1 2 3', name: 'Toffoli', source: 'qubits 3\nTOFFOLI 1 2 3', drop: { head: 'TOFFOLI', wires: 3 } },
       { code: 'CSWAP 1 2 3', name: 'Controlled swap', text: 'The Fredkin gate: swap two wires when the control is black', source: 'qubits 3\nCSWAP 1 2 3', drop: { head: 'CSWAP', wires: 3 } },
       {
+        code: 'C',
+        name: 'Control',
+        text: 'Drop it beside any gate, or a definition, to control it from that wire: H becomes CH 1 2, oracle becomes Coracle',
+        // A dot reaching for a gate that is not there yet: an empty target.
+        source: 'qubits 2\nCblank 1 2',
+        drop: { head: 'control', wires: 1, control: true },
+      },
+      {
+        code: 'CH 1 2',
+        name: 'Any gate, controlled',
+        text: 'A C in front of any gate for each control, the controls written first: CH, CCRZ(90) 1 2 3, CS 1=0 2',
+        source: 'qubits 2\nCH 1 2',
+      },
+      {
+        code: 'CCbox "U" 1 2 3-4',
+        name: 'Controlled box or definition',
+        text: 'Boxes and definitions too: Coracle 1 2-3 is oracle on 2 and 3, done where wire 1 is black',
+        source: 'qubits 4\nCCbox "U" 1 2 3-4',
+      },
+      {
         code: 'CNOT 1 2 "Tiger?"',
         name: 'Named link',
         source: 'qubits 2\nCNOT 1 2 "Tiger?"',

@@ -644,6 +644,25 @@ function makeTheme(
           })
         }
 
+        // Flat in every theme, like the padlock. On, a track in the accent with
+        // the knob to the right; off, a faint outline with the knob to the
+        // left — the way a switch on a screen reads, whatever it switches.
+        case 'switch': {
+          const h = p.size * 0.78
+          const w = p.size * 1.7 * 0.78
+          const r = h / 2
+          const knob = r - h * 0.14
+          const kx = p.on ? p.x + w / 2 - r : p.x - w / 2 + r
+          return el('rect', {
+            x: p.x - w / 2, y: p.cy - r, width: w, height: h, rx: r,
+            fill: p.on ? pal.accent : pal.paper,
+            stroke: p.on ? pal.accent : pal.muted, 'stroke-width': p.size * 0.09,
+          }) + el('circle', {
+            cx: kx, cy: p.cy, r: knob,
+            fill: p.on ? pal.paper : pal.muted,
+          })
+        }
+
         // Flat in every theme, like the pane: a table is a piece of paper
         // beside the drawing rather than another object in the scene.
         case 'rule':

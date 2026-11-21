@@ -92,9 +92,56 @@ function embed(n: number, ops: Record<number, Matrix>): Matrix {
   return out
 }
 
+/**
+ * A gate's own unitary, normalised and with its textbook phase: `H` with its
+ * `1/√2`, `RZ` as `diag(e^{-iθ/2}, e^{iθ/2})` rather than `P`. What a control
+ * switches, where the overall factor stops being overall.
+ */
+function exactMatrixOf(gate: Gate, n: number): Matrix | null {
+  if (gate.off) return null
+  if ((gate.kind === 'single' || gate.kind === 'box') && gate.controls?.length) return matrixOf(gate, n)
+  if (gate.kind === 'single') {
+    const h = Math.SQRT1_2
+    if (gate.label === 'H') return embed(n, { [gate.qubit]: [[r(h), r(h)], [r(h), r(-h)]] })
+    if (gate.label === 'RZ' && gate.angle !== undefined) {
+      const t = (gate.angle * Math.PI) / 360
+      return embed(n, { [gate.qubit]: [[r(Math.cos(t), -Math.sin(t)), r(0)], [r(0), r(Math.cos(t), Math.sin(t))]] })
+    }
+    return matrixOf(gate, n)
+  }
+  if (gate.kind === 'box' && gate.body) {
+    let out: Matrix | null = null
+    for (const inner of gate.body) {
+      const m = exactMatrixOf(inner, n)
+      if (m) out = out ? product(m, out) : m
+    }
+    return out
+  }
+  return matrixOf(gate, n)
+}
+
 function matrixOf(gate: Gate, n: number): Matrix | null {
   // A condition reads a measurement, which this has no branches to hold.
   if (gate.given) throw new Error('reference: a gate waiting on a measurement has no matrix here')
+  if (gate.off) return null
+  // Controlled: the gate's own unitary on the one assignment of the controls
+  // that acts, the identity on every other — the projectors again.
+  if ((gate.kind === 'single' || gate.kind === 'box') && gate.controls?.length) {
+    const { controls, open: opened, ...rest } = gate
+    const u = exactMatrixOf(rest as Gate, n) ?? embed(n, {})
+    const open = opened ?? []
+    const total = 1 << controls.length
+    let out: Matrix | null = null
+    for (let mask = 0; mask < total; mask++) {
+      const ops: Record<number, Matrix> = {}
+      controls.forEach((c, i) => {
+        ops[c] = !!(mask & (1 << i)) !== open.includes(c) ? P1 : P0
+      })
+      const piece = mask === total - 1 ? product(embed(n, ops), u) : embed(n, ops)
+      out = out ? sum(out, piece) : piece
+    }
+    return out
+  }
   switch (gate.kind) {
     case 'identity':
     case 'tag':

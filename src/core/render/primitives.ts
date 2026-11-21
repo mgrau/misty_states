@@ -86,6 +86,15 @@ export interface TextPrim {
   /** The chip's colour, where its gate was given one with `colour=`. */
   accent?: string
   /**
+   * The chip in a gate letter's own colour — `H`, `RZ` — as the palette has
+   * it, so a controlled H carries the red an H does. See `CablePrim.tint`.
+   */
+  tint?: string
+  /** A smaller letter after the text on a chip, as `R` takes its axis. */
+  subscript?: string
+  /** At least this wide, for a chip standing across several wires. */
+  minWidth?: number
+  /**
    * Set in the serif face rather than the interface's sans one.
    *
    * For the annotations, which are prose about the figure rather than part of
@@ -277,6 +286,20 @@ export interface LockPrim {
   locked: boolean
 }
 
+/**
+ * A slide switch, on or off: whether the gate or frame it sits on is doing
+ * anything. Drawn only in an editor; see `CircuitLayoutOptions.switches`.
+ */
+export interface SwitchPrim {
+  t: 'switch'
+  /** Its centre. */
+  x: number
+  cy: number
+  /** How tall it is; it is wider than that. */
+  size: number
+  on: boolean
+}
+
 export interface RulePrim {
   t: 'rule'
   x0: number
@@ -323,7 +346,7 @@ export interface CablePrim {
 export type Prim = (
   | QubitPrim | CloudPrim | BarPrim | TextPrim | SignPrim | DialPrim | PipePrim
   | GateBoxPrim | PanePrim | MeasureBoxPrim | ControlPrim | TargetPrim | SwapPrim | LinkPrim
-  | RulePrim | FramePrim | CablePrim | LockPrim
+  | RulePrim | FramePrim | CablePrim | LockPrim | SwitchPrim
 ) & {
   opacity?: number
   /**
@@ -375,6 +398,7 @@ export function translatePrims(prims: Prim[], dx: number, dy: number): Prim[] {
       case 'text':
       case 'sign':
       case 'lock':
+      case 'switch':
         return { ...p, x: p.x + dx, cy: p.cy + dy }
       case 'pipe':
         return {
@@ -490,10 +514,11 @@ export function monoWidth(text: string, size: number): number {
  * other: the theme draws the chip, and the layout has to leave room for one
  * and know where its edge falls so a link can stop there.
  */
-export function chipWidth(text: string, size: number, subscript = ''): number {
+export function chipWidth(text: string, size: number, subscript = '', minWidth = 0): number {
   const subW = subscript ? textWidth(subscript, size * 0.66, true) : 0
   const mainW = textWidth(text, size, true)
   return Math.max(
+    minWidth,
     size * 1.25,
     (mainW + subW) * 1.18,
     subscript ? mainW + subW + size * 0.5 : 0,

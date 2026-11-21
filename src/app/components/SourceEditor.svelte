@@ -15,7 +15,7 @@
   import { EditorState, Annotation } from '@codemirror/state'
   import {
     EditorView, keymap, drawSelection, highlightActiveLine,
-    highlightActiveLineGutter, highlightSpecialChars,
+    highlightActiveLineGutter, highlightSpecialChars, lineNumbers,
   } from '@codemirror/view'
   import { defaultKeymap, indentWithTab } from '@codemirror/commands'
   import {
@@ -30,73 +30,13 @@
   let {
     value = $bindable(''),
     accent = '',
-    height = $bindable(null),
     oninput,
   }: {
     value?: string
     accent?: string
-    /**
-     * How tall the box has been dragged to, in pixels, or null to grow with
-     * what is written in it. Set by the handle along its foot.
-     */
-    height?: number | null
     /** A change made in the box, as opposed to one written into `value`. */
     oninput?: () => void
   } = $props()
-
-  /** Short enough to keep a line or two in view; the column scrolls past the rest. */
-  const HEIGHT_MIN = 64
-
-  /**
-   * Drag the foot of the box to make it taller or shorter.
-   *
-   * Starts from what is on screen rather than from `height`, so the first drag
-   * of a box that has been growing with its text picks up where it stands
-   * instead of jumping to some remembered size.
-   */
-  function resize(event: PointerEvent) {
-    event.preventDefault()
-    const from = event.clientY
-    const was = host.getBoundingClientRect().height
-    const move = (e: PointerEvent) => {
-      height = Math.max(HEIGHT_MIN, Math.round(was + e.clientY - from))
-    }
-    const stop = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', stop)
-      settle()
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop)
-  }
-
-  /**
-   * Keep only as much height as the column could give.
-   *
-   * Dragged past the room there is, the box stops growing but the number would
-   * not, and the next drag back up would do nothing until it had made up the
-   * difference. So once let go, the height is whatever is actually on screen.
-   */
-  function settle() {
-    if (height === null) return
-    requestAnimationFrame(() => {
-      if (height === null) return
-      const drawn = Math.round(host.getBoundingClientRect().height)
-      if (drawn && drawn < height) height = drawn
-    })
-  }
-
-  /** From the keyboard too: the handle is focusable, and the arrows move it. */
-  function nudge(event: KeyboardEvent) {
-    const step = event.shiftKey ? 64 : 16
-    const now = height ?? host.getBoundingClientRect().height
-    if (event.key === 'ArrowDown') height = Math.round(now + step)
-    else if (event.key === 'ArrowUp') height = Math.max(HEIGHT_MIN, Math.round(now - step))
-    else if (event.key === 'Escape' || event.key === 'Home') height = null
-    else return
-    event.preventDefault()
-    settle()
-  }
 
   let host: HTMLDivElement
   let view: EditorView | undefined
@@ -113,6 +53,7 @@
       state: EditorState.create({
         doc: value,
         extensions: [
+          lineNumbers(),
           highlightActiveLineGutter(),
           highlightSpecialChars(),
           foldGutter({ openText: '▾', closedText: '▸' }),
@@ -169,61 +110,24 @@
   }
 </script>
 
+<!--
+  The box is the whole of its drawer, edge to edge: the drawer is there only
+  to hold it, so it needs no frame of its own and no handle to drag.
+-->
 <div
   bind:this={host}
-  style="{vars}{height === null ? '' : `; height: ${height}px`}"
-  class="source-editor min-h-16 w-full shrink overflow-hidden rounded border border-slate-300
-         bg-white focus-within:border-slate-500"
-  class:sized={height !== null}
+  style={vars}
+  class="source-editor min-h-0 w-full flex-1 overflow-hidden bg-white"
 ></div>
-<!--
-  The handle. Dragged, the box keeps the height it is left at and scrolls
-  inside; double-clicked, it goes back to growing with its text. A focusable
-  separator is the ARIA pattern for a splitter, which svelte-check does not know.
--->
-<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-<div
-  role="separator"
-  aria-orientation="horizontal"
-  aria-label="Resize the source box"
-  aria-valuenow={height ?? undefined}
-  tabindex="0"
-  title="Drag to resize · double-click to fit the text"
-  onpointerdown={resize}
-  ondblclick={() => (height = null)}
-  onkeydown={nudge}
-  class="source-grip -mt-1 flex h-3 w-full shrink-0 cursor-row-resize touch-none items-center justify-center
-         rounded focus-visible:outline focus-visible:outline-slate-400"
->
-  <span class="h-1 w-10 rounded-full bg-slate-300"></span>
-</div>
 
 <style>
-  /*
-   * Tall enough to write in while there is room, which is what the box would
-   * like to be; but only `min-h-16` is a floor, so where there is no room it
-   * gives up the rest and scrolls instead of pushing the column longer.
-   */
   .source-editor :global(.cm-editor) {
     height: 100%;
-    min-height: 6rem;
     font-size: 0.875rem;
     line-height: 1.625;
   }
-  @media (min-width: 1024px) {
-    .source-editor:not(.sized) :global(.cm-editor) {
-      min-height: 10rem;
-    }
-  }
   .source-editor :global(.cm-scroller) {
     overflow: auto;
-  }
-  /* Held to a height, it is that height: the dragged size is the size. */
-  .source-editor.sized :global(.cm-editor) {
-    min-height: 0;
-  }
-  .source-grip:hover span {
-    background: #94a3b8;
   }
   .source-editor :global(.cm-editor.cm-focused) {
     outline: none;

@@ -20,7 +20,7 @@ import { FLAT_ATTACH, type Attach } from '../render/theme'
 import { layoutState, type DialMode } from '../state/layout'
 import { layoutTable } from './table'
 import { layoutChart } from '../chart/layout'
-import type { CircuitDoc, Gate, GateStyle, Layer, ViewGate } from './ast'
+import type { CircuitDoc, Gate, GateStyle, Layer, Switch, ViewGate } from './ast'
 import { gateQubits, gateSpan } from './ast'
 import { coveredWires, planWires, type Bend } from './wires'
 import type { Factor, StateDoc, StateRow } from '../state/ast'
@@ -55,6 +55,12 @@ export interface CircuitLayoutOptions {
    * them, and the lock means nothing off the screen.
    */
   locks?: boolean
+  /**
+   * Draw a switch on everything written `on` or `off`, for a click to flip.
+   * For an editor, like the padlocks: in a file, a gate switched off is
+   * already told apart by being faded.
+   */
+  switches?: boolean
   /**
    * Leave the input and output states undrawn.
    *
@@ -105,6 +111,8 @@ export interface CircuitGeometry {
   frames?: { box: Box; fold?: number }[]
   /** Where each padlock is, the line a click on it locks, and whether it is shut. Only with `locks`. */
   locks?: { box: Box; line: number; locked: boolean }[]
+  /** Where each switch is, and what it says. Only with `switches`. */
+  switches?: { box: Box; switch: Switch }[]
   /**
    * Every run of pipe that is drawn, gates left out: where something running
    * along the pipes — a shot on its way down — can be seen.
@@ -420,6 +428,18 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       box: { x: x - LOCK / 2 - pad, y: cy - LOCK / 2 - pad, w: LOCK + 2 * pad, h: LOCK + 2 * pad },
       line,
       locked,
+    })
+  }
+  const switchGeometry: { box: Box; switch: Switch }[] = []
+  /** A switch centred here: wider than it is tall, as a slide switch is. */
+  const toggle = (x: number, cy: number, sw: Switch) => {
+    if (!opts.switches) return
+    padlocks.push({ t: 'switch', x, cy, size: LOCK, on: sw.on })
+    const pad = 3
+    const w = LOCK * SWITCH_ASPECT
+    switchGeometry.push({
+      box: { x: x - w / 2 - pad, y: cy - LOCK / 2 - pad, w: w + 2 * pad, h: LOCK + 2 * pad },
+      switch: sw,
     })
   }
   const boxes: Box[] = []
@@ -1006,10 +1026,13 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       // Room for the whole chip, not just the lettering on it. Measured against
       // the text alone, the chip's own padding ate the clearance the box leaves
       // every other gate and the blue came right up to the edge.
+      const onTarget = controlledChip(body, m, (qs) => extent(qs))
       const named =
         gate.kind === 'controlled' && gate.targetGlyph === 'label' && gate.label
           ? Math.max(0, nameChip(gate.label, m).w - m.pipeWidth) / 2
-          : 0
+          : onTarget
+            ? Math.max(0, onTarget.chip.w - onTarget.span - m.pipeWidth) / 2
+            : 0
       const h = bodyHeight(gate, m)
       // `width=` widens about the middle of the gate's own wires, so it still
       // sits over them — just further out on either side.
@@ -1047,10 +1070,14 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       // gate are one continuous piece rather than overlapping collars.
       const key = gateKey(gate, keys)
 
-      for (const q of under) {
-        const list = blocked.get(q) ?? []
-        list.push({ y0: topY, y1: bottomY, key })
-        blocked.set(q, list)
+      // Switched off, it interrupts nothing: the pipe runs on through it,
+      // seen through the faded gate, since that is all the qubit meets there.
+      if (!gate.off) {
+        for (const q of under) {
+          const list = blocked.get(q) ?? []
+          list.push({ y0: topY, y1: bottomY, key })
+          blocked.set(q, list)
+        }
       }
 
       // Tagged after the fact rather than threaded through every emitter: what
@@ -1082,8 +1109,18 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
         const meter = meters.get(gate.given.qubit)
         if (meter) emitReading(gate, meter, box, cy)
       }
+      if (gate.switch) {
+        // Astride the top edge at the right, where it covers least of the gate
+        // and stays inside its width — past it, on the last wire, the switch
+        // would hang off the drawing. A folded box keeps its padlock in that
+        // corner, so there the switch stands just left of it.
+        const w = LOCK * SWITCH_ASPECT
+        const padlocked = opts.locks && body.kind === 'box' && body.fold !== undefined
+        const right = box.x + box.w - 4 - (padlocked ? LOCK + 6 : 0)
+        toggle(right - w / 2, box.y, gate.switch)
+      }
       const highlight = gate.line !== undefined && gate.line === opts.highlight
-      const tag = { key, ...(highlight ? { highlight } : {}) }
+      const tag = { key, ...(highlight ? { highlight } : {}), ...(gate.off ? { opacity: OFF_OPACITY } : {}) }
       for (let i = wasBodies; i < bodies.length; i++) bodies[i] = { ...bodies[i], ...tag }
       for (let i = wasGlyphs; i < glyphs.length; i++) glyphs[i] = { ...glyphs[i], ...tag }
       for (let i = wasCables; i < cables.length; i++) cables[i] = { ...cables[i], ...tag }
@@ -1168,6 +1205,12 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       // corner instead.
       const cy = top + TAB_INSET + tabH / 2
       padlock(x0 + TAB_INSET + (tabW ? tabW + 4 : 0) + LOCK / 2, cy, f.fold, !!f.locked)
+    }
+    if (f.switch) {
+      // After the tab, and after the padlock where there is one.
+      const cy = top + TAB_INSET + tabH / 2
+      const lockRoom = f.fold !== undefined && opts.locks ? LOCK + 4 : 0
+      toggle(x0 + TAB_INSET + (tabW ? tabW + 4 : 0) + lockRoom + (LOCK * SWITCH_ASPECT) / 2, cy, f.switch)
     }
     boxes.push(box)
   })
@@ -1390,6 +1433,7 @@ export function layoutCircuit(doc: CircuitDoc, opts: CircuitLayoutOptions = {}):
       bands: bandGeometry,
       ...(frameBoxes.length ? { frames: frameBoxes } : {}),
       ...(lockGeometry.length ? { locks: lockGeometry } : {}),
+      ...(switchGeometry.length ? { switches: switchGeometry } : {}),
       pipes: pipes.flatMap((p) =>
         p.t === 'pipe' && !p.cut ? [{ cx: p.cx, y0: p.y0, y1: p.y1, w: p.w, turns: p.turns }] : [],
       ),
@@ -1415,6 +1459,7 @@ function emitGate(
       return
 
     case 'single': {
+      if (gate.controls?.length) return emitControlledChip(gate, [gate.qubit], box, cy, gateX, m, bodies, glyphs)
       // `90°` under `R`, so the letters keep their size and the angle reads as
       // a setting on the gate rather than part of its name. And the axis is a
       // subscript, because `RX` is one letter saying *rotation* and a small one
@@ -1436,6 +1481,7 @@ function emitGate(
       return
 
     case 'box':
+      if (gate.controls?.length) return emitControlledChip(gate, gate.qubits, box, cy, gateX, m, bodies, glyphs)
       bodies.push({
         t: 'gatebox', box, label: gate.label, fill: gate.fill, blank: gate.blank,
         labelSize: fitLabel(gate.label, box.w, m),
@@ -1545,6 +1591,98 @@ function emitGate(
   }
 }
 
+/**
+ * What stands on the target of a letter or a box given controls, or null for
+ * anything else: the chip, and how far apart the target's own wires are.
+ *
+ * The letter is drawn as a named target is, on a chip — but in the letter's
+ * own colour, so a controlled H is as red as an H. A box spans its wires, so
+ * its chip is stretched across them and says which wires it acts on.
+ */
+function controlledChip(
+  gate: Gate,
+  m: Metrics,
+  extent: (qs: number[]) => [number, number],
+): {
+  chip: { text: string; size: number; w: number; subscript?: string; sub?: string; tint?: string; minWidth?: number }
+  span: number
+} | null {
+  if (gate.kind === 'single' && gate.controls?.length) {
+    const turning = gate.angle !== undefined
+    const axis = turning && /^R[XYZ]$/.test(gate.label) ? gate.label[1] : undefined
+    const text = axis ? 'R' : gate.label
+    const sub = turning ? `${gate.angle}°` : undefined
+    const size = m.fontSize * (sub ? 0.82 : 1)
+    return {
+      chip: { text, size, w: chipWidth(text, size, axis ?? ''), subscript: axis, sub, tint: gate.label },
+      span: 0,
+    }
+  }
+  if (gate.kind === 'box' && gate.controls?.length) {
+    const [x0, x1] = extent(gate.qubits)
+    const span = x1 - x0
+    const text = gate.label
+    const size = nameChip(text, m).size
+    const minWidth = span + m.pipeWidth
+    return { chip: { text, size, w: chipWidth(text, size, '', minWidth), minWidth }, span }
+  }
+  return null
+}
+
+/**
+ * A letter or a box given controls: drawn as a controlled gate is — dots, a
+ * link, and the gate itself where the ⊕ would stand.
+ */
+function emitControlledChip(
+  gate: Gate & { kind: 'single' | 'box' },
+  targets: number[],
+  box: Box,
+  cy: number,
+  gateX: (q: number) => number,
+  m: Metrics,
+  bodies: Prim[],
+  glyphs: Prim[],
+): void {
+  const fill = gate.kind === 'box' ? gate.fill : undefined
+  bodies.push({ t: 'gatebox', box, label: '', labelSize: m.fontSize, ...(fill ? { fill } : {}) })
+  const found = controlledChip(gate, m, (qs) => {
+    const xs = qs.map(gateX)
+    return [Math.min(...xs), Math.max(...xs)]
+  })
+  const xs = targets.map(gateX)
+  const mid = (Math.min(...xs) + Math.max(...xs)) / 2
+  const chip = found?.chip
+  const controls = gate.controls ?? []
+  const ends = [...controls.map(gateX), mid]
+  let x0 = Math.min(...ends)
+  let x1 = Math.max(...ends)
+  // Stopped at the chip's edge, as a named target's link is.
+  if (chip?.text) {
+    if (mid >= x1) x1 = Math.max(x0, mid - chip.w / 2)
+    else if (mid <= x0) x0 = Math.min(x1, mid + chip.w / 2)
+  }
+  glyphs.push({ t: 'link', x0, x1, cy })
+  for (const c of controls) {
+    const open = gate.open?.includes(c) || undefined
+    glyphs.push({ t: 'control', cx: gateX(c), cy, r: m.pipeWidth * CONTROL_R, open })
+  }
+  if (!chip?.text) return
+  // Lifted where an angle goes under it, as a rotation's letters are.
+  const lift = chip.sub ? chip.size * 0.34 : 0
+  glyphs.push({
+    t: 'text', x: mid, cy: cy - lift, text: chip.text, size: chip.size, anchor: 'middle', weight: 700, chip: true,
+    ...(gate.kind === 'single' && gate.accent ? { accent: gate.accent } : {}),
+    ...(chip.tint ? { tint: chip.tint } : {}),
+    ...(chip.subscript ? { subscript: chip.subscript } : {}),
+    ...(chip.minWidth ? { minWidth: chip.minWidth } : {}),
+  })
+  if (chip.sub) {
+    glyphs.push({
+      t: 'text', x: mid, cy: cy + chip.size * 0.85, text: chip.sub, size: chip.size * 0.62, anchor: 'middle', weight: 600,
+    })
+  }
+}
+
 /** A gate as it is drawn, leaving off the measurement it waits on. */
 function unconditioned(gate: Gate): Gate {
   const { given: _, ...rest } = gate
@@ -1552,6 +1690,12 @@ function unconditioned(gate: Gate): Gate {
 }
 
 /** The label on a condition's line: the `=` and the shape, and the room round them. */
+/** How faint a gate switched off is drawn: there, but plainly not acting. */
+const OFF_OPACITY = 0.3
+
+/** A switch's width over its height. */
+export const SWITCH_ASPECT = 1.7
+
 const READING_PAD = 5
 /** Clear air between that label and the gate it stands beside. */
 const READING_GAP = 4

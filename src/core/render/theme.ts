@@ -331,7 +331,10 @@ export function mix(a: string, b: string, t: number): string {
 
 export function drawText(p: TextPrim, pal: Palette): string {
   // A name on a chip is the `⊕` written out: same blue, same white lettering.
-  if (p.chip) return labelChip(p.x, p.cy, p.text, p.size, p.accent ?? pal.accent, pal)
+  if (p.chip) {
+    const tinted = p.tint ? pal.gateChip[p.tint] : undefined
+    return labelChip(p.x, p.cy, p.text, p.size, p.accent ?? tinted ?? pal.accent, pal, p.subscript, p.minWidth)
+  }
   const y = p.cy + baselineOffset(p.size, p.baseline)
   return el(
     'text',
@@ -559,6 +562,8 @@ export function labelChip(
    * one letter saying *rotation* and a small one saying *about which axis*.
    */
   subscript?: string,
+  /** At least this wide, for a chip standing across several wires. */
+  minWidth = 0,
 ): string {
   if (!text) return ''
   const subSize = size * 0.66
@@ -611,7 +616,7 @@ export function labelChip(
   // wide run, and a percentage of that came to less than a percentage of one
   // wide letter. A chip holding a single letter was never short of room and is
   // left at exactly the width it has always had.
-  const w = chipWidth(text, size, subscript ?? '')
+  const w = chipWidth(text, size, subscript ?? '', minWidth)
   const h = bottom - top + PAD_Y * 2
   return (
     el('rect', {

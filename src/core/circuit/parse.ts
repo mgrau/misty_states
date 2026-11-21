@@ -42,7 +42,7 @@ import { parseState } from '../state/parse'
 import type { StateRow } from '../state/ast'
 import { productWidth } from '../state/ast'
 import { parseShapeSpec, SHAPE_LINE, SHAPE_SYMBOL_HELP, type ShapePick } from '../shapes'
-import type { ChartSpec, CircuitDoc, DefinitionUse, Frame, Gate, GateStyle, Layer, TableColumn, TableLine, TableSpec, TagGate, ViewGate } from './ast'
+import type { ChartSpec, CircuitDoc, DefinitionUse, Frame, Gate, GateStyle, Layer, Switch, TableColumn, TableLine, TableSpec, TagGate, ViewGate } from './ast'
 import type { AnimationOptions } from './animate'
 import { actedOn, gateSpan } from './ast'
 import { bendOf, bendTarget, coveredWires, homeOf, planWires, WireError } from './wires'
@@ -336,12 +336,48 @@ const ARITY: Record<string, number> = {
   toffoli: 3, ccnot: 3, ccx: 3, ccz: 3, cswap: 3, fredkin: 3,
 }
 
+/**
+ * A gate with a C in front of it for each control: `CH`, `CCRZ(90)`,
+ * `CCGATE`. Null when the word is not one — or is a gate of its own already,
+ * as `CNOT`, `CZ` and `CSWAP` are, which keep the meaning they always had.
+ *
+ * The fewest C's taken that leave a gate, so `CCCX` is one control on a
+ * `CCX` and `CCZ` stays a `CCZ`. Which comes to the same thing: every one of
+ * those names already reads as controls on the gate after its C's.
+ */
+export function controlledName(word: string): { count: number; base: string } | null {
+  const w = word.toLowerCase()
+  if (GATE_KEYWORDS.has(w)) return null
+  for (let k = 1; k < w.length && w[k - 1] === 'c'; k++) {
+    const base = w.slice(k)
+    if (GATE_KEYWORDS.has(base) || isTurn(base)) return { count: k, base }
+  }
+  return null
+}
+
+/** A gate's name, with or without controls in front of it. */
+const isGateName = (word: string): boolean => {
+  const w = word.toLowerCase()
+  return GATE_KEYWORDS.has(w) || isTurn(w) || !!controlledName(w)
+}
+
+/** How many wires a gate of this name takes, or nought where it is written however wide. */
+function arityOf(head: string): number {
+  const h = head.toLowerCase()
+  const own = ARITY[h] ?? (isTurn(h) ? 1 : 0)
+  if (own) return own
+  const ctl = controlledName(h)
+  if (!ctl) return 0
+  const base = arityOf(ctl.base)
+  return base ? ctl.count + base : 0
+}
+
 /** Does this word begin a gate — named, turned, run together, or glued to its wire? */
 function startsGate(word: string): boolean {
   const w = word.toLowerCase()
-  if (GATE_KEYWORDS.has(w) || isTurn(w) || isGateRun(w)) return true
+  if (isGateName(w) || isGateRun(w)) return true
   const glued = GLUED.exec(w)
-  return !!glued && GATE_KEYWORDS.has(glued[1])
+  return !!glued && isGateName(glued[1])
 }
 
 /** Split a word glued to its wires back apart: `H2` is `H 2`. */
@@ -349,7 +385,7 @@ export function unglue(src: string): string {
   const lead = src.length - src.trimStart().length
   const word = src.slice(lead).split(/\s/)[0]
   const glued = GLUED.exec(word)
-  if (!glued || !GATE_KEYWORDS.has(glued[1].toLowerCase())) return src
+  if (!glued || !isGateName(glued[1])) return src
   return src.slice(0, lead) + glued[1] + ' ' + src.slice(lead + glued[1].length)
 }
 
@@ -457,10 +493,10 @@ export function splitStatements(body: string, lineNo: number): Statement[] {
  * no telling which it was.
  */
 export function wiresLeftOut(text: string): number {
-  const words = text.replace(CONDITION, ' ').trim().split(/\s+/).filter((w) => !/^[a-z]+=/i.test(w))
+  const words = withoutSwitch(text.replace(CONDITION, ' ')).trim().split(/\s+/).filter((w) => !/^[a-z]+=/i.test(w))
   if (words.some((w) => w.startsWith('"'))) return 0
   const head = words[0]?.toLowerCase() ?? ''
-  const arity = ARITY[head] ?? (isTurn(head) ? 1 : 0)
+  const arity = arityOf(head)
   if (!arity) return 0
   if (words.length === 1) return arity
   // A measurement's basis is not a wire: `M X` still leaves its wire out.
@@ -1346,7 +1382,110 @@ function parseGate(src: string, line: number): Gate {
     return { kind: 'box', label, qubits: qs, fill, blank }
   }
 
+  // `CH 1 2`, `CCRZ(90) 1 2 3`, `CSWAP`'s cousins: a C for every control,
+  // whose wires are written first. What is left is the gate itself.
+  const ctl = controlledName(head)
+  if (ctl) {
+    const name = head.slice(0, ctl.count)
+    const { controls, open, rest: left } = takeControls(rest, ctl.count, line, head)
+    if (!left.some((t) => !t.quoted)) {
+      const example = `${name}${ctl.base.toUpperCase()} ${Array.from({ length: ctl.count + 1 }, (_, i) => i + 1).join(' ')}`
+      throw new ParseError(`${head} needs the wire${arityOf(ctl.base) > 1 ? 's' : ''} it acts on after its controls — e.g. ${example}`, 0, line)
+    }
+    const options = [fill !== undefined ? `fill=${fill}` : '', colour !== undefined ? `colour=${colour}` : '']
+    const text = [ctl.base, ...left.map((t) => (t.quoted ? `"${t.text}"` : t.text)), ...options]
+      .filter(Boolean)
+      .join(' ')
+    return withControls(parseGate(text, line), controls, open, line, `${name}${ctl.base.toUpperCase()}`)
+  }
+
   throw new ParseError(`unknown gate "${tokens[0].text}"`, 0, line)
+}
+
+/**
+ * The first `count` wires of a gate written with a C for each control.
+ *
+ * A range is taken apart, so `CCH 1-3` is controls on 1 and 2 and the H on 3;
+ * an arrow straight after them only says where the controls end. Everything
+ * else — a quoted name, the wires the gate itself is on — is left for it.
+ */
+function takeControls(
+  tokens: Token[], count: number, line: number, head: string,
+): { controls: number[]; open: number[]; rest: Token[] } {
+  const controls: number[] = []
+  const open: number[] = []
+  const rest: Token[] = []
+  let arrowed = false
+  for (const t of tokens) {
+    if (controls.length === count || t.quoted) {
+      // An arrow after the controls, and only there, is theirs.
+      if (!arrowed && controls.length === count && !t.quoted && t.text === '->' && !rest.some((r) => !r.quoted)) {
+        arrowed = true
+        continue
+      }
+      rest.push(t)
+      continue
+    }
+    if (t.text === '->') {
+      throw new ParseError(
+        `${head} has ${count} control${count === 1 ? '' : 's'} — one C for each — so the arrow goes after ${count === 1 ? 'it' : 'them'}`,
+        0,
+        line,
+      )
+    }
+    const marked = parseMarked([t], line, head)
+    for (const q of marked.qubits) {
+      if (controls.length < count) {
+        controls.push(q)
+        if (marked.open.includes(q)) open.push(q)
+      } else {
+        rest.push({ text: marked.open.includes(q) ? `${q}=0` : String(q), quoted: false })
+      }
+    }
+  }
+  if (controls.length < count) {
+    const example = `${'C'.repeat(count)}H ${Array.from({ length: count + 1 }, (_, i) => i + 1).join(' ')}`
+    throw new ParseError(
+      `${head} needs ${count === 1 ? 'its control' : `its ${count} controls`} written first, then the gate's own wires — e.g. ${example}`,
+      0,
+      line,
+    )
+  }
+  return { controls, open, rest }
+}
+
+/**
+ * A gate given controls: `CH` is an H given one.
+ *
+ * One that has controls already takes these as more of them, so `CCNOT` and
+ * `CCX` come out as the Toffoli they always were. Anything else carries them
+ * for itself. A measurement, a pipe or a view is not something that happens,
+ * so there is nothing for a control to switch.
+ */
+function withControls(gate: Gate, controls: number[], open: number[], line: number, head: string): Gate {
+  if (gate.kind === 'measure') {
+    throw new ParseError(`${head}: a measurement cannot be controlled — it reads the wire whatever the others hold`, 0, line)
+  }
+  if (gate.kind === 'identity' || gate.kind === 'tag' || gate.kind === 'view') {
+    throw new ParseError(`${head}: this does nothing to the qubits, so there is nothing to control`, 0, line)
+  }
+  if (new Set(controls).size !== controls.length) {
+    throw new ParseError(`${head} has the same control twice`, 0, line)
+  }
+  const own = actedOn(gate)
+  const clash = controls.find((c) => own.includes(c))
+  if (clash !== undefined) {
+    throw new ParseError(`${head}: wire ${clash} cannot be a control and part of the gate it controls`, 0, line)
+  }
+  if (gate.kind === 'box') {
+    const [q0, q1] = [Math.min(...gate.qubits), Math.max(...gate.qubits)]
+    const inside = controls.find((c) => c > q0 && c < q1)
+    if (inside !== undefined) {
+      throw new ParseError(`${head}: the control on wire ${inside} is inside the box, which covers ${q0}-${q1}`, 0, line)
+    }
+  }
+  const all = [...open, ...(gate.open ?? [])]
+  return { ...gate, controls: [...controls, ...(gate.controls ?? [])], ...(all.length ? { open: all } : {}) }
 }
 
 /**
@@ -1410,7 +1549,13 @@ function placeGates(
       for (let q = q0; q <= q1; q++) taken.add(q)
     }
   }
-  return parts.flatMap((text, i) => {
+  // Which statement of the line a switch is written in, so a click flips that
+  // one word and no other.
+  const stamp = (gates: Gate[], part: number): Gate[] =>
+    gates.map((g) => (g.switch ? { ...g, switch: { ...g.switch, part } } : g))
+  return parts.flatMap((text, i) => stamp(placed(text, i), i))
+
+  function placed(text: string, i: number): Gate[] {
     const count = open[i]
     if (!count) return read[i]!
     // A gate over several wires is drawn across a run of them, so it wants
@@ -1422,7 +1567,7 @@ function placeGates(
     while (Array.from({ length: count }, (_, k) => first + k).some(busy)) first++
     for (let k = 0; k < count; k++) taken.add(first + k)
     return parseStatements(withWires(text, first, count), lineNo, undefined)
-  })
+  }
 }
 
 /** One statement: a gate, a view, or a bare state that is therefore a view. */
@@ -1432,10 +1577,13 @@ function parseStatement(src: string, line: number, base?: number): Gate {
   if (startsGate(src.trim().split(/\s+/)[0] ?? '')) src = unglue(src)
   const kw = src.split(/\s+/)[0].toLowerCase()
   if (kw === 'view' || kw === 'show' || kw === 'window') {
+    if (takeSwitch(src, line).on !== undefined) {
+      throw new ParseError('a view only looks, so there is nothing to switch — switch the gates instead', 0, line)
+    }
     const arg = src.slice(kw.length).trim()
     return parseView(arg, line, kw === 'window', offsetOf(src, arg, base))
   }
-  if (KEYWORDS.has(kw) || isTurn(kw)) return parseSizedGate(src, line)
+  if (KEYWORDS.has(kw) || isTurn(kw) || controlledName(kw)) return parseSizedGate(src, line)
   if (looksLikeGateName(src)) {
     throw new ParseError(`unknown gate "${src.split(/\s+/)[0]}"`, 0, line)
   }
@@ -1466,6 +1614,12 @@ function refuseFrameOptions(src: string, line: number): void {
  * put back on the result — which is the same thing whatever kind it is.
  */
 function parseSizedGate(src: string, line: number): Gate {
+  const { text, on } = takeSwitch(src, line)
+  const gate = sizedGate(text, line)
+  return on === undefined ? gate : switched(gate, on, line)
+}
+
+function sizedGate(src: string, line: number): Gate {
   const { text: plain, given } = takeCondition(src, line)
   const { text, found } = takeOptions(plain, ['width', 'height', 'shift'])
   const parsed = parseGate(text, line)
@@ -1499,6 +1653,71 @@ function parseSizedGate(src: string, line: number): Gate {
   return { ...gate, ...(width !== undefined ? { width } : {}), ...(height !== undefined ? { height } : {}) }
 }
 
+/* ------------------------------------------------------------ switches --- */
+
+/** `on` or `off` as a word of its own, outside any quoted label. */
+const SWITCH_WORD = /(^|\s)(on|off)(?=\s|;|\{|$)/gi
+
+/** Quoted labels blanked out, keeping every position, so a word in one is not read. */
+const unquoted = (src: string): string => src.replace(/"[^"]*"/g, (q) => '"' + ' '.repeat(q.length - 2) + '"')
+
+/** The text with any switch word taken out, for whatever only needs to count wires. */
+function withoutSwitch(src: string): string {
+  const masked = unquoted(src)
+  let out = src
+  for (const hit of masked.matchAll(SWITCH_WORD)) {
+    const from = hit.index! + hit[1].length
+    out = out.slice(0, from) + ' '.repeat(hit[2].length) + out.slice(from + hit[2].length)
+  }
+  return out
+}
+
+/**
+ * Take `on` or `off` off a gate's statement, leaving spaces where it was —
+ * the same as a condition, so nothing after it moves.
+ */
+function takeSwitch(src: string, line: number): { text: string; on?: boolean } {
+  const hits = [...unquoted(src).matchAll(SWITCH_WORD)]
+  if (!hits.length) return { text: src }
+  if (hits.length > 1) throw new ParseError('a gate has one switch — write on or off once', 0, line)
+  return { text: withoutSwitch(src), on: hits[0][2].toLowerCase() === 'on' }
+}
+
+/** The same from a line's tokens, for a frame or a use, which are read that way. */
+function takeSwitchToken(tokens: { text: string; quoted?: boolean }[], line: number): boolean | undefined {
+  const at = tokens
+    .map((t, i) => (!t.quoted && /^(on|off)$/i.test(t.text) ? i : -1))
+    .filter((i) => i >= 0)
+  if (!at.length) return undefined
+  if (at.length > 1) throw new ParseError('a frame has one switch — write on or off once', 0, line)
+  const on = tokens[at[0]].text.toLowerCase() === 'on'
+  tokens.splice(at[0], 1)
+  return on
+}
+
+/** Does this gate do something, so that switching it off means something? */
+const acts = (gate: Gate): boolean =>
+  gate.kind !== 'view' && gate.kind !== 'identity' && gate.kind !== 'tag'
+
+/** Inside something switched off: drawn faded, and doing nothing. */
+const darkened = (gate: Gate): Gate => (acts(gate) ? { ...gate, off: true } : gate)
+
+/** Put a switch on a gate. */
+function switched(gate: Gate, on: boolean, line: number): Gate {
+  if (gate.kind === 'view') {
+    throw new ParseError('a view only looks, so there is nothing to switch — switch the gates instead', 0, line)
+  }
+  if (!acts(gate)) {
+    throw new ParseError('this does nothing to the qubits, so there is nothing to switch off', 0, line)
+  }
+  const sw: Switch = { on, line }
+  return on ? { ...gate, switch: sw } : { ...gate, switch: sw, off: true }
+}
+
+/** What a frame's or a use's own switch does to the box it folds into. */
+const switchOf = (sw: Switch | undefined): { switch?: Switch; off?: boolean } =>
+  sw ? { switch: sw, ...(sw.on ? {} : { off: true }) } : {}
+
 /** `if M1`, `if M1=0`: the condition a gate waits on, wherever it is written on the line. */
 const CONDITION = /(^|\s)if\s+M(\d+)(?:=([01]))?(?=\s|;|$)/i
 
@@ -1530,7 +1749,7 @@ function takeCondition(src: string, line: number): { text: string; given?: Gate[
  */
 function conditioned(gate: Gate, given: NonNullable<Gate['given']>, line: number): Gate {
   const oneWire =
-    gate.kind === 'single' || (gate.kind === 'controlled' && !gate.controls.length)
+    (gate.kind === 'single' && !gate.controls?.length) || (gate.kind === 'controlled' && !gate.controls.length)
   if (!oneWire) {
     throw new ParseError('only a gate on one wire can wait on a measurement — e.g. X 3 if M1', 0, line)
   }
@@ -1729,6 +1948,8 @@ interface FrameStyle {
   border?: string
   /** Written `locked`; see `Frame.locked`. */
   locked?: boolean
+  /** Written `on` or `off`; see `Frame.switch`. */
+  switch?: Switch
 }
 
 /** Take the word `locked` out of a line's tokens, saying whether it was there. */
@@ -1764,6 +1985,14 @@ function readFrameOpen(
     tokens.splice(word, 1)
   }
   const locked = takeLocked(tokens)
+  const on = takeSwitchToken(tokens, lineNo)
+  if (on !== undefined && !allowWires) {
+    throw new ParseError(
+      `a definition is switched where it is used — write "${on ? 'on' : 'off'}" there`,
+      0,
+      lineNo,
+    )
+  }
   const fill = takeOption(tokens, 'fill', lineNo)
   const border = takeOption(tokens, 'border', lineNo)
   let label: string | undefined
@@ -1783,7 +2012,11 @@ function readFrameOpen(
     const qs = parseQubits(tokens, lineNo)
     qubits = [Math.min(...qs), Math.max(...qs)]
   }
-  return { label, fill, border, qubits, collapsed, ...(locked ? { locked } : {}) }
+  return {
+    label, fill, border, qubits, collapsed,
+    ...(locked ? { locked } : {}),
+    ...(on !== undefined ? { switch: { on, line: lineNo } } : {}),
+  }
 }
 
 /**
@@ -1944,6 +2177,12 @@ function mapGate(gate: Gate, to: (q: number) => number): Gate {
         : { ...gate, qubit, move: { to: at + qubit - gate.qubit } }
     }
     case 'single':
+      return {
+        ...gate,
+        qubit: to(gate.qubit),
+        ...(gate.controls ? { controls: gate.controls.map(to) } : {}),
+        ...(gate.open ? { open: gate.open.map(to) } : {}),
+      }
     case 'measure':
       return { ...gate, qubit: to(gate.qubit) }
     // What a control acts on goes with its wire: left behind, an open ring
@@ -1968,6 +2207,8 @@ function mapGate(gate: Gate, to: (q: number) => number): Gate {
         ...gate,
         qubits: gate.qubits.map(to),
         ...(gate.body ? { body: gate.body.map((g) => mapGate(g, to)) } : {}),
+        ...(gate.controls ? { controls: gate.controls.map(to) } : {}),
+        ...(gate.open ? { open: gate.open.map(to) } : {}),
       }
     case 'view':
       return { ...gate, qubits: gate.qubits.map(to) }
@@ -2043,6 +2284,7 @@ export function parseCircuit(text: string): CircuitDoc {
   /** Every group goes in through here, so it knows which frames it is inside. */
   const pushGroup = (group: Group) => {
     for (const id of frameStack) drafts[id].used = true
+    if (frameStack.some((id) => drafts[id].switch?.on === false)) group = { ...group, gates: group.gates.map(darkened) }
     const placed = place.size || wiresAt ? { ...group, place, home } : group
     groups.push(frameStack.length ? { ...placed, frames: [...frameStack] } : placed)
   }
@@ -2132,6 +2374,7 @@ export function parseCircuit(text: string): CircuitDoc {
       ...box, line: d.line,
       ...(d.fold !== undefined ? { fold: d.fold } : {}),
       ...(d.locked ? { locked: true } : {}),
+      ...switchOf(d.switch),
     }], d.line)
     pendingBreak = true
   }
@@ -2188,10 +2431,10 @@ export function parseCircuit(text: string): CircuitDoc {
         sink.open(f, ends && [Math.min(...ends), Math.max(...ends)] as [number, number], undefined, f.collapsed)
         continue
       }
-      const word = text.split(/\s+/)[0].toLowerCase()
-      const inner = defs.get(word)
+      const word = text.split(/\s+/)[0]
+      const inner = defOf(word)
       if (inner) {
-        use(inner, text.slice(word.length), at, line, to, sink, inside)
+        use(inner.def, text.slice(word.length), at, line, to, sink, inside, inner.count)
         continue
       }
       const gates = placeGates(splitStatements(text, at).map((p) => p.text), at, () => undefined)
@@ -2218,6 +2461,8 @@ export function parseCircuit(text: string): CircuitDoc {
     outer: (q: number) => number,
     sink: Sink,
     chain: string[],
+    /** How many C's it was written with: `Coracle` is one control. */
+    count = 0,
   ) => {
     const tokens = tokenize(arg, at)
     const word = tokens.findIndex((t) => !t.quoted && t.text.toLowerCase() === 'collapsed')
@@ -2225,6 +2470,8 @@ export function parseCircuit(text: string): CircuitDoc {
     if (collapsed) tokens.splice(word, 1)
     // On the use, or on the definition for every use of it.
     const locked = takeLocked(tokens) || !!def.style.locked
+    // Only ever on the use: each use is switched apart from the others.
+    const on = takeSwitchToken(tokens, at)
     // A quoted name says what this use is for, in place of the definition's.
     const named = tokens.filter((t) => t.quoted)
     if (named.length > 1) throw new ParseError(`${def.name} takes one label`, 0, at)
@@ -2232,9 +2479,28 @@ export function parseCircuit(text: string): CircuitDoc {
       ...def.style,
       ...(named.length ? { label: named[0].text } : {}),
       ...(locked && !chain.length ? { locked } : {}),
+      ...(on !== undefined ? { switch: { on, line: at } } : {}),
     }
     tokens.splice(0, tokens.length, ...tokens.filter((t) => !t.quoted))
     const n = widthOf(def, chain)
+    const head = `${'C'.repeat(count)}${def.name}`
+    // Its controls come first, on the circuit's wires as the rest are.
+    let controls: number[] = []
+    let open: number[] = []
+    if (count) {
+      if (!tokens.length) {
+        throw new ParseError(
+          `${head} needs ${count === 1 ? 'its control' : `its ${count} controls`} written first — e.g. ${head} ${Array.from({ length: count }, (_, i) => n + i + 1).join(' ')}`,
+          0,
+          at,
+        )
+      }
+      const taken = takeControls(tokens, count, at, head)
+      tokens.splice(0, tokens.length, ...taken.rest)
+      controls = taken.controls.map(outer)
+      open = taken.open.map(outer)
+      if (new Set(controls).size !== controls.length) throw new ParseError(`${head} has the same control twice`, 0, at)
+    }
     const written = tokens.length ? parseQubits(tokens, at) : null
     if (written && written.length !== n) {
       throw new ParseError(
@@ -2247,6 +2513,11 @@ export function parseCircuit(text: string): CircuitDoc {
       throw new ParseError(`${def.name} needs ${n} different wires`, 0, at)
     }
     const to = (q: number) => outer(written ? written[q - 1] : q)
+    const wires = Array.from({ length: n }, (_, i) => to(i + 1))
+    const clash = controls.find((c) => wires.includes(c))
+    if (clash !== undefined) {
+      throw new ParseError(`${head}: wire ${clash} cannot be a control and one of ${def.name}'s own`, 0, at)
+    }
     // Only a use written in the circuit itself has a line of its own to fold;
     // one inside another definition is written once for all its uses.
     const fold = chain.length ? undefined : line
@@ -2254,14 +2525,35 @@ export function parseCircuit(text: string): CircuitDoc {
       uses.push({
         line,
         name: def.name,
-        wires: Array.from({ length: n }, (_, i) => to(i + 1)),
+        wires,
         collapsed,
         ...(named.length ? { label: named[0].text } : {}),
         ...(locked ? { locked } : {}),
+        ...(controls.length ? { controls } : {}),
+        ...(open.length ? { open } : {}),
       })
       // Everything it draws answers to it, so any of it picks the use up.
       const inner = sink
       sink = { ...inner, gates: (gs) => inner.gates(gs.map((g) => ({ ...g, use: def.name }))) }
+    }
+
+    // Controlled, every gate it draws is controlled: a controlled U is its
+    // gates each with the same controls. Each goes in on its own, since they
+    // now share the control wires and no two of them can stand in one layer.
+    if (controls.length && !collapsed) {
+      const inner = sink
+      sink = {
+        ...inner,
+        gates: (gs) => {
+          const acting = gs.filter(acts)
+          if (!acting.length) return inner.gates(gs)
+          const still = gs.filter((g) => !acts(g))
+          acting.forEach((g, i) => {
+            const ruled = withControls(g, controls, open, at, head)
+            inner.gates(i ? [ruled] : [ruled, ...still])
+          })
+        },
+      }
     }
 
     if (!collapsed) {
@@ -2272,21 +2564,36 @@ export function parseCircuit(text: string): CircuitDoc {
     }
 
     const body: Gate[] = []
+    // Frames inside are not drawn in a box, but one switched off still turns
+    // off what it holds.
+    const dark: boolean[] = []
     walk(def, to, line, {
-      gates: (gs) => body.push(...gs),
-      open: () => {},
-      close: () => {},
+      gates: (gs) => body.push(...(dark.some(Boolean) ? gs.map(darkened) : gs)),
+      open: (inner) => { dark.push(inner.switch?.on === false) },
+      close: () => { dark.pop() },
       brk: () => {},
     }, chain)
-    const wires = Array.from({ length: n }, (_, i) => to(i + 1))
-    const box = foldedBox(
+    const folded = foldedBox(
       style.label ?? def.name, style.fill, body,
       [Math.min(...wires), Math.max(...wires)], at, def.name,
     )
+    // Folded, it is one box across the wires it covers, so a control cannot
+    // stand among them — drawn open, each gate keeps clear of it on its own.
+    const [lo, hi] = [Math.min(...wires), Math.max(...wires)]
+    const among = controls.find((c) => c > lo && c < hi)
+    if (among !== undefined) {
+      throw new ParseError(
+        `${head}: folded, ${def.name} is one box across ${lo}-${hi}, so its control on wire ${among} would be inside it — leave out "collapsed", or move the control`,
+        0,
+        at,
+      )
+    }
+    const box = controls.length ? withControls(folded, controls, open, at, head) : folded
     sink.gates([{
       ...box, line,
       ...(fold !== undefined ? { fold } : {}),
       ...(locked && !chain.length ? { locked } : {}),
+      ...switchOf(style.switch),
     }])
   }
 
@@ -2308,6 +2615,17 @@ export function parseCircuit(text: string): CircuitDoc {
 
   const lines = text.split('\n')
   const { defs, skip } = readDefinitions(lines)
+  /** The definition a word uses, and how many controls it was written with. */
+  const defOf = (word: string): { def: Definition; count: number } | undefined => {
+    const w = word.toLowerCase()
+    const exact = defs.get(w)
+    if (exact) return { def: exact, count: 0 }
+    for (let k = 1; k < w.length && w[k - 1] === 'c'; k++) {
+      const found = defs.get(w.slice(k))
+      if (found) return { def: found, count: k }
+    }
+    return undefined
+  }
   // Where each line begins in `text`, so that a state written on one can say
   // where each of its qubits was — which is what lets one be clicked and
   // changed rather than only read.
@@ -2385,14 +2703,14 @@ export function parseCircuit(text: string): CircuitDoc {
     const arg = body.slice(kw.length).trim()
     const parts = splitStatements(body, lineNo).map((p) => p.text)
 
-    const named = parts.map((part) => defs.get(part.trim().split(/\s+/)[0].toLowerCase()))
+    const named = parts.map((part) => defOf(part.trim().split(/\s+/)[0]))
     if (parts.length > 1 && named.some(Boolean)) {
-      throw new ParseError(`${named.find(Boolean)!.name} takes a line of its own`, 0, lineNo)
+      throw new ParseError(`${named.find(Boolean)!.def.name} takes a line of its own`, 0, lineNo)
     }
     const def = named[0]
     if (def) {
       flushTail()
-      use(def, arg, lineNo, lineNo, (q) => q, top, [])
+      use(def.def, arg, lineNo, lineNo, (q) => q, top, [], def.count)
       continue
     }
 
@@ -2693,6 +3011,7 @@ export function parseCircuit(text: string): CircuitDoc {
       inner,
       ...(d.fold !== undefined ? { fold: d.fold } : {}),
       ...(d.locked ? { locked: true } : {}),
+      ...(d.switch ? { switch: d.switch } : {}),
     }
   }
   const drawn = frames.filter((f): f is Frame => !!f)

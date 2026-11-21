@@ -59,6 +59,11 @@ function diagram(): SVGSVGElement {
  * typed rather than as a change made from outside.
  */
 function editor(): { value: string } {
+  // The source is a drawer, put away until asked for, so ask for it.
+  if (!host.querySelector('.cm-editor')) {
+    host.querySelector<HTMLButtonElement>('button[aria-label="Source"]')?.click()
+    flushSync()
+  }
   const el = host.querySelector<HTMLElement>('.cm-editor')
   const view = el && EditorView.findFromDOM(el)
   if (!view) throw new Error('source editor not found')
@@ -127,6 +132,29 @@ describe('App', () => {
     boot()
     setSource('0|1|-1 = 0')
     expect(localStorage.getItem('misty.v1')).toContain('0|1|-1')
+  })
+
+  it('keeps the source in a drawer, put away until asked for, and remembers it open', () => {
+    boot()
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Source"]')!
+    expect(host.querySelector('.cm-editor')).toBeNull()
+    expect(button.getAttribute('aria-pressed')).toBe('false')
+    button.click()
+    flushSync()
+    expect(host.querySelector('aside[aria-label="Source"] .cm-editor')).not.toBeNull()
+    unmount(app!)
+    host.replaceChildren()
+    boot()
+    expect(host.querySelector('.cm-editor')).not.toBeNull()
+  })
+
+  it('shows a mistake with the drawer shut', () => {
+    boot()
+    setSource('0|1|-1 = ((')
+    host.querySelector<HTMLButtonElement>('button[aria-label="Source"]')!.click()
+    flushSync()
+    expect(host.querySelector('.cm-editor')).toBeNull()
+    expect(host.querySelector('p.font-mono.text-red-700')).not.toBeNull()
   })
 
   it('restores a saved session on the next mount', () => {

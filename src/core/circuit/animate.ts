@@ -232,7 +232,7 @@ export function termRun(doc: CircuitDoc): Working[] {
 
   const out: Working[] = []
   doc.layers.forEach((layer, at) => {
-    const acting = layer.gates.filter((g) => g.kind !== 'view' && g.kind !== 'identity' && g.kind !== 'tag')
+    const acting = layer.gates.filter((g) => g.kind !== 'view' && g.kind !== 'identity' && g.kind !== 'tag' && !g.off)
     if (acting.some((g) => g.kind === 'measure')) {
       throw new NotClassicalError(
         `layer ${at + 1} measures, which splits the drawing into outcomes rather than moving it`,
@@ -419,7 +419,8 @@ export function buildTimeline(
 
     // Through it. A gate that touches no wire still takes its dwell, so the
     // rhythm of the circuit is the rhythm of the animation.
-    const acted = layer.gates.filter((gate) => gate.kind !== 'view')
+    // Switched off, a gate is passed through like pipe: it does not go clear.
+    const acted = layer.gates.filter((gate) => gate.kind !== 'view' && !gate.off)
     const enter = now
     now += dwell / speed
     for (const gate of acted) {

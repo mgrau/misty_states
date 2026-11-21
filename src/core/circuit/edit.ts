@@ -15,9 +15,9 @@
  * aimed; parsing is pure and takes microseconds, so that costs nothing.
  */
 
-import type { CircuitDoc, DefinitionUse, Gate } from './ast'
-import { gateSpan } from './ast'
-import { liftGateAnnotations, parseCircuit, splitStatements, wiresLeftOut, withWires } from './parse'
+import type { CircuitDoc, DefinitionUse, Gate, Switch } from './ast'
+import { actedOn, gateSpan } from './ast'
+import { liftGateAnnotations, parseCircuit, splitStatements, unglue, wiresLeftOut, withWires } from './parse'
 import { resolveCalculations } from './simulate'
 import type { CircuitGeometry } from './layout'
 import type { QubitValue } from '../state/ast'
@@ -230,6 +230,59 @@ export function toggleLock(source: string, line: number): Edit | null {
   return toggleWord(source, line, 'locked')
 }
 
+/* -- Switches ------------------------------------------------------------ */
+
+/** `on` or `off` as a word of its own, outside any quoted label. */
+const SWITCH_WORD = /(^|\s)(on|off)(?=\s|;|\{|$)/i
+
+/** One statement with its switch flipped, or null where it has none. */
+function flipSwitch(statement: string): string | null {
+  const masked = statement.replace(/"[^"]*"/g, (q) => '"' + ' '.repeat(q.length - 2) + '"')
+  const hit = SWITCH_WORD.exec(masked)
+  if (!hit) return null
+  const from = hit.index + hit[1].length
+  const word = hit[2]
+  // In the case it was written in: `OFF` becomes `ON`.
+  const next = word.toLowerCase() === 'on' ? 'off' : 'on'
+  const cased = word === word.toUpperCase() ? next.toUpperCase() : next
+  return statement.slice(0, from) + cased + statement.slice(from + word.length)
+}
+
+/**
+ * Flip a switch: `on` becomes `off`, and back.
+ *
+ * The one word, where it was written. On a line of several statements, only
+ * the one the switch is in — and where that line has a single switch on it,
+ * the word is changed in place, so the rest of the line stays exactly as it
+ * was typed.
+ */
+export function toggleSwitch(source: string, sw: Switch): Edit | null {
+  const lines = source.split('\n')
+  const at = sw.line - 1
+  const text = lines[at]
+  if (text === undefined) return null
+  const hash = text.search(/(^|\s)#/)
+  const code = hash < 0 ? text : text.slice(0, hash)
+  const comment = hash < 0 ? '' : text.slice(hash)
+  const masked = code.replace(/"[^"]*"/g, (q) => '"' + ' '.repeat(q.length - 2) + '"')
+  const count = (masked.match(new RegExp(SWITCH_WORD.source, 'gi')) ?? []).length
+  if (!count) return null
+  if (count === 1 || sw.part === undefined) {
+    const flipped = flipSwitch(code)
+    if (flipped === null) return null
+    lines[at] = flipped + comment
+    return { source: lines.join('\n'), line: sw.line }
+  }
+  const lifted = liftGateAnnotations(code)
+  const parts = statements(lifted ? lifted.body : code.trim())
+  const flipped = parts[sw.part] === undefined ? null : flipSwitch(parts[sw.part])
+  if (flipped === null) return null
+  parts[sw.part] = flipped
+  const indent = /^\s*/.exec(code)![0]
+  lines[at] = indent + rewrite(code.trim(), parts.join('; ')) + (comment ? ` ${comment.trim()}` : '')
+  return { source: lines.join('\n'), line: sw.line }
+}
+
 /**
  * Where a new line goes, 1-based, to land just past `from` with `outside`
  * frames stepped out of — downwards over closing braces, or upwards over
@@ -283,6 +336,16 @@ export interface Droppable {
   controlsAt?: number[]
   /** A swap's two crossed wires, counted from the top of the span. */
   pairAt?: [number, number]
+  /**
+   * A box's own wires, first and last, counted from the top of the span —
+   * where it has controls, which the span takes in as well.
+   */
+  targetsAt?: [number, number]
+  /**
+   * Not a gate but a control: dropped on a wire beside a gate, it gives that
+   * gate a control there. `H` becomes `CH`, a definition's use `Coracle`.
+   */
+  control?: boolean
   /** The wires written `=0`, acting on white, counted from the top of the span. */
   openAt?: number[]
   /**
@@ -338,7 +401,14 @@ export function gateLine(gate: Droppable, wire: number, qubits: number): string 
   if (start + gate.wires - 1 > room) start = Math.max(1, room - gate.wires + 1)
   const wires = Array.from({ length: gate.wires }, (_, i) => start + i)
   if (gate.range) {
-    return [gate.head, gate.label, `${wires[0]}-${wires[wires.length - 1]}`, gate.tail, gate.options]
+    // A box or a use given controls writes them first, its own wires after.
+    const controls = (gate.controlsAt ?? []).map((o) => wires[o]).filter((w) => w !== undefined)
+    const own = gate.targetsAt
+      ? [wires[gate.targetsAt[0]], wires[gate.targetsAt[1]]].filter((w) => w !== undefined)
+      : [wires[0], wires[wires.length - 1]]
+    const span = own[0] === own[own.length - 1] ? String(own[0]) : `${own[0]}-${own[own.length - 1]}`
+    const mark = marked(gate.openAt?.map((o) => start + o))
+    return [gate.head, gate.label, ...controls.map(mark), span, gate.tail, gate.options]
       .filter(Boolean)
       .join(' ')
   }
@@ -695,6 +765,115 @@ function locate(
 }
 
 /**
+ * Could this gate take a control? Anything that does something to the qubits
+ * and is not already waiting on a measurement — a condition and a control
+ * say the same kind of thing, and a gate has one or the other.
+ */
+function controllable(gate: Gate): boolean {
+  if (gate.given) return false
+  if (gate.bound && !gate.use) return false
+  if (gate.kind === 'box') return !gate.blank
+  return gate.kind === 'single' || gate.kind === 'controlled' || gate.kind === 'swap'
+}
+
+/**
+ * The same statement with a control in front of it: a C on its name, and the
+ * control's wire written first. `H 2` on wire 1 is `CH 1 2`; `oracle 2-3` is
+ * `Coracle 1 2-3`; `CNOT 1 2` is `CCNOT 3 1 2`.
+ */
+function prefixControl(was: string, wire: number): string {
+  const text = unglue(was.trim())
+  const found = /^(\S+)(\s+"[^"]*")?/.exec(text)!
+  return `C${found[1]}${found[2] ?? ''} ${wire}${text.slice(found[0].length)}`
+}
+
+/**
+ * Give a gate one more control, on the wire aimed at: what dropping a control
+ * off the palette does.
+ *
+ * The gate is the one in the layer aimed at nearest the wire — between its
+ * wires counts as nearest of all, so a dot dropped across a CNOT's middle wire
+ * makes it a Toffoli. A gate already on that wire cannot be controlled by it,
+ * and a definition's use takes the control on its own line, for every gate it
+ * draws. Null where there is nothing for a control to go on.
+ */
+export function addControl(source: string, doc: CircuitDoc, target: DropTarget): Edit | null {
+  const layer = doc.layers[target.layer]
+  if (!layer || target.wire < 1 || target.wire > doc.qubits + 1) return null
+  const wire = target.wire
+  const distance = (gate: Gate) => {
+    const [q0, q1] = gateSpan(gate)
+    return wire < q0 ? q0 - wire : wire > q1 ? wire - q1 : 0
+  }
+  const gate = layer.gates
+    .filter((g) => controllable(g) && !actedOn(g).includes(wire) && !isLocked(source, g))
+    .sort((a, b) => distance(a) - distance(b))[0]
+  if (!gate) return null
+
+  const use = useOf(doc, gate)
+  if (use) {
+    if (use.wires.includes(wire) || use.controls?.includes(wire)) return null
+    const lines = source.split('\n')
+    const text = lines[use.line - 1]
+    if (text === undefined) return null
+    const hash = text.search(/(^|\s)#/)
+    const code = hash < 0 ? text : text.slice(0, hash)
+    const comment = hash < 0 ? '' : ` ${text.slice(hash).trim()}`
+    const indent = /^\s*/.exec(code)![0]
+    const lifted = liftGateAnnotations(code.trim())
+    const body = lifted ? lifted.body : code.trim()
+    lines[use.line - 1] = indent + rewrite(code.trim(), prefixControl(body, wire)) + comment
+    const next = lines.join('\n')
+    return parses(next) ? { source: next, line: use.line } : null
+  }
+
+  const found = locate(source, doc, gate)
+  if (!found) return null
+  // Every statement keeps the wires it was given, written in: a control can
+  // free or take a wire a neighbour left out and was given.
+  const mates = doc.layers[found.layer].gates.filter((g) => g.line === gate.line)
+  const parts = found.parts.map((part, i) => {
+    const count = wiresLeftOut(part)
+    return count && mates[i] ? withWires(part, gateSpan(mates[i])[0], count) : part
+  })
+  const was = parts[found.which]
+  // Most gates take the C. A controlled-Z across more than three wires has no
+  // name with enough C's in it, so it takes the wire as one more dot instead.
+  const ways = [prefixControl(was, wire)]
+  if (gate.kind === 'controlled' && gate.controls.length) {
+    ways.push(controlledText(was, gate, [...gate.controls, wire], gate.target, gate.open))
+  } else if (gate.kind === 'swap' && gate.controls?.length) {
+    ways.push(swapText(was, [...gate.controls, wire], gate.qubits, gate.open))
+  }
+  for (const written of ways) {
+    const lines = [...found.lines]
+    const kept = parts.map((p, i) => (i === found.which ? written : p))
+    lines[found.at] = rewrite(lines[found.at], kept.join('; '))
+    let next = lines.join('\n')
+    if (parses(next)) return { source: next, line: gate.line! }
+    // Grown over a neighbour on its line: it takes a line of its own, next.
+    if (parts.length > 1) {
+      const others = parts.filter((_, i) => i !== found.which)
+      const split = [...found.lines]
+      split.splice(found.at, 1, rewrite(found.lines[found.at], others.join('; ')), written)
+      next = split.join('\n')
+      if (parses(next)) return { source: next, line: gate.line! + 1 }
+    }
+  }
+  return null
+}
+
+/** Does this source still read as a circuit? */
+function parses(source: string): boolean {
+  try {
+    parseCircuit(source)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Move the target of a controlled gate onto the next wire it covers.
  *
  * The wires stay the same and only the ⊕ moves, wrapping round — which is the
@@ -734,6 +913,11 @@ export function toggleControl(source: string, doc: CircuitDoc, gate: Gate, wire:
     const open = flipped(gate.open, wire)
     return restate(source, doc, gate, (was) => swapText(was, controls, gate.qubits, open))
   }
+  if ((gate.kind === 'single' || gate.kind === 'box') && gate.controls?.length) {
+    if (!gate.controls.includes(wire)) return null
+    const open = flipped(gate.open, wire)
+    return restate(source, doc, gate, (was) => letterText(was, gate, open))
+  }
   if (gate.kind !== 'controlled' || !gate.controls.length) return null
   const dots = gate.targetGlyph === 'z' ? [...gate.controls, gate.target] : gate.controls
   if (!dots.includes(wire)) return null
@@ -771,6 +955,23 @@ function controlledText(
     gate.labelOnLink ? name : '',
     writtenOptions(was),
   ]
+    .filter(Boolean)
+    .join(' ')
+}
+
+/**
+ * A letter or a box with controls written afresh: its name as written, its
+ * controls, then its own wires.
+ */
+function letterText(was: string, gate: Gate & { kind: 'single' | 'box' }, open?: number[]): string {
+  const text = unglue(was.trim())
+  const head = text.split(/\s+/)[0]
+  const label = /^\S+\s+("[^"]*")/.exec(text)?.[1] ?? ''
+  const own = gate.kind === 'single' ? [gate.qubit] : gate.qubits
+  const lo = Math.min(...own)
+  const hi = Math.max(...own)
+  const wires = gate.kind === 'single' ? String(gate.qubit) : lo === hi ? String(lo) : `${lo}-${hi}`
+  return [head, label, (gate.controls ?? []).map(marked(open)).join(' '), text.includes('->') ? '->' : '', wires, writtenOptions(was)]
     .filter(Boolean)
     .join(' ')
 }
@@ -823,7 +1024,8 @@ function cycleSwapControl(source: string, doc: CircuitDoc, gate: Gate): Edit | n
  * a coloured gate clicked or moved comes back in the drawing's own colours.
  */
 const writtenOptions = (written: string): string =>
-  (written.match(/(?:^|\s)(?:(?:fill|colou?r|width|height)=\S+|if\s+M\d+(?:=[01])?)/gi) ?? [])
+  // Read with quoted labels blanked, so a label saying "on" is not a switch.
+  (written.replace(/"[^"]*"/g, (q) => '"' + ' '.repeat(q.length - 2) + '"').match(/(?:^|\s)(?:(?:fill|colou?r|width|height)=\S+|if\s+M\d+(?:=[01])?|(?:on|off)(?=\s|;|$))/gi) ?? [])
     .map((o) => o.trim())
     .join(' ')
 
@@ -948,12 +1150,24 @@ function removeUse(
 /** How to write a use of a definition again, somewhere else. */
 export function useDroppable(use: DefinitionUse): Droppable {
   const n = use.wires.length
-  return {
-    head: use.name,
-    wires: n,
-    range: n > 1,
+  const named = {
     ...(use.label !== undefined ? { label: `"${use.label}"` } : {}),
     ...(use.collapsed ? { tail: 'collapsed' } : {}),
+  }
+  if (!use.controls?.length) return { head: use.name, wires: n, range: n > 1, ...named }
+  // Its controls keep their places beside it; its own wires go back side by
+  // side, as an uncontrolled use's do.
+  const all = [...use.controls, ...use.wires]
+  const q0 = Math.min(...all)
+  const own = use.wires.map((w) => w - q0)
+  return {
+    head: `${'C'.repeat(use.controls.length)}${use.name}`,
+    wires: Math.max(...all) - q0 + 1,
+    range: true,
+    controlsAt: use.controls.map((c) => c - q0),
+    targetsAt: [Math.min(...own), Math.min(...own) + n - 1],
+    ...openAt(use.open, q0),
+    ...named,
   }
 }
 
@@ -1183,11 +1397,20 @@ export function asDroppable(gate: Gate): Droppable {
   const [q0, q1] = gateSpan(gate)
   const wires = q1 - q0 + 1
   switch (gate.kind) {
-    case 'single':
+    case 'single': {
       // A rotation's angle is the gate, not a decoration on it. Left off, the
       // line says `RY 1`, which used to mean nothing at all and now means a
       // turn by nothing — either way not the gate that was picked up.
-      return { head: gate.angle === undefined ? gate.label : `${gate.label}(${gate.angle})`, wires: 1 }
+      const head = gate.angle === undefined ? gate.label : `${gate.label}(${gate.angle})`
+      if (!gate.controls?.length) return { head, wires: 1 }
+      return {
+        head: `${'C'.repeat(gate.controls.length)}${head}`,
+        wires,
+        targetAt: gate.qubit - q0,
+        controlsAt: gate.controls.map((c) => c - q0),
+        ...openAt(gate.open, q0),
+      }
+    }
     case 'identity':
       return { head: 'I', wires: 1 }
     case 'tag':
@@ -1216,13 +1439,21 @@ export function asDroppable(gate: Gate): Droppable {
         wires,
         shows: gate.calculate ? 'calculate' : gate.blank ? 'blank' : undefined,
       }
-    case 'box':
+    case 'box': {
+      const head = gate.blank ? 'blank' : 'box'
+      const label = gate.blank ? undefined : `"${gate.label}"`
+      if (!gate.controls?.length) return { head, wires, label, range: true }
+      const own = gate.qubits.map((q) => q - q0)
       return {
-        head: gate.blank ? 'blank' : 'box',
+        head: `${'C'.repeat(gate.controls.length)}${head}`,
         wires,
-        label: gate.blank ? undefined : `"${gate.label}"`,
+        label,
         range: true,
+        controlsAt: gate.controls.map((c) => c - q0),
+        targetsAt: [Math.min(...own), Math.max(...own)],
+        ...openAt(gate.open, q0),
       }
+    }
     case 'controlled': {
       // Known by its name alone, so the name is the gate: it is always written
       // before the wires, where it stands on the target.

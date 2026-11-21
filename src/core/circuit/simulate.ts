@@ -241,6 +241,8 @@ type Spread = (bits: string, amp: Cx, emit: (bits: string, amp: Cx) => void) => 
  * of this logic would be two chances to disagree about what a gate does.
  */
 function spreadOf(gate: Gate): Spread | null {
+  // Switched off: there to be seen, and nothing more.
+  if (gate.off) return null
   // Waiting on a measurement: done to the terms where the measured wire holds
   // the value asked for, and nothing to the rest. After a Z measurement every
   // branch holds one value there, so this is the gate in some branches and not
@@ -251,6 +253,16 @@ function spreadOf(gate: Gate): Spread | null {
     if (!inner) return null
     const want = String(given.value)
     return (bits, amp, emit) => (bits[given.qubit - 1] === want ? inner(bits, amp, emit) : emit(bits, amp))
+  }
+  // Controlled: the gate where every control holds what it acts on, nothing
+  // anywhere else. Its own matrix exactly, not the scaled one used bare — see
+  // `exactOf` for why the two differ.
+  if ((gate.kind === 'single' || gate.kind === 'box') && gate.controls?.length) {
+    const { controls, open, ...rest } = gate
+    const inner = exactOf(rest as Gate)
+    if (!inner) return null
+    const on = activeOn(controls, open)
+    return (bits, amp, emit) => (on(bits) ? inner(bits, amp, emit) : emit(bits, amp))
   }
   switch (gate.kind) {
     // None of these does anything to the state; the first two are drawings and
@@ -318,24 +330,84 @@ function spreadOf(gate: Gate): Spread | null {
     }
 
     case 'box':
-      if (gate.body) {
-        // A definition drawn as one box: its gates in turn, each term carried
-        // through all of them before it is handed on. Like terms are added up
-        // after every gate, as they are between layers — kept apart, every H
-        // inside would double the list.
-        const steps = gate.body.map(spreadOf).filter((f): f is Spread => !!f)
-        return (bits, amp, emit) => {
-          let terms: Amplitudes = new Map([[bits, amp]])
-          for (const step of steps) terms = mapStates(terms, step)
-          for (const [b, a] of terms) emit(b, a)
-        }
-      }
+      if (gate.body) return inTurn(gate.body.map(spreadOf))
       throw new SimulationError(
         gate.label
           ? `“${gate.label}” is a drawing, so there is no operation to apply`
           : 'a blank box has no operation to apply',
       )
   }
+}
+
+/**
+ * Gates one after another, as one: each term carried through all of them
+ * before it is handed on. Like terms are added up after every gate, as they
+ * are between layers — kept apart, every H inside would double the list.
+ */
+function inTurn(spreads: (Spread | null)[]): Spread {
+  const steps = spreads.filter((f): f is Spread => !!f)
+  return (bits, amp, emit) => {
+    let terms: Amplitudes = new Map([[bits, amp]])
+    for (const step of steps) terms = mapStates(terms, step)
+    for (const [b, a] of terms) emit(b, a)
+  }
+}
+
+/**
+ * A gate's matrix as the textbook writes it: normalised, and with its own
+ * phase.
+ *
+ * Bare, neither matters. `H` is applied unnormalised — white to white plus
+ * black — which scales every term alike, so the state is the same once the
+ * common factor goes; and `RZ` is taken as `P`, the two differing only by an
+ * overall phase. Controlled, both matter: the gate happens to some terms and
+ * not to others, so a factor of √2 on the ones it happens to, or a phase on
+ * them, is a different state. So a controlled gate is worked out from this.
+ */
+function exactOf(gate: Gate): Spread | null {
+  if (gate.off) return null
+  if (gate.given) {
+    const { given, ...rest } = gate
+    const inner = exactOf(rest as Gate)
+    if (!inner) return null
+    const want = String(given.value)
+    return (bits, amp, emit) => (bits[given.qubit - 1] === want ? inner(bits, amp, emit) : emit(bits, amp))
+  }
+  // Already exact: what a control switches is worked out from this.
+  if ((gate.kind === 'single' || gate.kind === 'box') && gate.controls?.length) return spreadOf(gate)
+  if (gate.kind === 'single') return oneWire(gate.qubit, matrixOf(gate))
+  if (gate.kind === 'box' && gate.body) return inTurn(gate.body.map(exactOf))
+  // A NOT, a swap and a controlled-Z are exact as they stand.
+  return spreadOf(gate)
+}
+
+/** A one-wire gate's own matrix, `[m00, m01, m10, m11]`. */
+function matrixOf(gate: Gate & { kind: 'single' }): [Cx, Cx, Cx, Cx] {
+  const turn = (deg: number) => {
+    const t = (deg * Math.PI) / 180
+    return cx(tidy(Math.cos(t)), tidy(Math.sin(t)))
+  }
+  const angle = gate.label === 'T' ? 45 : gate.angle
+  if (angle !== undefined) {
+    const half = (angle * Math.PI) / 360
+    const c = tidy(Math.cos(half))
+    const s = tidy(Math.sin(half))
+    switch (gate.label) {
+      case 'RX': return [cx(c), cx(0, -s), cx(0, -s), cx(c)]
+      case 'RY': return [cx(c), cx(-s), cx(s), cx(c)]
+      case 'RZ': return [turn(-angle / 2), ZERO, ZERO, turn(angle / 2)]
+      case 'P':
+      case 'T': return [ONE, ZERO, ZERO, turn(angle)]
+    }
+  }
+  const h = Math.SQRT1_2
+  switch (gate.label) {
+    case 'H': return [cx(h), cx(h), cx(h), cx(-h)]
+    case 'Y': return [ZERO, neg(I), I, ZERO]
+    case 'Z': return [ONE, ZERO, ZERO, neg(ONE)]
+    case 'S': return [ONE, ZERO, ZERO, I]
+  }
+  throw new SimulationError(`${gate.label} has no operation to apply`)
 }
 
 export function applyGate(amps: Amplitudes, gate: Gate): Amplitudes {
@@ -855,7 +927,7 @@ function undoLayers(amps: Amplitudes, layers: Layer[]): Amplitudes {
   let running = amps
   for (const layer of [...layers].reverse()) {
     for (const gate of layer.gates) {
-      if (gate.kind === 'measure') {
+      if (gate.kind === 'measure' && !gate.off) {
         throw new SimulationError(
           'a measurement cannot be undone, so nothing before it can be worked out',
         )
@@ -905,6 +977,9 @@ function simulateFrom(doc: CircuitDoc, layers: number, each?: (branches: Branch[
       (a, b) => Math.min(...gateQubits(a)) - Math.min(...gateQubits(b)),
     )
     for (const gate of gates) {
+      // A measurement switched off reads nothing, so the state goes on whole —
+      // and anything waiting on it is then controlled by the wire itself.
+      if (gate.kind === 'measure' && gate.off) continue
       if (gate.kind === 'measure') {
         if (gate.basis !== 'Z') {
           throw new SimulationError(

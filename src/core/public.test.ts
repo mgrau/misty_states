@@ -50,6 +50,7 @@ describe('the published surfaces', () => {
       'GATE_GALLERY',
       'ParseError',
       'SimulationError',
+      'addControl',
       // Editing rules — the whole of `circuit/edit`.
       'afterRemoval',
       'amplitudesOf',
@@ -89,6 +90,7 @@ describe('the published surfaces', () => {
       'toggleControl',
       'toggleFold',
       'toggleLock',
+      'toggleSwitch',
       'traceGate',
       'useDroppable',
       'useOf',

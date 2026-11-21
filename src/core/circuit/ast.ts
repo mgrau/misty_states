@@ -21,6 +21,14 @@ export interface SingleGate {
    * read it and the drawing can set it apart from the letters.
    */
   angle?: number
+  /**
+   * Written `CH 1 2`, `CCRZ(90) 1 2 3`: a C before the name for each control.
+   * The gate happens only where every control holds what it acts on, and is
+   * drawn as a controlled gate is, with the letter on its target.
+   */
+  controls?: number[]
+  /** Controls written `1=0`, which act on white; see `ControlledGate.open`. */
+  open?: number[]
 }
 
 /**
@@ -173,6 +181,14 @@ export interface BoxGate {
   fold?: number
   /** Written `locked`: the editor will not pick it up, nor drop anything on it. */
   locked?: boolean
+  /**
+   * Written `Cbox "U" 1 2-3`, or a definition used as `Coracle 1 2-3`
+   * collapsed: done only where every control holds what it acts on. The
+   * controls are never among the box's own wires.
+   */
+  controls?: number[]
+  /** Controls written `1=0`, which act on white; see `ControlledGate.open`. */
+  open?: number[]
 }
 
 /**
@@ -281,6 +297,30 @@ export type Gate = (
    * wire, which is what holds the result once it has been read.
    */
   given?: { qubit: number; value: 0 | 1 }
+  /**
+   * Written `on` or `off`: a switch, flipped by hand rather than by a
+   * measurement. Where the word is written, so a click can flip it.
+   */
+  switch?: Switch
+  /**
+   * Switched off — by its own `off`, or by a frame or use round it written
+   * that way. It does nothing to the state and is drawn faded, the wires
+   * running through it as they would through a plain pipe.
+   */
+  off?: boolean
+}
+
+/**
+ * A switch: `X 3 off`, `"Bomb" 1-2 on {`, `oracle 1-3 collapsed off`.
+ *
+ * What it says, and where it says it — the line, and on a line of several
+ * statements, which of them — so flipping it is one word changed.
+ */
+export interface Switch {
+  on: boolean
+  line: number
+  /** Which statement of the line, counted from 0; absent on a frame or a use, which have a line each. */
+  part?: number
 }
 
 /**
@@ -295,13 +335,13 @@ export function gateQubits(gate: Gate): number[] {
 /** The qubits a gate does something to, leaving out a wire it only reads. */
 export function actedOn(gate: Gate): number[] {
   switch (gate.kind) {
-    case 'single': return [gate.qubit]
+    case 'single': return [...(gate.controls ?? []), gate.qubit]
     case 'identity': return [gate.qubit]
     case 'tag': return [...gate.qubits]
     case 'controlled': return [...gate.controls, gate.target]
     case 'swap': return [...(gate.controls ?? []), ...gate.qubits]
     case 'measure': return [gate.qubit]
-    case 'box': return [...gate.qubits]
+    case 'box': return [...(gate.controls ?? []), ...gate.qubits]
     case 'view': return [...gate.qubits]
   }
 }
@@ -438,6 +478,8 @@ export interface Frame {
    * editor reads this; the drawing is the same either way.
    */
   locked?: boolean
+  /** Written `on` or `off` on the frame or the use; see `Gate.switch`. */
+  switch?: Switch
 }
 
 /** A definition used on a line of its own in the circuit: `oracle 2-3`. */
@@ -453,6 +495,13 @@ export interface DefinitionUse {
   label?: string
   /** Written `locked`, here or on the definition. */
   locked?: boolean
+  /**
+   * Written `Coracle 1 2-3`: a C before the name for each control, its wires
+   * written first. Absent for a use with none.
+   */
+  controls?: number[]
+  /** Controls written `1=0`, which act on white. */
+  open?: number[]
 }
 
 export interface CircuitDoc {

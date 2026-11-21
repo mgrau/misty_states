@@ -60,6 +60,7 @@ out calculate
 | `_ 3`, `M _ _` | Blank space: wire 3 not drawn in this layer |
 | `I 3 shift=2` | Bend wire 3 two columns right; `I 3 -> 5` bends it to position 5 |
 | `X 3 if M1` | Only if wire 1 was measured black (`if M1=0`: white) — any one-wire gate |
+| `X 3 off`, `X 3 on` | A switch: off, the gate is drawn faded and does nothing; click its switch in the editor to flip it. Any gate, a measurement included |
 | `RZ(90) 1` | Rotation in degrees (`RX`, `RY`, `P`) |
 | `CNOT 1 -> 2` | Controlled-NOT (arrow optional; `CX` is an alias) |
 | `TOFFOLI 1 2 -> 3` | Two controls (`CCNOT`/`CCX`) |
@@ -67,6 +68,8 @@ out calculate
 | `CZ 1 2 3` | Controlled-Z on any number of wires — the sign flips where all are black (`CCZ` is three) |
 | `CNOT 1=0 -> 2` | A control that acts on white, drawn as an open ring; works on `TOFFOLI`, `CSWAP`, `CGATE` too |
 | `CZ 1 2=0` | Any dot of a CZ may act on white, its last one included |
+| `CH 1 2`, `CCRZ(90) 1 2 3` | Any gate made controlled: a C in front of its name for each control, the controls' wires written first (`CH 3 -> 1` too). Calculated from the gate's own normalised matrix, so a controlled `RZ` is not a controlled `P` |
+| `Cbox "U" 1 2-3`, `Coracle 1 2-3` | A box or a definition's use, controlled. Drawn open, every gate the definition draws takes the controls; collapsed, the box does. `CCNOT`, `CCCX`, `CCSWAP`, `CCGATE` add controls to gates that already have them |
 | `SWAP 1 2` | Swap |
 | `CSWAP 1 2 3` | Controlled swap / Fredkin (`CSWAP 1 -> 2 3` too) |
 | `measure 1 Z` | Measurement (`M` is an alias) |
@@ -77,6 +80,7 @@ out calculate
 | `def oracle { … }` | Gates defined once, on wires 1 and up |
 | `oracle 2-3` | A definition used: framed, on wires 2 and 3 |
 | `oracle 2-3 collapsed` | The same as one box, still calculated |
+| `"Bomb" 1-2 off { … }` | Everything in the frame switched off (or `on`), with the switch on its tab. Also on a use (`oracle 2-3 collapsed off`), never on a `def` |
 | `"Encode" locked { … }` | Locked in the editor: nothing in it can be dragged out, nothing dropped in. Also on a use (`oracle 2-3 locked`) or a whole definition (`def oracle locked {`). Click a frame's padlock to toggle it. The drawing and exports are unchanged |
 | `in 00\|11` | Input state above the circuit |
 | `out calculate` | Calculated output state |
@@ -240,6 +244,30 @@ The wire has to have been measured in Z above it, and left alone since — a
 wire acted on again no longer holds what was read. It is calculated exactly:
 each outcome of the measurement gets the gate or not.
 
+### Switching a gate on and off
+
+`on` or `off` after a gate is a switch you flip yourself, not a measurement.
+Switched off, the gate is drawn faded, the wires run on through it, and it
+does nothing: no calculation, shot or animation sees it. In the editor each
+switch is drawn on its gate's top edge, and a click flips the word in the
+source. An exported figure has no switches; an off gate is still drawn faded.
+
+```
+H 1
+"Bomb" 1-2 off {     # a dud; click the switch on the tab for a live bomb
+CNOT 1 -> 2
+M 2
+}
+H 1
+X 3 on               # any gate, with or without a frame round it
+oracle 1-3 collapsed off
+```
+
+On a frame or a use, it switches everything inside. A `def` cannot carry
+one: each use is switched on its own. A measurement switched off reads
+nothing, so a gate waiting on it with `if M1` is then controlled by the qubit
+itself. On a row of gates, `H X off Z`, the word belongs to the gate before it.
+
 ### Frames and definitions
 
 Braces draw a frame round the gates between them, with an optional label
@@ -272,6 +300,11 @@ put there are moved with the line that uses it, not one at a time: drag any
 of them to move the use, or off to the left to delete it. Each definition
 also appears in a Definitions palette above the gates, to drag in as a use,
 folded where it can be.
+
+The palette's Control tile — a dot reaching for a gate — is dropped beside
+any gate to give it a control on that wire: `H 2` becomes `CH 1 2`, `CNOT 1 2`
+becomes `CCNOT 3 1 2`, and on a definition's use, `oracle 2-3` becomes
+`Coracle 1 2-3`. Click the dot to make it act on white.
 
 ```
 def oracle "U_f" fill=#fef3c7 {

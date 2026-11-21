@@ -5,7 +5,7 @@
  * say — does not pull in the renderer with it.
  */
 
-import { isGateRun } from './circuit/parse'
+import { controlledName, isGateRun } from './circuit/parse'
 
 const CIRCUIT_KEYWORDS = new Set([
   'qubits', 'wires', 'coefficients', 'tag', 'in', 'out', 'view', 'show', 'window', 'header', 'labels',
@@ -52,6 +52,8 @@ export function detectMode(source: string): 'state' | 'circuit' {
     }
     // `RZ(45)` is one word, and a bracket is the last thing a state can start with.
     if (/^(rx|ry|rz|p)\(\s*-?[\d.]+\s*\)$/.test(first)) return 'circuit'
+    // `CH`, `CCRZ(90)`: any gate with a C for each control in front of it.
+    if (controlledName(first.replace(/\d+(-\d+)?$/, ''))) return 'circuit'
     // `HH` is a row of gates, not a keyword and not anything a state could be.
     if (/^[a-z]+$/.test(first) && isGateRun(first)) return 'circuit'
   }

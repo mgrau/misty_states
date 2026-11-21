@@ -22,6 +22,7 @@
   import SyntaxHelp from './app/components/SyntaxHelp.svelte'
   import SettingsPanel from './app/components/SettingsPanel.svelte'
   import SidePanel from './app/components/SidePanel.svelte'
+  import { slide } from 'svelte/transition'
   import BlochSphere from './app/components/BlochSphere.svelte'
   import ShotsPanel from './app/components/ShotsPanel.svelte'
   import { sampleShot, shotOdds, shotPlan, type Reading, type Shot } from './core/circuit/shots'
@@ -52,8 +53,10 @@
     shapeOrder: ShapeName[]
     qubitSize: number
     paneWidth: number
-    /** The source box's dragged height, or null to fit its text. */
-    sourceHeight: number | null
+    /** Whether the source drawer is out. Closed to begin with: most editing is clicking. */
+    sourceOpen: boolean
+    /** The source drawer's dragged width, in pixels. */
+    sourceWidth: number
     separator: 'bar' | 'comma'
     cloudFluff: number
     cloudPad: number
@@ -78,7 +81,8 @@
       shapeOrder: [...DEFAULT_SHAPE_ORDER],
       qubitSize: 26,
       paneWidth: 320,
-      sourceHeight: null,
+      sourceOpen: false,
+      sourceWidth: 360,
       separator: 'bar',
       cloudFluff: 1,
       cloudPad: 14,
@@ -236,19 +240,24 @@
    * not the same job — and the drawing wants whatever is left.
    */
   let paneWidth = $state(initial.paneWidth)
-  let sourceHeight = $state<number | null>(
-    typeof initial.sourceHeight === 'number' && initial.sourceHeight > 0 ? initial.sourceHeight : null,
-  )
+  let sourceOpen = $state(initial.sourceOpen === true)
+  let sourceWidth = $state(initial.sourceWidth)
   const PANE_MIN = 240
   const PANE_MAX = 640
 
-  function resizePane(event: PointerEvent) {
+  const SOURCE_MIN = 200
+  const SOURCE_MAX = 800
+
+  const resizePane = (event: PointerEvent) =>
+    dragWidth(event, paneWidth, PANE_MIN, PANE_MAX, (w) => (paneWidth = w))
+  const resizeSource = (event: PointerEvent) =>
+    dragWidth(event, sourceWidth, SOURCE_MIN, SOURCE_MAX, (w) => (sourceWidth = w))
+
+  /** Drag a column's right edge: it follows the pointer, within its limits. */
+  function dragWidth(event: PointerEvent, was: number, min: number, max: number, set: (w: number) => void) {
     event.preventDefault()
     const from = event.clientX
-    const was = paneWidth
-    const move = (e: PointerEvent) => {
-      paneWidth = Math.min(PANE_MAX, Math.max(PANE_MIN, was + e.clientX - from))
-    }
+    const move = (e: PointerEvent) => set(Math.min(max, Math.max(min, was + e.clientX - from)))
     const stop = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
@@ -383,7 +392,7 @@
   const result = $derived.by(() => {
     try {
       // With padlocks, which are the editor's: see `exported` for the rest.
-      const r = render(dragPreview?.source ?? source, { ...shownOptions, locks: true })
+      const r = render(dragPreview?.source ?? source, { ...shownOptions, locks: true, switches: true })
       return { ok: true as const, ...r }
     } catch (err) {
       return { ok: false as const, message: (err as Error).message }
@@ -458,7 +467,7 @@
    * carries the source it was actually drawn from.
    */
   /**
-   * The drawing as it leaves the editor: without its padlocks.
+   * The drawing as it leaves the editor: without its padlocks and switches.
    *
    * They are a control on the screen and mean nothing in a file, so anything
    * saved, copied or dragged out is drawn without them. The layout is the same
@@ -466,7 +475,7 @@
    */
   const exported = $derived.by(() => {
     if (!result.ok) return ''
-    if (!result.geometry?.locks?.length) return result.svg
+    if (!result.geometry?.locks?.length && !result.geometry?.switches?.length) return result.svg
     try {
       return render(dragPreview?.source ?? source, shownOptions).svg
     } catch {
@@ -481,7 +490,7 @@
 
   $effect(() => {
     const snapshot: Saved = {
-      source, name, theme, dark, accent, shapeOrder, qubitSize, paneWidth, sourceHeight, separator, cloudFluff,
+      source, name, theme, dark, accent, shapeOrder, qubitSize, paneWidth, sourceOpen, sourceWidth, separator, cloudFluff,
       cloudPad, factorCalculated, exactOdds, keepSign, coefficients, phaseDial, animateInside, movieFps, checking,
       dragFormat,
     }
@@ -1751,17 +1760,53 @@
     header stays, and the same button puts it away.
   -->
   <div class="flex min-h-0 flex-1">
+  <!--
+    The source, as a drawer of its own at the far left: the writing, then the
+    tools, then the drawing. Nothing frames it — the text runs edge to edge, and
+    its right edge drags like the column's. It slides in only; put away, it goes
+    at once, as the other drawers do. On a phone it is the page while it is out,
+    so it carries its own way back there.
+  -->
+  {#if sourceOpen}
+    <aside
+      in:slide={{ axis: 'x', duration: 160 }}
+      aria-label="Source"
+      style="--misty-source: {sourceWidth}px;"
+      class="relative flex h-full w-full shrink-0 flex-col border-r border-slate-200 bg-white
+             sm:w-[var(--misty-source)]"
+    >
+      <button
+        type="button"
+        onclick={() => (sourceOpen = false)}
+        class="shrink-0 border-b border-slate-200 px-3 py-2 text-left text-xs text-slate-600 sm:hidden"
+      >
+        ‹ Back to the drawing
+      </button>
+      <SourceEditor bind:this={sourceEditor} bind:value={source} {accent} oninput={() => (typed = true)} />
+      {#if !result.ok}
+        <p class="shrink-0 border-t border-red-200 bg-red-50 px-3 py-2 font-mono text-xs text-red-700">
+          {result.message}
+        </p>
+      {/if}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        onpointerdown={resizeSource}
+        class="absolute top-0 right-0 z-20 hidden h-full w-2 translate-x-1/2 cursor-col-resize
+               hover:bg-slate-300/60 sm:block"
+      ></div>
+    </aside>
+  {/if}
   <main
     style="--misty-pane: {paneWidth}px;"
     class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-0
            lg:grid-cols-[var(--misty-pane)_minmax(0,1fr)] lg:grid-rows-none
-           {panel || blochOpen || shotsOpen ? 'hidden sm:grid' : ''}"
+           {panel || blochOpen || shotsOpen || sourceOpen ? 'hidden sm:grid' : ''}"
   >
     <!-- Editor ------------------------------------------------------------ -->
     <!--
-      A frame rather than one long scroll: the writing scrolls in the top of it
-      and the palette takes whatever is left, so the gates stay in view however
-      much source there is above them.
+      A frame rather than one long scroll: the pickers and the name scroll in
+      the top of it and the palette takes whatever is left, so the gates stay in
+      view. The source itself is a drawer of its own, out to the left.
     -->
     <section
       class="flex max-h-[42vh] min-h-0 flex-col overflow-hidden border-slate-200
@@ -1828,8 +1873,8 @@
       {/if}
 
       <!--
-        Over the source rather than under it: what a figure is called and
-        whether it is in the library belong with the writing of it. No label —
+        Under the pickers: what a figure is called and whether it is in the
+        library belong with the choosing of it. No label —
         a text box with "Untitled" in it beside a Save button says what it is.
       -->
       <div class="flex shrink-0 items-center gap-2 text-xs">
@@ -1857,24 +1902,8 @@
         </button>
       </div>
 
-      <!--
-        The one part of the column that gives way. Everything else here keeps
-        its size; the source box takes what is left, down to a few lines, and
-        scrolls inside itself past that — so the column never needs a scroll
-        bar of its own, however long the source or however far it is dragged.
-      -->
-      <div class="flex min-h-0 shrink flex-col gap-1">
-        <span class="text-xs font-medium text-slate-500">Source</span>
-        <SourceEditor
-          bind:this={sourceEditor}
-          bind:value={source}
-          bind:height={sourceHeight}
-          {accent}
-          oninput={() => (typed = true)}
-        />
-      </div>
-
-      {#if !result.ok}
+      <!-- With the source put away, a mistake still has to be seen somewhere. -->
+      {#if !result.ok && !sourceOpen}
         <p
           class="rounded border border-red-200 bg-red-50 px-2.5 py-2 font-mono text-xs text-red-700"
         >
@@ -1888,9 +1917,8 @@
       <!--
         The space the reference used to take, given to the gates themselves.
         Only where there is room for it: on a phone the column is capped and
-        every row of it competes with the drawing. `min-h-32` so a very tall
-        source cannot squeeze it away entirely — past that the writing scrolls
-        instead.
+        every row of it competes with the drawing. `min-h-32` so a long error
+        above cannot squeeze it away entirely.
       -->
       {#if definitions.length}
         <div class="hidden shrink-0 flex-col px-3 pb-3 sm:px-4 sm:pb-4 lg:flex">
@@ -1926,6 +1954,30 @@
           than the drawing can spare, and Settings has one. Pinch and scroll
           work everywhere regardless.
         -->
+        <!--
+          First in the bar, nearest the drawer it opens. On every screen, unlike
+          the zoom beside it: on a phone it is the only way to the text.
+        -->
+        <button
+          type="button"
+          onclick={() => (sourceOpen = !sourceOpen)}
+          title={sourceOpen ? 'Put the source away' : 'Write the circuit as text'}
+          aria-label="Source"
+          aria-pressed={sourceOpen}
+          class="flex shrink-0 items-center gap-1.5 rounded border px-2 py-1 transition-colors
+                 {sourceOpen
+            ? 'border-slate-800 bg-slate-800 text-white'
+            : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}"
+        >
+          <svg viewBox="0 0 20 20" class="h-3.5 w-3.5" aria-hidden="true">
+            <path
+              d="M7 5.5L2.8 10L7 14.5M13 5.5l4.2 4.5L13 14.5"
+              fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"
+            />
+          </svg>
+          Source
+        </button>
+
         <div class="hidden items-center gap-1.5 lg:flex">
           <button
             type="button"

@@ -54,7 +54,7 @@ const inOrder = (gates: Gate[]): Gate[] =>
 export function shotPlan(doc: CircuitDoc): ShotPlan {
   const measured = new Set<number>()
   for (const layer of doc.layers) {
-    for (const gate of layer.gates) if (gate.kind === 'measure') measured.add(gate.qubit)
+    for (const gate of layer.gates) if (gate.kind === 'measure' && !gate.off) measured.add(gate.qubit)
   }
   if (!measured.size) {
     return { wires: Array.from({ length: doc.qubits }, (_, i) => i + 1), atEnd: true }
@@ -77,7 +77,10 @@ function keep(amps: Amplitudes, qubit: number, value: '0' | '1'): Amplitudes {
 
 /** The circuit as one list of gates, in the order they are applied, each with its layer. */
 function steps(doc: CircuitDoc): { gate: Gate; layer: number }[] {
-  return doc.layers.flatMap((layer, at) => inOrder(layer.gates).map((gate) => ({ gate, layer: at })))
+  // Anything switched off is left out: it does nothing, measuring included.
+  return doc.layers.flatMap((layer, at) =>
+    inOrder(layer.gates.filter((g) => !g.off)).map((gate) => ({ gate, layer: at })),
+  )
 }
 
 function checkBasis(gate: Gate & { kind: 'measure' }) {
