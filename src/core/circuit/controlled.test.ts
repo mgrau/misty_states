@@ -14,7 +14,7 @@ import { parseCircuit } from './parse'
 import { amplitudesOf, simulate, type Amplitudes } from './simulate'
 import { referenceAmplitudes } from './reference'
 import { abs2, cx, mul, show, type Cx } from './complex'
-import { addControl, asDroppable, moveGate, toggleControl } from './edit'
+import { addControl, asDroppable, cycleTarget, moveGate, toggleControl } from './edit'
 import { layoutCircuit } from './layout'
 import { detectMode } from '../mode'
 import { render } from '../index'
@@ -335,6 +335,47 @@ describe('editing', () => {
     const doc = parseCircuit(src)
     expect(toggleControl(src, doc, doc.layers[0].gates[0], 2)?.source).toBe('CCH 1 2=0 3 fill=#ffe9c7')
     expect(toggleControl(src, doc, doc.layers[0].gates[0], 3)).toBeNull()
+  })
+
+  /** Click a gate `times` times: the line it is written on after each. */
+  const spin = (src: string, times: number) => {
+    const out: string[] = []
+    let cur = src
+    for (let n = 0; n < times; n++) {
+      const doc = parseCircuit(cur)
+      const next = cycleTarget(cur, doc, doc.layers[0].gates[0])
+      if (!next) return out.concat('(refused)')
+      cur = next.source
+      out.push(cur.split('\n')[next.line - 1])
+    }
+    return out
+  }
+
+  it('moves the letter round the wires it covers on a click', () => {
+    expect(spin('CH 1 2', 2)).toEqual(['CH 2 1', 'CH 1 2'])
+    expect(spin('CCRZ(90) 1 2 -> 3 fill=#ffe9c7', 3)).toEqual([
+      'CCRZ(90) 2 3 -> 1 fill=#ffe9c7',
+      'CCRZ(90) 1 3 -> 2 fill=#ffe9c7',
+      'CCRZ(90) 1 2 -> 3 fill=#ffe9c7',
+    ])
+  })
+
+  it('keeps what each control acts on, and starts the one it leaves on black', () => {
+    expect(spin('CCH 1=0 2 3', 3)).toEqual(['CCH 2 3 1', 'CCH 1 3 2', 'CCH 1 2 3'])
+    expect(spin('CCH 1=0 2=0 3', 1)).toEqual(['CCH 2=0 3 1'])
+  })
+
+  it('moves a box along the wires it covers, keeping its own side by side', () => {
+    expect(spin('qubits 3\nCbox "U" 1 2-3', 2)).toEqual(['Cbox "U" 3 1-2', 'Cbox "U" 1 2-3'])
+    expect(spin('qubits 4\nCCbox "U" 1 4 2-3', 3)).toEqual([
+      'CCbox "U" 1 2 3-4', 'CCbox "U" 3 4 1-2', 'CCbox "U" 1 4 2-3',
+    ])
+    // Wire 2 is not the gate's, so nowhere else has two of its wires together.
+    expect(spin('qubits 4\nCbox "U" 1 3-4', 1)).toEqual(['(refused)'])
+  })
+
+  it('leaves a letter with no controls alone', () => {
+    expect(spin('H 1', 1)).toEqual(['(refused)'])
   })
 
   it('carries its controls when it is moved', () => {

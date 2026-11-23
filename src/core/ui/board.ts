@@ -383,7 +383,8 @@ export function createBoard(host: BoardHost): Board {
   /**
    * A press that went nowhere is a click. On a control's dot it turns the dot
    * between acting on black and acting on white; anywhere else on a controlled
-   * gate it moves the target to the next wire the gate covers.
+   * gate — a letter or a box given controls as well — it moves the target to
+   * the next wire the gate covers.
    *
    * The wires are obvious from where the gate was dropped; which of them takes
    * the ⊕ is not, and rewriting the line by hand to find out is the one edit
@@ -407,9 +408,13 @@ export function createBoard(host: BoardHost): Board {
         const folded = toggleFold(held.source, tapped.fold)
         if (folded) host.oncommit(folded)
       } else if (tapped.gate && !tapped.gate.bound) {
+        // A rotation's letter is where its dial is opened, controls or not; its
+        // target moves on a click anywhere else it covers.
+        const dial = tapped.gate.kind === 'single' && tapped.gate.angle !== undefined &&
+          (!tapped.gate.controls?.length || tapped.wire === tapped.gate.qubit)
         const spun =
           (tapped.wire !== undefined && toggleControl(held.source, held.doc, tapped.gate, tapped.wire)) ||
-          cycleTarget(held.source, held.doc, tapped.gate)
+          (!dial && cycleTarget(held.source, held.doc, tapped.gate))
         if (spun) host.oncommit(spun)
         else {
           host.ontap?.({

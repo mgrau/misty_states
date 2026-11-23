@@ -887,6 +887,7 @@ export function cycleTarget(source: string, doc: CircuitDoc, gate: Gate): Edit |
   // A controlled swap has a control to move rather than a target, and moving it
   // is the same edit: the wires stay, the dot walks to the next one they cover.
   if (gate.kind === 'swap') return cycleSwapControl(source, doc, gate)
+  if (gate.kind === 'single' || gate.kind === 'box') return cycleLetterTarget(source, doc, gate)
   if (gate.kind !== 'controlled' || !gate.controls.length || gate.targetGlyph === 'z') return null
 
   const wires = [...gate.controls, gate.target].sort((a, b) => a - b)
@@ -896,6 +897,39 @@ export function cycleTarget(source: string, doc: CircuitDoc, gate: Gate): Edit |
   // any more, and the one it leaves starts out acting on black.
   const open = gate.open?.filter((w) => controls.includes(w))
   return restate(source, doc, gate, (was) => controlledText(was, gate, controls, target, open))
+}
+
+/**
+ * Move a letter or a box given controls onto the next wires the gate covers,
+ * the wires it leaves becoming controls: `CH 1 2` becomes `CH 2 1`, and
+ * `Cbox "U" 1 2-3` becomes `Cbox "U" 3 1-2`.
+ *
+ * A box keeps its own wires side by side, so it goes only where enough of the
+ * covered wires are next to each other; where nowhere else is, null.
+ */
+function cycleLetterTarget(source: string, doc: CircuitDoc, gate: Gate & { kind: 'single' | 'box' }): Edit | null {
+  const controls = gate.controls ?? []
+  if (!controls.length) return null
+  const own = gate.kind === 'single' ? [gate.qubit] : [...gate.qubits].sort((a, b) => a - b)
+  const wires = [...controls, ...own].sort((a, b) => a - b)
+  const n = own.length
+  const fits = (i: number) => i + n <= wires.length && wires[i + n - 1] - wires[i] === n - 1
+  const from = wires.indexOf(own[0])
+  let to = -1
+  for (let step = 1; step < wires.length; step++) {
+    const i = (from + step) % wires.length
+    if (fits(i)) {
+      to = i
+      break
+    }
+  }
+  if (to < 0) return null
+  const target = wires.slice(to, to + n)
+  const left = wires.filter((w) => !target.includes(w))
+  // As a CNOT's: each control keeps what it acts on, and a wire the gate
+  // leaves starts out acting on black.
+  const open = gate.open?.filter((w) => left.includes(w))
+  return restate(source, doc, gate, (was) => letterText(was, gate, open, left, target))
 }
 
 /**
@@ -963,15 +997,20 @@ function controlledText(
  * A letter or a box with controls written afresh: its name as written, its
  * controls, then its own wires.
  */
-function letterText(was: string, gate: Gate & { kind: 'single' | 'box' }, open?: number[]): string {
+function letterText(
+  was: string,
+  gate: Gate & { kind: 'single' | 'box' },
+  open?: number[],
+  controls: number[] = gate.controls ?? [],
+  own: number[] = gate.kind === 'single' ? [gate.qubit] : gate.qubits,
+): string {
   const text = unglue(was.trim())
   const head = text.split(/\s+/)[0]
   const label = /^\S+\s+("[^"]*")/.exec(text)?.[1] ?? ''
-  const own = gate.kind === 'single' ? [gate.qubit] : gate.qubits
   const lo = Math.min(...own)
   const hi = Math.max(...own)
-  const wires = gate.kind === 'single' ? String(gate.qubit) : lo === hi ? String(lo) : `${lo}-${hi}`
-  return [head, label, (gate.controls ?? []).map(marked(open)).join(' '), text.includes('->') ? '->' : '', wires, writtenOptions(was)]
+  const wires = lo === hi ? String(lo) : `${lo}-${hi}`
+  return [head, label, controls.map(marked(open)).join(' '), text.includes('->') ? '->' : '', wires, writtenOptions(was)]
     .filter(Boolean)
     .join(' ')
 }
