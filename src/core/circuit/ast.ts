@@ -556,6 +556,12 @@ export interface CircuitDoc {
    */
   coefficients?: boolean
   /**
+   * Written `global phase on` or `off`: whether a calculated state, chart or
+   * table keeps an overall minus sign or factor of i, or turns its first term
+   * positive. Absent leaves it to the reader's setting.
+   */
+  keepSign?: boolean
+  /**
    * Written `wires 1 4 5`: where each wire starts, in columns, so they need
    * not start side by side. See `homeOf` for the ones it leaves out.
    */

@@ -66,7 +66,8 @@ export interface RenderOptions {
   /**
    * Draw an overall minus sign on a calculated state rather than normalising it
    * away. Off by default — it is unobservable, so it is noise unless the figure
-   * exists to show a phase flip.
+   * exists to show a phase flip. A circuit's own `global phase` line says
+   * otherwise.
    */
   keepSign?: boolean
   /**
@@ -460,7 +461,7 @@ export function render(source: string, opts: RenderOptions = {}): RenderResult {
       // drawn one have to be the same state, or the text quietly contradicts
       // the picture above it.
       dirac: attempt(() =>
-        diracLines(doc, stepAt(doc, opts.step), { keepSign: opts.keepSign }),
+        diracLines(doc, stepAt(doc, opts.step), { keepSign: doc.keepSign ?? opts.keepSign }),
       ),
       answered: hasAnswer(doc),
       check: wantCheck ? checkCircuit(doc) : undefined,

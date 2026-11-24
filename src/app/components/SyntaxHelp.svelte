@@ -97,6 +97,7 @@
         { code: 'wires 1 4 5', text: 'Where each wire starts, so they need not start side by side' },
         { code: 'tag 2', text: "Wire 2's shape in outline on its pipe; tag alone tags every wire" },
         { code: 'coefficients off', text: 'Write a calculated 0|2*1 as 0|1|1 (on: always numbers)' },
+        { code: 'global phase on', text: 'Keep an overall minus sign or i on calculated states (off: first term positive)' },
         { code: 'shape s^o', text: 'Which shape each wire draws with' },
         { code: 'header on', text: 'Label the columns with qubit shapes (off by default)' },
       ],

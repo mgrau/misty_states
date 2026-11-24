@@ -94,6 +94,7 @@ out calculate
 | `wires 1 4 5` | Where each wire starts, in columns (otherwise side by side) |
 | `tag 2` | Wire 2's shape in outline on its pipe, naming the qubit; `tag` alone tags every wire |
 | `coefficients off` | Write a calculated `0\|2*1` as `0\|1\|1` (also a setting) |
+| `global phase on` | Keep an overall minus sign or `i` on calculated states (also a setting) |
 | `shape ^os` | Per-wire shapes |
 | `chart` | Bar chart of amplitudes or probabilities |
 | `tabulate` | Outcome table |
@@ -377,6 +378,17 @@ course writes weights before it introduces numbers. A weight that is not a
 whole number keeps its coefficient, and so does one past twelve. Settings has
 the same choice; a circuit's own line wins over it. `coefficients on` asks for
 numbers whatever the setting says.
+
+### Global phase
+
+A calculated state is drawn with its first term positive. An overall sign
+or factor of `i` can't be measured, so by default it is tidied away, and a
+NOT then a Z on a white qubit reads `1` rather than `-1`. `global phase on`
+keeps it, in the drawn state, the chart, a table and the text alike, for a
+figure that exists to show a phase flip. `global phase off` tidies it whatever
+the setting says. Settings has the same choice (Tidy phase, Keep phase); a
+circuit's own line wins over it. Checking a written `out` against the
+calculation ignores the overall phase either way.
 
 ### Charts and tables
 

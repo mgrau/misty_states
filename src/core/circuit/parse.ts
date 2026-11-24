@@ -264,8 +264,8 @@ export function readShapes(arg: string, lineNo: number): ShapePick[] {
 
 /** The keywords that open a statement, so anything else can be tried as a state. */
 const KEYWORDS = new Set([
-  'qubits', 'wires', 'shape', 'shapes', 'header', 'labels', 'coefficients', 'in', 'out', 'view', 'show', 'window',
-  'animate', 'tag', '_',
+  'qubits', 'wires', 'shape', 'shapes', 'header', 'labels', 'coefficients', 'global', 'in', 'out', 'view', 'show',
+  'window', 'animate', 'tag', '_',
   'i', 'id', 'identity', 'x', 'not', 'cnot', 'cx', 'toffoli', 'ccnot', 'ccx',
   'cz', 'ccz', 'swap', 'cswap', 'fredkin', 'measure', 'm', 'box', 'gate', 'cgate', 'blank',
   ...Object.keys(SINGLE_GATES).map((k) => k.toLowerCase()),
@@ -2221,6 +2221,7 @@ export function parseCircuit(text: string): CircuitDoc {
   // a misty state above it, or `header on` for the bare qubit shapes.
   let header = false
   let coefficients: boolean | undefined
+  let keepSign: boolean | undefined
   let shapePicks: ShapePick[] | undefined
   let input: StateRow | undefined
   let output: StateRow[] | undefined
@@ -2832,6 +2833,18 @@ export function parseCircuit(text: string): CircuitDoc {
       coefficients = v === 'on'
       continue
     }
+    if (kw === 'global') {
+      const v = /^phase\s+(on|off)$/i.exec(arg)
+      if (!v) {
+        throw new ParseError(
+          'global phase takes "on" (keep an overall minus sign or i) or "off" (tidy it away)',
+          0,
+          lineNo,
+        )
+      }
+      keepSign = v[1].toLowerCase() === 'on'
+      continue
+    }
     if (kw === 'header' || kw === 'labels') {
       const v = arg.toLowerCase()
       if (v !== 'on' && v !== 'off') {
@@ -3021,6 +3034,7 @@ export function parseCircuit(text: string): CircuitDoc {
     ...(drawn.length ? { frames: drawn } : {}),
     ...(wiresAt ? { start: wiresAt, startLine: wiresLine } : {}),
     ...(coefficients !== undefined ? { coefficients } : {}),
+    ...(keepSign !== undefined ? { keepSign } : {}),
     calculateOutput, calculateCaption, calculateNote, table, chart, animate, header, shapePicks,
     calculateInput: calculateInput || undefined,
     calculateInputCaption,

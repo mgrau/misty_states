@@ -47,7 +47,7 @@ const RUN_LETTERS = /^[hxyzsti]{2,}(?![\w(])/i
 
 /** Words that head a line without being a gate. */
 const DIRECTIVES = new Set([
-  'qubits', 'wires', 'shape', 'shapes', 'header', 'labels', 'coefficients', 'in', 'out',
+  'qubits', 'wires', 'shape', 'shapes', 'header', 'labels', 'coefficients', 'global', 'in', 'out',
   'view', 'show', 'window', 'animate', 'tag', 'def', 'calculate', 'answer', 'answers',
   'tabulate', 'chart', 'rule',
 ])

@@ -493,7 +493,7 @@
         </p>
 
         <div class="flex rounded-md border border-slate-200 p-0.5">
-          {#each [{ id: false, label: 'Tidy sign' }, { id: true, label: 'Keep minus' }] as const as opt (opt.label)}
+          {#each [{ id: false, label: 'Tidy phase' }, { id: true, label: 'Keep phase' }] as const as opt (opt.label)}
             <button
               type="button"
               onclick={() => onkeepsignchange(opt.id)}
@@ -507,6 +507,14 @@
             </button>
           {/each}
         </div>
+        <p class="text-[11px] text-slate-400">
+          Whether a calculated state keeps an overall minus sign or factor of
+          <span class="font-mono">i</span>. Tidy turns the first term positive,
+          since an overall phase can't be measured. Keep shows it, so a phase
+          flip on a lone qubit reads <span class="font-mono">-1</span>. A
+          circuit's own <span class="font-mono">global phase on</span> or
+          <span class="font-mono">off</span> line wins over this.
+        </p>
         <div class="flex rounded-md border border-slate-200 p-0.5">
           {#each [{ id: true, label: '0|2*1' }, { id: false, label: '0|1|1' }] as const as opt (opt.label)}
             <button

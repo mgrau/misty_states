@@ -1356,7 +1356,12 @@ function tableLines(doc: CircuitDoc, opts: PresentOptions): TableLine[] {
 export function resolveCalculations(doc: CircuitDoc, given: PresentOptions = {}): CircuitDoc {
   // The source's word on coefficients beats the setting's: a figure written to
   // show weights as repeated terms should not change when opened elsewhere.
-  const opts = doc.coefficients === undefined ? given : { ...given, coefficients: doc.coefficients }
+  // The same goes for its word on the global phase.
+  const opts = {
+    ...given,
+    ...(doc.coefficients !== undefined ? { coefficients: doc.coefficients } : {}),
+    ...(doc.keepSign !== undefined ? { keepSign: doc.keepSign } : {}),
+  }
   const wanted = doc.layers.some((l) =>
     l.gates.some((g) => g.kind === 'view' && g.calculate),
   )
